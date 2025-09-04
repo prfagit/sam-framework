@@ -1,0 +1,919 @@
+#!/usr/bin/env python3
+"""SAM Framework CLI - Interactive Solana agent interface.
+
+Polished, minimal CLI with subtle styling, a lightweight spinner
+animation, and handy slash-commands for a clean contributor UX.
+"""
+
+import asyncio
+import sys
+import os
+import getpass
+import argparse
+import logging
+import shutil
+import textwrap
+import time
+
+try:
+    import uvloop
+    uvloop.install()
+except ImportError:
+    pass  # Fallback to standard asyncio
+
+from .core.agent import SAMAgent
+from .core.llm_provider import LLMProvider
+from .core.memory import MemoryManager
+from .core.tools import ToolRegistry
+from .config.prompts import SOLANA_AGENT_PROMPT
+from .config.settings import Settings, setup_logging
+from .utils.crypto import encrypt_private_key, decrypt_private_key, generate_encryption_key
+from .utils.secure_storage import get_secure_storage
+from .integrations.solana.solana_tools import SolanaTools, create_solana_tools
+from .integrations.pump_fun import PumpFunTools, create_pump_fun_tools
+from .integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
+from .integrations.jupiter import JupiterTools, create_jupiter_tools
+from .integrations.search import SearchTools, create_search_tools
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------
+# Minimal Styling Utilities
+# ---------------------------
+class Style:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    ITALIC = "\033[3m"
+
+    # Foreground (subtle palette)
+    FG_CYAN = "\033[36m"
+    FG_GREEN = "\033[32m"
+    FG_YELLOW = "\033[33m"
+    FG_BLUE = "\033[34m"
+    FG_GRAY = "\033[90m"
+
+
+def supports_ansi() -> bool:
+    return sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def colorize(text: str, *styles: str) -> str:
+    if not supports_ansi() or not styles:
+        return text
+    return f"{''.join(styles)}{text}{Style.RESET}"
+
+
+def term_width(default: int = 80) -> int:
+    try:
+        return shutil.get_terminal_size().columns
+    except Exception:
+        return default
+
+
+def hr(char: str = "─") -> str:
+    return char * max(20, min(120, term_width()))
+
+
+def wrap(text: str, width_offset: int = 0) -> str:
+    width = max(40, min(120, term_width() - width_offset))
+    return "\n".join(textwrap.wrap(text, width=width)) if text else ""
+
+
+def banner(title: str) -> str:
+    top = colorize(hr("─"), Style.FG_GRAY)
+    t = colorize(title, Style.BOLD, Style.FG_CYAN)
+    return f"{top}\n{t}\n{top}"
+
+
+class Spinner:
+    """Lightweight async spinner for long-running tasks."""
+
+    FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def __init__(self, message: str = "Working", interval: float = 0.08):
+        self.message = message
+        self.interval = interval
+        self._task = None
+        self._running = False
+
+    async def __aenter__(self):
+        if supports_ansi():
+            self._running = True
+            self._task = asyncio.create_task(self._spin())
+        else:
+            # Fallback single-line status for non-ANSI terminals
+            sys.stdout.write(f"{self.message}...\n")
+            sys.stdout.flush()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.stop()
+
+    async def _spin(self):
+        i = 0
+        while self._running:
+            frame = self.FRAMES[i % len(self.FRAMES)]
+            line = f" {colorize(frame, Style.FG_CYAN)} {colorize(self.message, Style.DIM)}"
+            sys.stdout.write(f"\r{line}")
+            sys.stdout.flush()
+            i += 1
+            await asyncio.sleep(self.interval)
+
+    async def stop(self):
+        if self._running:
+            self._running = False
+            if self._task:
+                try:
+                    await self._task
+                except Exception:
+                    pass
+            # Clear spinner line
+            sys.stdout.write("\r" + " " * max(0, term_width() - 1) + "\r")
+            sys.stdout.flush()
+
+async def setup_agent() -> SAMAgent:
+    """Initialize the SAM agent with all tools and integrations."""
+    
+    # Initialize core components
+    llm = LLMProvider(
+        api_key=Settings.OPENAI_API_KEY,
+        model=Settings.OPENAI_MODEL,
+        base_url=Settings.OPENAI_BASE_URL
+    )
+    
+    memory = MemoryManager(Settings.SAM_DB_PATH)
+    await memory.initialize()  # Initialize database tables
+    tools = ToolRegistry()
+    
+    # Initialize Solana tools with secure storage
+    private_key = None
+    secure_storage = get_secure_storage()
+    
+    # Try to get private key from secure storage first
+    private_key = secure_storage.get_private_key("default")
+    
+    # Fallback to environment variable (for backward compatibility)
+    if not private_key and Settings.SAM_WALLET_PRIVATE_KEY:
+        try:
+            # Try to decrypt if it looks encrypted, otherwise use as-is
+            if Settings.SAM_WALLET_PRIVATE_KEY.startswith('gAAAAA'):
+                private_key = decrypt_private_key(Settings.SAM_WALLET_PRIVATE_KEY)
+            else:
+                private_key = Settings.SAM_WALLET_PRIVATE_KEY
+                
+            # Store in secure storage for next time
+            if private_key:
+                secure_storage.store_private_key("default", private_key)
+                logger.info("Migrated private key from environment to secure storage")
+                
+        except Exception as e:
+            logger.warning(f"Could not decrypt private key: {e}")
+    
+    solana_tools = SolanaTools(Settings.SAM_SOLANA_RPC_URL, private_key)
+    
+    # Register Solana tools
+    for tool in create_solana_tools(solana_tools):
+        tools.register(tool)
+    
+    # Initialize and register Pump.fun tools
+    pump_tools = PumpFunTools()
+    for tool in create_pump_fun_tools(pump_tools):
+        tools.register(tool)
+    
+    # Initialize and register DexScreener tools
+    dex_tools = DexScreenerTools()
+    for tool in create_dexscreener_tools(dex_tools):
+        tools.register(tool)
+    
+    # Initialize and register Jupiter tools
+    jupiter_tools = JupiterTools(solana_tools)
+    for tool in create_jupiter_tools(jupiter_tools):
+        tools.register(tool)
+    
+    # Initialize and register Search tools
+    brave_api_key = os.getenv("BRAVE_API_KEY")  # Optional
+    search_tools = SearchTools(api_key=brave_api_key)
+    for tool in create_search_tools(search_tools):
+        tools.register(tool)
+    
+    # Create agent
+    agent = SAMAgent(
+        llm=llm,
+        tools=tools,
+        memory=memory,
+        system_prompt=SOLANA_AGENT_PROMPT
+    )
+    
+    # Store references to tools that need cleanup
+    agent._solana_tools = solana_tools
+    agent._pump_tools = pump_tools
+    agent._dex_tools = dex_tools
+    agent._jupiter_tools = jupiter_tools
+    agent._search_tools = search_tools
+    agent._llm = llm
+    
+    logger.info(f"Agent initialized with {len(tools.list_specs())} tools")
+    return agent
+
+
+async def cleanup_agent(agent):
+    """Clean up agent resources."""
+    try:
+        # Close network connections
+        if hasattr(agent, '_solana_tools') and hasattr(agent._solana_tools, 'close'):
+            await agent._solana_tools.close()
+        
+        if hasattr(agent, '_jupiter_tools') and hasattr(agent._jupiter_tools, 'close'):
+            await agent._jupiter_tools.close()
+        
+        if hasattr(agent, '_pump_tools') and hasattr(agent._pump_tools, 'close'):
+            await agent._pump_tools.close()
+        
+        if hasattr(agent, '_search_tools') and hasattr(agent._search_tools, 'close'):
+            await agent._search_tools.close()
+        
+        if hasattr(agent, '_llm') and hasattr(agent._llm, 'close'):
+            await agent._llm.close()
+        
+        logger.info("Agent cleanup completed")
+    except Exception as e:
+        logger.error(f"Error during agent cleanup: {e}")
+
+
+async def run_interactive_session(session_id: str):
+    """Run interactive REPL session."""
+    # Banner
+    print(banner("SAM Framework — Solana Agent Middleware"))
+    print(colorize("Type /help for commands. Ctrl+C to exit.", Style.DIM))
+    print()
+
+    agent = None
+    # Initialize agent with a spinner
+    try:
+        async with Spinner("Initializing agent"):
+            agent = await setup_agent()
+    except Exception as e:
+        print(f"{colorize('❌ Failed to initialize agent:', Style.FG_YELLOW)} {e}")
+        return 1
+
+    # Show a succinct ready message
+    tools_count = len(agent.tools.list_specs())
+    print(colorize(f"Ready. Loaded {tools_count} tools.", Style.FG_GREEN))
+
+    # Command helpers
+    async def show_tools():
+        specs = agent.tools.list_specs()
+        print(colorize(hr(), Style.FG_GRAY))
+        print(colorize("Available Tools", Style.BOLD))
+        for spec in specs:
+            name = spec.get("name", "")
+            desc = spec.get("description", "")
+            print(f" - {colorize(name, Style.FG_CYAN)}: {desc}")
+        print(colorize(hr(), Style.FG_GRAY))
+
+    def show_config():
+        print(colorize(hr(), Style.FG_GRAY))
+        print(colorize("Configuration", Style.BOLD))
+        from .config.settings import Settings
+        print(f" OpenAI Model: {Settings.OPENAI_MODEL}")
+        print(f" OpenAI Base URL: {Settings.OPENAI_BASE_URL or 'default'}")
+        print(f" Solana RPC: {Settings.SAM_SOLANA_RPC_URL}")
+        print(f" DB Path: {Settings.SAM_DB_PATH}")
+        print(f" Rate Limiting: {'Enabled' if Settings.RATE_LIMITING_ENABLED else 'Disabled'}")
+        brave_set = 'Yes' if os.environ.get('BRAVE_API_KEY') else 'No'
+        print(f" Brave API Key configured: {brave_set}")
+        try:
+            wallet = getattr(getattr(agent, '_solana_tools', None), 'wallet_address', None)
+            if wallet:
+                print(f" Wallet Address: {wallet}")
+        except Exception:
+            pass
+        print(colorize(hr(), Style.FG_GRAY))
+
+    def clear_screen():
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print(banner("SAM Framework — Solana Agent Middleware"))
+
+    try:
+        while True:
+            try:
+                user_input = input(colorize("sam> ", Style.FG_CYAN, Style.BOLD)).strip()
+
+                if not user_input:
+                    continue
+
+                # Slash-commands
+                if user_input in ('exit', 'quit', 'bye', '/exit', '/quit'):
+                    print("👋 Goodbye!")
+                    break
+                if user_input in ('help', '/help'):
+                    print_help()
+                    continue
+                if user_input in ('/tools',):
+                    await show_tools()
+                    continue
+                if user_input in ('/config',):
+                    show_config()
+                    continue
+                if user_input in ('/clear', '/cls'):
+                    clear_screen()
+                    continue
+
+                # Diagnostics: /wallet and /balance [address]
+                if user_input in ('/wallet',):
+                    w = getattr(agent, '_solana_tools', None)
+                    addr = getattr(w, 'wallet_address', None) if w else None
+                    if addr:
+                        print(colorize(hr(), Style.FG_GRAY))
+                        print(f" Wallet: {addr}")
+                        print(colorize(hr(), Style.FG_GRAY))
+                    else:
+                        print(colorize("No wallet configured.", Style.FG_YELLOW))
+                    continue
+                if user_input.startswith('/balance'):
+                    parts = user_input.split()
+                    address = parts[1] if len(parts) > 1 else None
+                    w = getattr(agent, '_solana_tools', None)
+                    if not w:
+                        print(colorize("Solana tools unavailable.", Style.FG_YELLOW))
+                        continue
+                    async with Spinner("Querying balance"):
+                        result = await w.get_balance(address)
+                    print(colorize(hr(), Style.FG_GRAY))
+                    print(wrap(str(result)))
+                    print(colorize(hr(), Style.FG_GRAY))
+                    continue
+
+                # Process user input through agent with spinner
+                async with Spinner("Thinking"):
+                    response = await agent.run(user_input, session_id)
+
+                # Render response in a clean block
+                print(colorize(hr(), Style.FG_GRAY))
+                print(wrap(response))
+                print(colorize(hr(), Style.FG_GRAY))
+                print()
+
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                break
+            except EOFError:
+                break
+            except Exception as e:
+                logger.error(f"Error in session: {e}")
+                print(f"{colorize('❌ Error:', Style.FG_YELLOW)} {e}")
+    finally:
+        # Always cleanup resources
+        if agent:
+            await cleanup_agent(agent)
+
+    return 0
+
+
+def print_help():
+    """Print available commands and usage."""
+    lines = []
+    lines.append(colorize("Commands", Style.BOLD))
+    lines.append("  /help        Show this help")
+    lines.append("  /tools       List available tools")
+    lines.append("  /config      Show non-sensitive configuration")
+    lines.append("  /clear       Clear the screen")
+    lines.append("  exit/quit    Exit the interface")
+    lines.append("")
+    lines.append(colorize("Examples", Style.BOLD))
+    lines.append("  Check my SOL balance")
+    lines.append("  Search for BONK token pairs")
+    lines.append("  Get trending tokens on Solana")
+    lines.append("  Buy 0.1 SOL worth of [token_address]")
+    lines.append("  Show recent trades for [token_address]")
+    lines.append("  Swap 0.5 SOL for USDC using Jupiter")
+    lines.append("  Launch a new meme coin called DOGE2")
+    lines.append("")
+    lines.append(colorize("Notes", Style.BOLD))
+    lines.append("  • All transactions require confirmation")
+    lines.append("  • Amounts are validated against safety limits")
+    lines.append("  • Private keys are encrypted at rest")
+    lines.append("  • Devnet by default for safety")
+    lines.append("")
+    lines.append("  Configure with .env (see .env.example).")
+    lines.append("  Import your key securely: 'uv run sam key import'.")
+    print("\n".join(lines))
+
+
+# ---------------------------
+# Onboarding
+# ---------------------------
+def _onboarded_flag_path() -> str:
+    # Keep alongside the default DB in .sam
+    root = os.getcwd()
+    sam_dir = os.path.join(root, ".sam")
+    os.makedirs(sam_dir, exist_ok=True)
+    return os.path.join(sam_dir, ".onboarded")
+
+def _find_env_path() -> str:
+    """Determine a good location for the .env file.
+    Prefers existing .env in CWD; else sam_framework/.env next to example; else CWD/.env
+    """
+    cwd_env = os.path.join(os.getcwd(), ".env")
+    if os.path.exists(cwd_env):
+        return cwd_env
+    repo_env_example = os.path.join(os.getcwd(), "sam_framework", ".env.example")
+    if os.path.exists(repo_env_example):
+        return os.path.join(os.path.dirname(repo_env_example), ".env")
+    return cwd_env
+
+
+def _write_env_file(path: str, values: dict) -> None:
+    existing = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                for line in f:
+                    if "=" in line and not line.strip().startswith("#"):
+                        k, v = line.strip().split("=", 1)
+                        existing[k] = v
+        except Exception:
+            pass
+    existing.update(values)
+    lines = ["# SAM Framework configuration", "# Generated by onboarding", ""]
+    for k, v in existing.items():
+        lines.append(f"{k}={v}")
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+async def run_onboarding() -> int:
+    """Interactive onboarding to set up environment variables and secure key storage."""
+    print(banner("First-time Setup — SAM Framework"))
+    print(colorize("Let’s configure required settings. Press Enter to accept defaults.", Style.DIM))
+    print()
+
+    # Required: OpenAI API key
+    try:
+        openai_key = getpass.getpass("OpenAI API Key (required, hidden): ").strip()
+        while not openai_key:
+            print(colorize("An API key is required.", Style.FG_YELLOW))
+            openai_key = getpass.getpass("OpenAI API Key: ").strip()
+
+        # Fernet key: generate automatically
+        print(colorize("Generating encryption key (Fernet) for secure storage...", Style.DIM))
+        fernet_key = generate_encryption_key()
+
+        # Network choice + RPC URL
+        default_rpc = Settings.SAM_SOLANA_RPC_URL or "https://api.devnet.solana.com"
+        print()
+        print(colorize("Network", Style.BOLD))
+        net_choice = input("Use devnet (d) or mainnet (m)? [d/m]: ").strip().lower()
+        if net_choice == "m":
+            default_rpc = "https://api.mainnet-beta.solana.com"
+        rpc_url = input(f"Solana RPC URL [{default_rpc}]: ").strip() or default_rpc
+
+        # Optional model/base URL
+        default_model = Settings.OPENAI_MODEL or "gpt-4o-mini"
+        model = input(f"OpenAI Model [{default_model}]: ").strip() or default_model
+        base_url_default = Settings.OPENAI_BASE_URL or "https://api.openai.com/v1"
+        base_url = input(f"OpenAI Base URL [{base_url_default}]: ").strip() or base_url_default
+
+        # Optional: Brave Search API key
+        brave_key = getpass.getpass("Brave API Key (optional, hidden): ").strip()
+
+        # Optional: Brave Search API key
+        brave_key = getpass.getpass("Brave API Key (optional, hidden): ").strip()
+
+        # Optional: Redis / rate limiting
+        print()
+        print(colorize("Rate Limiting", Style.BOLD))
+        redis_default = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        want_rl = input("Enable Redis-backed rate limiting? (Y/n): ").strip().lower() or "y"
+        rate_enabled = (want_rl != "n")
+        redis_url = redis_default
+        if rate_enabled:
+            redis_url = input(f"Redis URL [{redis_default}]: ").strip() or redis_default
+
+        # Optional: DB Path and Log level
+        print()
+        db_default = Settings.SAM_DB_PATH or ".sam/sam_memory.db"
+        db_path = input(f"Database path [{db_default}]: ").strip() or db_default
+        log_default = (Settings.LOG_LEVEL or "INFO").upper()
+        log_level = input(f"Log level [DEBUG/INFO/WARNING/ERROR] [{log_default}]: ").strip().upper() or log_default
+
+        # Persist to .env
+        env_path = _find_env_path()
+        env_values = {
+            "OPENAI_API_KEY": openai_key,
+            "OPENAI_BASE_URL": base_url,
+            "OPENAI_MODEL": model,
+            "SAM_FERNET_KEY": fernet_key,
+            "SAM_SOLANA_RPC_URL": rpc_url,
+            "SAM_DB_PATH": db_path,
+            "REDIS_URL": redis_url,
+            "RATE_LIMITING_ENABLED": "true" if rate_enabled else "false",
+            "LOG_LEVEL": log_level,
+        }
+        if brave_key:
+            env_values["BRAVE_API_KEY"] = brave_key
+        _write_env_file(env_path, env_values)
+        print(colorize(f"Saved configuration to {env_path}", Style.FG_GREEN))
+
+        # Apply to current process and Settings for immediate use
+        os.environ.update({
+            "OPENAI_API_KEY": openai_key,
+            "OPENAI_BASE_URL": base_url,
+            "OPENAI_MODEL": model,
+            "SAM_FERNET_KEY": fernet_key,
+            "SAM_SOLANA_RPC_URL": rpc_url,
+            "SAM_DB_PATH": db_path,
+            "REDIS_URL": redis_url,
+            "RATE_LIMITING_ENABLED": "true" if rate_enabled else "false",
+            "LOG_LEVEL": log_level,
+        })
+        if brave_key:
+            os.environ["BRAVE_API_KEY"] = brave_key
+        Settings.OPENAI_API_KEY = openai_key
+        Settings.OPENAI_BASE_URL = base_url
+        Settings.OPENAI_MODEL = model
+        Settings.SAM_FERNET_KEY = fernet_key
+        Settings.SAM_SOLANA_RPC_URL = rpc_url
+        Settings.SAM_DB_PATH = db_path
+        Settings.REDIS_URL = redis_url
+        Settings.RATE_LIMITING_ENABLED = rate_enabled
+        Settings.LOG_LEVEL = log_level
+
+        # Store Brave key in secure storage if provided
+        if brave_key:
+            try:
+                storage = get_secure_storage()
+                if storage.store_api_key("brave", brave_key):
+                    print(colorize("Brave API key stored in system keyring.", Style.FG_GREEN))
+                else:
+                    print(colorize("Could not store Brave API key in keyring; kept in .env.", Style.FG_YELLOW))
+            except Exception as e:
+                print(colorize(f"Brave API key keyring store failed: {e}", Style.FG_YELLOW))
+
+        # Offer secure key import now
+        print()
+        do_import = input("Import Solana private key securely now? (y/N): ").strip().lower() == "y"
+        if do_import:
+            res = import_private_key()
+            if res == 0:
+                print(colorize("Private key stored securely.", Style.FG_GREEN))
+            else:
+                print(colorize("Private key import skipped or failed.", Style.FG_YELLOW))
+
+        print()
+        print(colorize("Onboarding complete.", Style.FG_GREEN))
+        # Mark first-run completed
+        try:
+            with open(_onboarded_flag_path(), "w") as f:
+                f.write(str(int(time.time())))
+        except Exception:
+            pass
+        return 0
+    except KeyboardInterrupt:
+        print("\nSetup cancelled.")
+        return 1
+    except Exception as e:
+        print(f"{colorize('❌ Onboarding error:', Style.FG_YELLOW)} {e}")
+        return 1
+
+
+def import_private_key():
+    """Import and securely store a private key using keyring."""
+    print("🔐 Secure Private Key Import")
+    print("This will encrypt and store your private key in the system keyring.")
+    
+    try:
+        # Test keyring access
+        secure_storage = get_secure_storage()
+        keyring_test = secure_storage.test_keyring_access()
+        
+        if not keyring_test["keyring_available"]:
+            print("❌ System keyring is not available. Falling back to environment variable method.")
+            return import_private_key_legacy()
+        
+        print("✅ System keyring is available")
+        
+        # Get user ID (default to "default" for now)
+        user_id = input("Enter user ID (or press enter for 'default'): ").strip() or "default"
+        
+        # Check if key already exists
+        existing_key = secure_storage.get_private_key(user_id)
+        if existing_key:
+            overwrite = input(f"Private key for '{user_id}' already exists. Overwrite? (y/N): ").strip().lower()
+            if overwrite != 'y':
+                print("❌ Import cancelled")
+                return 1
+        
+        private_key = getpass.getpass("Enter your private key (hidden): ")
+        if not private_key.strip():
+            print("❌ Private key cannot be empty")
+            return 1
+        
+        # Store in secure storage
+        success = secure_storage.store_private_key(user_id, private_key.strip())
+        
+        if success:
+            print(f"✅ Private key securely stored in system keyring for user: {user_id}")
+            print("The key is encrypted and will be automatically loaded when needed.")
+            
+            # Test retrieval
+            test_key = secure_storage.get_private_key(user_id)
+            if test_key:
+                print("✅ Key retrieval test successful")
+            else:
+                print("⚠️ Warning: Could not retrieve stored key for verification")
+            
+            return 0
+        else:
+            print("❌ Failed to store private key in keyring")
+            return 1
+        
+    except Exception as e:
+        print(f"❌ Failed to import private key: {e}")
+        return 1
+
+
+def import_private_key_legacy():
+    """Legacy import using environment variables (fallback)."""
+    print("🔐 Legacy Private Key Import (Environment Variable)")
+    print("This will encrypt and store your private key as an environment variable.")
+    
+    if not Settings.SAM_FERNET_KEY:
+        print("❌ SAM_FERNET_KEY not set. Generate one with:")
+        print("python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
+        return 1
+    
+    try:
+        private_key = getpass.getpass("Enter your private key (hidden): ")
+        if not private_key.strip():
+            print("❌ Private key cannot be empty")
+            return 1
+        
+        # Encrypt the private key
+        encrypted_key = encrypt_private_key(private_key.strip())
+        
+        # Store in environment (for this session) and suggest permanent storage
+        os.environ["SAM_WALLET_PRIVATE_KEY"] = encrypted_key
+        
+        print("✅ Private key encrypted and stored for this session")
+        print("To make permanent, add this to your .env file:")
+        print(f"SAM_WALLET_PRIVATE_KEY={encrypted_key}")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"❌ Failed to import private key: {e}")
+        return 1
+
+
+def generate_key():
+    """Generate a new Fernet encryption key."""
+    key = generate_encryption_key()
+    print(f"Generated encryption key: {key}")
+    print("Add this to your .env file as SAM_FERNET_KEY")
+    return 0
+
+
+async def run_maintenance():
+    """Run database maintenance tasks."""
+    print("🔧 SAM Framework Maintenance")
+    print("Running database cleanup and maintenance tasks...")
+    
+    try:
+        # Initialize components
+        from .core.memory import MemoryManager
+        from .utils.error_handling import get_error_tracker
+        
+        memory = MemoryManager(Settings.SAM_DB_PATH)
+        await memory.initialize()
+        
+        error_tracker = await get_error_tracker()
+        
+        # Run cleanup tasks
+        print("\n📊 Current database stats:")
+        stats = await memory.get_session_stats()
+        size_info = await memory.get_database_size()
+        
+        print(f"  Sessions: {stats.get('sessions', 0)}")
+        print(f"  Preferences: {stats.get('preferences', 0)}")
+        print(f"  Trades: {stats.get('trades', 0)}")
+        print(f"  Secure data: {stats.get('secure_data', 0)}")
+        print(f"  Database size: {size_info.get('size_mb', 0)} MB")
+        
+        # Clean up old sessions (30 days)
+        print("\n🧹 Cleaning up old sessions...")
+        deleted_sessions = await memory.cleanup_old_sessions(30)
+        print(f"  Deleted {deleted_sessions} old sessions")
+        
+        # Clean up old trades (90 days)
+        print("\n🧹 Cleaning up old trades...")
+        deleted_trades = await memory.cleanup_old_trades(90)
+        print(f"  Deleted {deleted_trades} old trades")
+        
+        # Clean up old errors (30 days)
+        print("\n🧹 Cleaning up old errors...")
+        deleted_errors = await error_tracker.cleanup_old_errors(30)
+        print(f"  Deleted {deleted_errors} old error records")
+        
+        # Vacuum database
+        print("\n🔧 Vacuuming database...")
+        vacuum_success = await memory.vacuum_database()
+        if vacuum_success:
+            print("  Database vacuum completed successfully")
+        else:
+            print("  Database vacuum failed")
+        
+        # Final stats
+        print("\n📊 Post-maintenance stats:")
+        final_stats = await memory.get_session_stats()
+        final_size = await memory.get_database_size()
+        
+        print(f"  Sessions: {final_stats.get('sessions', 0)}")
+        print(f"  Database size: {final_size.get('size_mb', 0)} MB")
+        
+        size_saved = size_info.get('size_mb', 0) - final_size.get('size_mb', 0)
+        if size_saved > 0:
+            print(f"  Space saved: {size_saved:.2f} MB")
+        
+        print("\n✅ Maintenance completed successfully")
+        return 0
+        
+    except Exception as e:
+        print(f"❌ Maintenance failed: {e}")
+        return 1
+
+
+async def run_health_check():
+    """Run health checks on SAM framework components."""
+    print("🏥 SAM Framework Health Check")
+    
+    try:
+        from .utils.error_handling import get_health_checker, get_error_tracker
+        from .utils.secure_storage import get_secure_storage
+        from .utils.rate_limiter import get_rate_limiter
+        from .core.memory import MemoryManager
+        
+        health_checker = get_health_checker()
+        
+        # Register health checks
+        async def database_health():
+            memory = MemoryManager(Settings.SAM_DB_PATH)
+            await memory.initialize()
+            stats = await memory.get_session_stats()
+            return {"status": "ok", "stats": stats}
+        
+        async def secure_storage_health():
+            storage = get_secure_storage()
+            test_results = storage.test_keyring_access()
+            return test_results
+        
+        async def rate_limiter_health():
+            limiter = await get_rate_limiter()
+            return {"connected": limiter.connected}
+        
+        async def error_tracker_health():
+            tracker = await get_error_tracker()
+            stats = await tracker.get_error_stats(24)
+            return {"recent_errors": stats.get("total_errors", 0)}
+        
+        health_checker.register_health_check("database", database_health, 0)
+        health_checker.register_health_check("secure_storage", secure_storage_health, 0)
+        health_checker.register_health_check("rate_limiter", rate_limiter_health, 0)
+        health_checker.register_health_check("error_tracker", error_tracker_health, 0)
+        
+        # Run health checks
+        results = await health_checker.run_health_checks()
+        
+        print("\n🔍 Component Health Status:")
+        
+        all_healthy = True
+        for component, result in results.items():
+            if result:
+                status = result.get("status", "unknown")
+                if status == "healthy":
+                    print(f"  ✅ {component}: {status}")
+                else:
+                    print(f"  ❌ {component}: {status}")
+                    if "error" in result:
+                        print(f"     Error: {result['error']}")
+                    all_healthy = False
+                
+                # Show additional details
+                if "details" in result:
+                    details = result["details"]
+                    if isinstance(details, dict):
+                        for key, value in details.items():
+                            if key != "status":
+                                print(f"     {key}: {value}")
+            else:
+                print(f"  ❓ {component}: no data")
+                all_healthy = False
+        
+        # Show recent errors
+        error_tracker = await get_error_tracker()
+        error_stats = await error_tracker.get_error_stats(24)
+        
+        total_errors = error_stats.get("total_errors", 0)
+        if total_errors > 0:
+            print(f"\n⚠️  {total_errors} errors in the last 24 hours")
+            
+            severity_counts = error_stats.get("severity_counts", {})
+            for severity, count in severity_counts.items():
+                print(f"     {severity}: {count}")
+            
+            critical_errors = error_stats.get("critical_errors", [])
+            if critical_errors:
+                print(f"\n🚨 Recent critical errors:")
+                for error in critical_errors[:3]:
+                    print(f"     {error['timestamp']}: {error['component']} - {error['error_message']}")
+        else:
+            print(f"\n✅ No errors in the last 24 hours")
+        
+        if all_healthy and total_errors == 0:
+            print(f"\n🎉 All systems healthy!")
+            return 0
+        else:
+            print(f"\n⚠️  Some issues detected")
+            return 1
+        
+    except Exception as e:
+        print(f"❌ Health check failed: {e}")
+        return 1
+
+
+async def main():
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(description="SAM Framework CLI")
+    parser.add_argument("command", nargs="?", default="run", 
+                       choices=["run", "key", "generate-key", "maintenance", "health", "onboard"],
+                       help="Command to execute")
+    parser.add_argument("--session", "-s", default="default",
+                       help="Session ID for conversation context")
+    parser.add_argument("--log-level", default=None,
+                       choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                       help="Set log level")
+    
+    args = parser.parse_args()
+    
+    # Setup logging
+    setup_logging(args.log_level)
+    
+    # Handle different commands
+    if args.command == "generate-key":
+        return generate_key()
+    
+    if args.command == "key":
+        return import_private_key()
+    
+    if args.command == "maintenance":
+        return await run_maintenance()
+    
+    if args.command == "health":
+        return await run_health_check()
+    
+    if args.command == "onboard":
+        return await run_onboarding()
+    
+    if args.command == "run":
+        # First-run onboarding even if some config exists, unless explicitly skipped
+        skip_onboard = os.environ.get("SAM_SKIP_ONBOARDING", "").lower() in ("1", "true", "yes")
+        force_onboard = os.environ.get("SAM_FORCE_ONBOARDING", "").lower() in ("1", "true", "yes")
+        if not skip_onboard and (force_onboard or not os.path.exists(_onboarded_flag_path())):
+            print(colorize("First run detected. Launching onboarding...", Style.FG_YELLOW))
+            ob_res = await run_onboarding()
+            if ob_res != 0:
+                return ob_res
+        # Validate configuration; if invalid, trigger onboarding
+        if not Settings.validate():
+            print(colorize("Configuration missing or invalid. Starting onboarding...", Style.FG_YELLOW))
+            ob_res = await run_onboarding()
+            if ob_res != 0:
+                return ob_res
+            # Re-validate after onboarding
+            if not Settings.validate():
+                print("❌ Configuration still invalid after onboarding. Please check your .env.")
+                return 1
+        Settings.log_config()
+        return await run_interactive_session(args.session)
+    
+    return 1
+
+
+def app():
+    """Entry point for the CLI application."""
+    try:
+        exit_code = asyncio.run(main())
+        sys.exit(exit_code)
+    except KeyboardInterrupt:
+        print("\n👋 Goodbye!")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        print(f"❌ Unexpected error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    app()
