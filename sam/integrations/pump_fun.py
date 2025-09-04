@@ -1,6 +1,6 @@
 import aiohttp
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from ..core.tools import Tool, ToolSpec
 from ..utils.validators import validate_tool_input
@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class PumpFunTools:
-    def __init__(self):
+    def __init__(self, solana_tools=None):
         self.base_url = "https://pumpportal.fun/api"
         self.session = None
+        self.solana_tools = solana_tools  # For transaction signing and sending
     
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
@@ -26,6 +27,71 @@ class PumpFunTools:
         """Close the HTTP session."""
         if self.session and not self.session.closed:
             await self.session.close()
+
+    async def _sign_and_send_transaction(self, transaction_hex: str, action: str) -> Dict[str, Any]:
+        """Sign and send a pump.fun transaction with fresh blockhash."""
+        if not self.solana_tools or not self.solana_tools.keypair:
+            return {
+                "error": "No wallet configured for signing transactions"
+            }
+        
+        try:
+            # Import solders for transaction handling
+            from solders.transaction import VersionedTransaction
+            
+            # Convert hex to bytes and deserialize
+            transaction_data = bytes.fromhex(transaction_hex)
+            versioned_tx = VersionedTransaction.from_bytes(transaction_data)
+            
+            # MessageV0 objects are immutable, so we can't patch the blockhash
+            # Instead, just sign the transaction as-is with our keypair
+            # The pump.fun API should already provide a valid blockhash
+            
+            # Create a new signed transaction with our keypair
+            signed_tx = VersionedTransaction(versioned_tx.message, [self.solana_tools.keypair])
+            
+            # Send the transaction to Solana with optimized settings
+            from solana.rpc.types import TxOpts
+            
+            # Try sending with skip preflight first for better success rate on pump.fun
+            try:
+                result = await self.solana_tools.client.send_transaction(
+                    signed_tx,
+                    opts=TxOpts(skip_preflight=True, max_retries=2)
+                )
+            except Exception as first_attempt_error:
+                error_msg = str(first_attempt_error)
+                if "blockhash" in error_msg.lower():
+                    logger.warning(f"Blockhash error, transaction may be stale: {first_attempt_error}")
+                    return {"error": f"Transaction expired (stale blockhash). Please try again."}
+                else:
+                    logger.warning(f"Preflight skip failed, retrying with preflight: {first_attempt_error}")
+                    # If that fails, try with preflight enabled
+                    result = await self.solana_tools.client.send_transaction(
+                        signed_tx,
+                        opts=TxOpts(skip_preflight=False, max_retries=1)
+                    )
+            
+            if result.value:
+                tx_signature = str(result.value)
+                logger.info(f"Pump.fun {action} transaction executed successfully: {tx_signature}")
+                
+                return {
+                    "success": True,
+                    "transaction_id": tx_signature,
+                    "action": action
+                }
+            else:
+                logger.error(f"Transaction failed to send - no signature returned")
+                return {
+                    "error": "Transaction failed: No signature returned"
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to execute pump.fun transaction: {e}")
+            return {
+                "error": f"Transaction failed: {str(e)}"
+            }
 
     async def get_token_trades(self, mint: str, limit: int = 10) -> Dict[str, Any]:
         """Get recent trades for a token."""
@@ -93,16 +159,22 @@ class PumpFunTools:
                 
                 # Response is raw transaction data
                 transaction_data = await response.read()
+                transaction_hex = transaction_data.hex()
                 
                 logger.info(f"Buy transaction created successfully for {mint}")
-                return {
-                    "success": True,
-                    "transaction_data": transaction_data.hex(),
-                    "action": "buy",
-                    "mint": mint,
-                    "amount_sol": amount,
-                    "slippage": slippage
-                }
+                
+                # Sign and send the transaction automatically
+                sign_result = await self._sign_and_send_transaction(transaction_hex, "buy")
+                
+                # Add transaction details to the result
+                if "success" in sign_result:
+                    sign_result.update({
+                        "mint": mint,
+                        "amount_sol": amount,
+                        "slippage": slippage
+                    })
+                
+                return sign_result
                 
         except aiohttp.ClientError as e:
             logger.error(f"Network error creating buy transaction: {e}")
@@ -145,16 +217,22 @@ class PumpFunTools:
                 
                 # Response is raw transaction data
                 transaction_data = await response.read()
+                transaction_hex = transaction_data.hex()
                 
                 logger.info(f"Sell transaction created successfully for {mint}")
-                return {
-                    "success": True,
-                    "transaction_data": transaction_data.hex(),
-                    "action": "sell",
-                    "mint": mint,
-                    "percentage": percentage,
-                    "slippage": slippage
-                }
+                
+                # Sign and send the transaction automatically
+                sign_result = await self._sign_and_send_transaction(transaction_hex, "sell")
+                
+                # Add transaction details to the result
+                if "success" in sign_result:
+                    sign_result.update({
+                        "mint": mint,
+                        "percentage": percentage,
+                        "slippage": slippage
+                    })
+                
+                return sign_result
                 
         except aiohttp.ClientError as e:
             logger.error(f"Network error creating sell transaction: {e}")
@@ -212,88 +290,54 @@ class PumpFunTools:
         twitter: str = None,
         telegram: str = None
     ) -> Dict[str, Any]:
-        """Launch a new token on pump.fun."""
-        try:
-            session = await self._get_session()
-            
-            # Prepare metadata
-            metadata = {
-                "name": name,
-                "symbol": symbol,
-                "description": description,
-                "image": image_url
-            }
-            
-            if website:
-                metadata["website"] = website
-            if twitter:
-                metadata["twitter"] = twitter  
-            if telegram:
-                metadata["telegram"] = telegram
-            
-            payload = {
-                "publicKey": public_key,
-                "action": "create",
-                "tokenMetadata": metadata,
-                "mint": "",  # Will be generated by pump.fun
-                "denominatedInSol": "true",
-                "amount": initial_buy_amount,  # Initial buy amount in SOL
-                "slippage": 1,
-                "priorityFee": 0.0001,
-                "pool": "pump"
-            }
-            
-            logger.info(f"Launching token: {name} ({symbol}) with initial buy of {initial_buy_amount} SOL")
-            
-            async with session.post(f"{self.base_url}/trade-local", json=payload) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Token launch failed {response.status}: {error_text}")
-                    return {"error": f"Token launch failed: {error_text}"}
-                
-                # Response should contain the transaction data
-                transaction_data = await response.read()
-                
-                logger.info(f"Token launch transaction created for {name}")
-                return {
-                    "success": True,
-                    "transaction_data": transaction_data.hex(),
-                    "action": "launch",
-                    "name": name,
-                    "symbol": symbol,
-                    "description": description,
-                    "initial_buy_sol": initial_buy_amount,
-                    "metadata": metadata
-                }
-                
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error launching token: {e}")
-            return {"error": f"Network error: {str(e)}"}
-        except Exception as e:
-            logger.error(f"Unexpected error launching token: {e}")
-            return {"error": str(e)}
+        """Launch a new token on pump.fun - COMPLEX IMPLEMENTATION NEEDED."""
+        # TODO: This needs to be implemented properly following the pumplaunchtoken.js pattern:
+        # 1. Create keypair for new mint
+        # 2. Create metadata account 
+        # 3. Create bonding curve PDA
+        # 4. Create associated token accounts
+        # 5. Build transaction with create + buy instructions
+        # 6. Sign with both wallet keypair and mint keypair
+        # 7. Send transaction
+        
+        logger.warning("Token launch not fully implemented - requires complex transaction building")
+        return {
+            "error": "Token launch feature is not yet fully implemented. This requires building complex Solana transactions with multiple instructions including token creation, metadata creation, and bonding curve setup."
+        }
 
 
-def create_pump_fun_tools(pump_fun_tools: PumpFunTools) -> List[Tool]:
+def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool]:
     """Create Pump.fun tool instances."""
     
     async def handle_pump_fun_buy(args: Dict[str, Any]) -> Dict[str, Any]:
         validated_args = validate_tool_input("pump_fun_buy", args)
-        return await pump_fun_tools.create_buy_transaction(
+        result = await pump_fun_tools.create_buy_transaction(
             validated_args["public_key"],
             validated_args["mint"],
             validated_args["amount"],
             validated_args.get("slippage", 1)
         )
+        
+        # Invalidate balance cache after successful transaction
+        if agent and "success" in result:
+            agent.invalidate_balance_cache()
+        
+        return result
     
     async def handle_pump_fun_sell(args: Dict[str, Any]) -> Dict[str, Any]:
         validated_args = validate_tool_input("pump_fun_sell", args)
-        return await pump_fun_tools.create_sell_transaction(
+        result = await pump_fun_tools.create_sell_transaction(
             validated_args["public_key"],
             validated_args["mint"],
             validated_args.get("percentage", 100),
             validated_args.get("slippage", 1)
         )
+        
+        # Invalidate balance cache after successful transaction
+        if agent and "success" in result:
+            agent.invalidate_balance_cache()
+        
+        return result
     
     async def handle_get_token_trades(args: Dict[str, Any]) -> Dict[str, Any]:
         mint = args.get("mint", "")

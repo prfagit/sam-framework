@@ -38,6 +38,27 @@ from .integrations.search import SearchTools, create_search_tools
 logger = logging.getLogger(__name__)
 
 
+# Tool name mappings for friendly display
+TOOL_DISPLAY_NAMES = {
+    'get_balance': '💰 Checking balance',
+    'transfer_sol': '💸 Transferring SOL',
+    'get_token_data': '📊 Getting token data',
+    'pump_fun_buy': '🚀 Buying on pump.fun',
+    'pump_fun_sell': '📉 Selling on pump.fun',
+    'launch_token': '🎯 Launching token',
+    'get_token_trades': '📈 Getting trade data',
+    'get_pump_token_info': '🔍 Getting token info',
+    'search_pairs': '🔎 Searching pairs',
+    'get_token_pairs': '📝 Getting token pairs',
+    'get_solana_pair': '⚡ Getting pair data',
+    'get_trending_pairs': '🔥 Getting trending pairs',
+    'get_swap_quote': '💱 Getting swap quote',
+    'jupiter_swap': '🌌 Swapping on Jupiter',
+    'get_jupiter_tokens': '🪐 Getting Jupiter tokens',
+    'brave_search': '🔍 Searching web'
+}
+
+
 # ---------------------------
 # Minimal Styling Utilities
 # ---------------------------
@@ -82,9 +103,8 @@ def wrap(text: str, width_offset: int = 0) -> str:
 
 
 def banner(title: str) -> str:
-    top = colorize(hr("─"), Style.FG_GRAY)
-    t = colorize(title, Style.BOLD, Style.FG_CYAN)
-    return f"{top}\n{t}\n{top}"
+    """Clean, minimal banner with subtle styling."""
+    return f"{colorize('🤖 SAM', Style.BOLD, Style.FG_CYAN)} {colorize('• Solana Agent •', Style.DIM, Style.FG_GRAY)}"
 
 
 class Spinner:
@@ -97,6 +117,7 @@ class Spinner:
         self.interval = interval
         self._task = None
         self._running = False
+        self._current_status = message
 
     async def __aenter__(self):
         if supports_ansi():
@@ -111,11 +132,15 @@ class Spinner:
     async def __aexit__(self, exc_type, exc, tb):
         await self.stop()
 
+    def update_status(self, new_message: str):
+        """Update the spinner message during execution."""
+        self._current_status = new_message
+
     async def _spin(self):
         i = 0
         while self._running:
             frame = self.FRAMES[i % len(self.FRAMES)]
-            line = f" {colorize(frame, Style.FG_CYAN)} {colorize(self.message, Style.DIM)}"
+            line = f" {colorize(frame, Style.FG_CYAN)} {colorize(self._current_status, Style.DIM)}"
             sys.stdout.write(f"\r{line}")
             sys.stdout.flush()
             i += 1
@@ -173,13 +198,21 @@ async def setup_agent() -> SAMAgent:
     
     solana_tools = SolanaTools(Settings.SAM_SOLANA_RPC_URL, private_key)
     
-    # Register Solana tools
-    for tool in create_solana_tools(solana_tools):
+    # Create agent first (with empty tool registry initially)
+    agent = SAMAgent(
+        llm=llm,
+        tools=tools,
+        memory=memory,
+        system_prompt=SOLANA_AGENT_PROMPT
+    )
+    
+    # Register Solana tools (with agent reference for caching)
+    for tool in create_solana_tools(solana_tools, agent=agent):
         tools.register(tool)
     
-    # Initialize and register Pump.fun tools
-    pump_tools = PumpFunTools()
-    for tool in create_pump_fun_tools(pump_tools):
+    # Initialize and register Pump.fun tools (with solana_tools for signing)
+    pump_tools = PumpFunTools(solana_tools)
+    for tool in create_pump_fun_tools(pump_tools, agent=agent):
         tools.register(tool)
     
     # Initialize and register DexScreener tools
@@ -197,14 +230,6 @@ async def setup_agent() -> SAMAgent:
     search_tools = SearchTools(api_key=brave_api_key)
     for tool in create_search_tools(search_tools):
         tools.register(tool)
-    
-    # Create agent
-    agent = SAMAgent(
-        llm=llm,
-        tools=tools,
-        memory=memory,
-        system_prompt=SOLANA_AGENT_PROMPT
-    )
     
     # Store references to tools that need cleanup
     agent._solana_tools = solana_tools
@@ -258,20 +283,38 @@ async def run_interactive_session(session_id: str):
         print(f"{colorize('❌ Failed to initialize agent:', Style.FG_YELLOW)} {e}")
         return 1
 
-    # Show a succinct ready message
+    # Show a friendly ready message
     tools_count = len(agent.tools.list_specs())
-    print(colorize(f"Ready. Loaded {tools_count} tools.", Style.FG_GREEN))
+    print()
+    print(banner("SAM"))
+    print(colorize(f"✨ Ready! {tools_count} tools loaded. Type", Style.FG_GREEN), colorize("/help", Style.FG_CYAN), colorize("for commands.", Style.FG_GREEN))
+    print()
 
     # Command helpers
     async def show_tools():
         specs = agent.tools.list_specs()
-        print(colorize(hr(), Style.FG_GRAY))
-        print(colorize("Available Tools", Style.BOLD))
-        for spec in specs:
-            name = spec.get("name", "")
-            desc = spec.get("description", "")
-            print(f" - {colorize(name, Style.FG_CYAN)}: {desc}")
-        print(colorize(hr(), Style.FG_GRAY))
+        print()
+        print(colorize("🔧 Available Tools", Style.BOLD, Style.FG_CYAN))
+        print()
+        
+        # Group tools by category
+        categories = {
+            "💰 Wallet & Balance": ["get_balance", "transfer_sol"],
+            "📊 Token Data": ["get_token_data", "get_token_pairs", "search_pairs", "get_solana_pair"],
+            "🚀 Pump.fun": ["pump_fun_buy", "pump_fun_sell", "launch_token", "get_pump_token_info", "get_token_trades"],
+            "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap", "get_jupiter_tokens"],
+            "📈 Market Data": ["get_trending_pairs", "brave_search"]
+        }
+        
+        for category, tool_names in categories.items():
+            print(colorize(category, Style.BOLD))
+            for spec in specs:
+                name = spec.get("name", "")
+                if name in tool_names:
+                    emoji = TOOL_DISPLAY_NAMES.get(name, name).split(' ')[0]
+                    print(f"   {emoji} {colorize(name, Style.FG_GREEN)}")
+            print()
+        print()
 
     def show_config():
         print(colorize(hr(), Style.FG_GRAY))
@@ -294,12 +337,32 @@ async def run_interactive_session(session_id: str):
 
     def clear_screen():
         os.system('cls' if os.name == 'nt' else 'clear')
-        print(banner("SAM Framework — Solana Agent Middleware"))
+        print(banner("SAM"))
+
+    def show_context_info():
+        """Display context info below the input field."""
+        stats = agent.session_stats
+        context_length = stats.get("context_length", 0)
+        total_tokens = stats.get("total_tokens", 0)
+        requests = stats.get("requests", 0)
+        
+        info_parts = []
+        if context_length > 0:
+            info_parts.append(f"Context: {context_length} msgs")
+        if total_tokens > 0:
+            info_parts.append(f"Tokens: {total_tokens:,}")
+        if requests > 0:
+            info_parts.append(f"Requests: {requests}")
+        
+        if info_parts:
+            info_str = " • ".join(info_parts)
+            print(colorize(f"  {info_str}", Style.DIM, Style.FG_GRAY))
 
     try:
         while True:
             try:
-                user_input = input(colorize("sam> ", Style.FG_CYAN, Style.BOLD)).strip()
+                show_context_info()
+                user_input = input(colorize("🤖 ", Style.FG_CYAN) + colorize("» ", Style.DIM)).strip()
 
                 if not user_input:
                     continue
@@ -319,6 +382,16 @@ async def run_interactive_session(session_id: str):
                     continue
                 if user_input in ('/clear', '/cls'):
                     clear_screen()
+                    continue
+                if user_input in ('/clear-context',):
+                    async with Spinner("Clearing conversation context"):
+                        result = await agent.clear_context(session_id)
+                    print(colorize("✨ " + result, Style.FG_GREEN))
+                    continue
+                if user_input in ('/compact',):
+                    async with Spinner("Compacting conversation"):
+                        result = await agent.compact_conversation(session_id)
+                    print(colorize("📋 " + result, Style.FG_GREEN))
                     continue
 
                 # Diagnostics: /wallet and /balance [address]
@@ -346,24 +419,41 @@ async def run_interactive_session(session_id: str):
                     print(colorize(hr(), Style.FG_GRAY))
                     continue
 
-                # Process user input through agent with spinner
-                async with Spinner("Thinking"):
-                    response = await agent.run(user_input, session_id)
+                # Process user input through agent with enhanced spinner
+                current_spinner = None
+                
+                def tool_callback(tool_name: str, tool_args: dict):
+                    """Update spinner when tools are used."""
+                    nonlocal current_spinner
+                    if current_spinner:
+                        display_name = TOOL_DISPLAY_NAMES.get(tool_name, f"🔧 {tool_name}")
+                        current_spinner.update_status(display_name)
+                
+                async with Spinner("🤔 Thinking") as spinner:
+                    current_spinner = spinner
+                    agent.tool_callback = tool_callback
+                    try:
+                        response = await agent.run(user_input, session_id)
+                    finally:
+                        agent.tool_callback = None
 
-                # Render response in a clean block
-                print(colorize(hr(), Style.FG_GRAY))
-                print(wrap(response))
-                print(colorize(hr(), Style.FG_GRAY))
+                # Render response in a clean block with better formatting
+                print()
+                print(colorize("│", Style.FG_CYAN), end=" ")
+                
+                # Format response with casual styling
+                formatted_response = response.replace('\n', f'\n{colorize("│", Style.FG_CYAN)} ')
+                print(formatted_response)
                 print()
 
             except KeyboardInterrupt:
-                print("\n👋 Goodbye!")
+                print(colorize("\n🫡 Later!", Style.FG_CYAN))
                 break
             except EOFError:
                 break
             except Exception as e:
                 logger.error(f"Error in session: {e}")
-                print(f"{colorize('❌ Error:', Style.FG_YELLOW)} {e}")
+                print(f"{colorize('😅 Oops:', Style.FG_YELLOW)} {e}")
     finally:
         # Always cleanup resources
         if agent:
@@ -374,32 +464,21 @@ async def run_interactive_session(session_id: str):
 
 def print_help():
     """Print available commands and usage."""
-    lines = []
-    lines.append(colorize("Commands", Style.BOLD))
-    lines.append("  /help        Show this help")
-    lines.append("  /tools       List available tools")
-    lines.append("  /config      Show non-sensitive configuration")
-    lines.append("  /clear       Clear the screen")
-    lines.append("  exit/quit    Exit the interface")
-    lines.append("")
-    lines.append(colorize("Examples", Style.BOLD))
-    lines.append("  Check my SOL balance")
-    lines.append("  Search for BONK token pairs")
-    lines.append("  Get trending tokens on Solana")
-    lines.append("  Buy 0.1 SOL worth of [token_address]")
-    lines.append("  Show recent trades for [token_address]")
-    lines.append("  Swap 0.5 SOL for USDC using Jupiter")
-    lines.append("  Launch a new meme coin called DOGE2")
-    lines.append("")
-    lines.append(colorize("Notes", Style.BOLD))
-    lines.append("  • All transactions require confirmation")
-    lines.append("  • Amounts are validated against safety limits")
-    lines.append("  • Private keys are encrypted at rest")
-    lines.append("  • Devnet by default for safety")
-    lines.append("")
-    lines.append("  Configure with .env (see .env.example).")
-    lines.append("  Import your key securely: 'uv run sam key import'.")
-    print("\n".join(lines))
+    print()
+    print(colorize("🛠️  Quick Commands", Style.BOLD, Style.FG_CYAN))
+    print(f"  {colorize('/help', Style.FG_GREEN)}          Show this help")
+    print(f"  {colorize('/tools', Style.FG_GREEN)}         List available tools")
+    print(f"  {colorize('/clear', Style.FG_GREEN)}         Clear screen")
+    print(f"  {colorize('/clear-context', Style.FG_GREEN)} Clear conversation context")
+    print(f"  {colorize('/compact', Style.FG_GREEN)}       Compact conversation history")
+    print(f"  {colorize('exit', Style.FG_GREEN)}           Exit SAM")
+    print()
+    print(colorize("💡 Try saying:", Style.BOLD, Style.FG_CYAN))
+    print("   • check balance")
+    print("   • buy 0.01 sol of [token_address]")
+    print("   • show trending pairs")
+    print("   • search for BONK pairs")
+    print()
 
 
 # ---------------------------

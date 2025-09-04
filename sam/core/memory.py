@@ -343,3 +343,13 @@ class MemoryManager:
         
         logger.debug(f"Database stats: {stats}")
         return stats
+
+    async def clear_session(self, session_id: str) -> int:
+        """Clear session messages from database."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
+            deleted_count = cursor.rowcount
+            await conn.commit()
+        
+        logger.info(f"Cleared session {session_id}")
+        return deleted_count

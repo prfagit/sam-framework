@@ -20,6 +20,10 @@ class DexScreenerTools:
             results = await asyncio.to_thread(self.client.search_pairs, query)
             
             # DexScreener client returns a list of TokenPair objects
+            if not isinstance(results, list):
+                logger.error(f"Expected list but got {type(results)}: {results}")
+                return {"error": "API returned unexpected format"}
+            
             pairs = []
             for pair in results:  # results is already a list
                 pairs.append({
@@ -62,6 +66,10 @@ class DexScreenerTools:
             results = await asyncio.to_thread(self.client.get_token_pairs, token_address)
             
             # DexScreener client returns a list of TokenPair objects
+            if not isinstance(results, list):
+                logger.error(f"Expected list but got {type(results)}: {results}")
+                return {"error": "API returned unexpected format"}
+            
             pairs = []
             for pair in results:  # results is already a list
                 pairs.append({

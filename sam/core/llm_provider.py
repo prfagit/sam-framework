@@ -8,9 +8,10 @@ logger = logging.getLogger(__name__)
 
 
 class ChatResponse:
-    def __init__(self, content: str, tool_calls: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, content: str, tool_calls: Optional[List[Dict[str, Any]]] = None, usage: Optional[Dict[str, Any]] = None):
         self.content = content
         self.tool_calls = tool_calls or []
+        self.usage = usage or {}
 
 
 class LLMProvider:
@@ -93,11 +94,12 @@ class LLMProvider:
                         raw_content = choice.get("content")
                         content = raw_content if isinstance(raw_content, str) else ""
                         tool_calls = choice.get("tool_calls") or []
+                        usage = data.get("usage", {})
                         
                         content_len = len(content) if isinstance(content, str) else 0
                         logger.debug(f"LLM response: content_length={content_len}, tool_calls={len(tool_calls)}")
                         
-                        return ChatResponse(content=content, tool_calls=tool_calls)
+                        return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
                     
                     # Handle server errors with retry
                     elif response.status >= 500:

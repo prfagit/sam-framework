@@ -2,10 +2,8 @@ import aiohttp
 import logging
 from typing import Dict, Any, List
 import base64
-import json
 
 from ..core.tools import Tool, ToolSpec
-from ..utils.validators import validate_tool_input
 from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
 
 logger = logging.getLogger(__name__)
@@ -177,52 +175,47 @@ class JupiterTools:
             
             # Deserialize and sign the transaction
             transaction_data = base64.b64decode(swap_result["transaction"])
-            
-            # For now, return the transaction data - actual signing and sending would happen here
-            logger.info(f"Swap transaction ready for execution")
-            return {
-                "success": True,
-                "input_mint": input_mint,
-                "output_mint": output_mint,
-                "input_amount": amount,
-                "expected_output_amount": quote_result.get("output_amount", 0),
-                "price_impact_pct": quote_result.get("price_impact_pct", 0),
-                "transaction_size": len(transaction_data),
-                "status": "ready_to_sign"
-            }
+
+            # Parse the transaction
+            try:
+                # Import solders for transaction handling
+                from solders.transaction import VersionedTransaction
+
+                # Deserialize the versioned transaction
+                versioned_tx = VersionedTransaction.from_bytes(transaction_data)
+
+                # Create a new signed transaction with the keypair
+                signed_tx = VersionedTransaction(versioned_tx.message, [self.solana_tools.keypair])
+
+                # Send the transaction to Solana
+                from solana.rpc.types import TxOpts
+                tx_hash = await self.solana_tools.client.send_transaction(
+                    signed_tx,
+                    opts=TxOpts(skip_preflight=False, max_retries=3)
+                )
+
+                logger.info(f"Swap transaction executed successfully: {tx_hash}")
+
+                return {
+                    "success": True,
+                    "input_mint": input_mint,
+                    "output_mint": output_mint,
+                    "input_amount": amount,
+                    "expected_output_amount": quote_result.get("output_amount", 0),
+                    "price_impact_pct": quote_result.get("price_impact_pct", 0),
+                    "transaction_id": str(tx_hash)
+                }
+
+            except Exception as sign_error:
+                logger.error(f"Failed to execute swap transaction: {sign_error}")
+                return {
+                    "error": f"Swap failed: {str(sign_error)}"
+                }
             
         except Exception as e:
             logger.error(f"Swap execution failed: {e}")
             return {"error": str(e)}
 
-    async def get_tokens(self) -> Dict[str, Any]:
-        """Get list of tokens available for swapping."""
-        try:
-            session = await self._get_session()
-            
-            # Use the correct Jupiter tokens endpoint
-            tokens_url = "https://tokens.jup.ag/tokens"
-            
-            async with session.get(tokens_url) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Jupiter tokens API error {response.status}: {error_text}")
-                    return {"error": f"Tokens API error {response.status}: {error_text}"}
-                
-                data = await response.json()
-                
-                logger.info(f"Retrieved {len(data)} available tokens")
-                return {
-                    "tokens": data,
-                    "total_tokens": len(data)
-                }
-                
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error getting tokens: {e}")
-            return {"error": f"Network error: {str(e)}"}
-        except Exception as e:
-            logger.error(f"Unexpected error getting tokens: {e}")
-            return {"error": str(e)}
 
 
 def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
@@ -243,9 +236,6 @@ def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
         slippage_bps = args.get("slippage_bps", 50)
         
         return await jupiter_tools.execute_swap(input_mint, output_mint, amount, slippage_bps)
-    
-    async def handle_get_jupiter_tokens(args: Dict[str, Any]) -> Dict[str, Any]:
-        return await jupiter_tools.get_tokens()
     
     tools = [
         Tool(
@@ -319,22 +309,6 @@ def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
                 }
             ),
             handler=handle_jupiter_swap
-        ),
-        Tool(
-            spec=ToolSpec(
-                name="get_jupiter_tokens",
-                description="Get list of tokens available for swapping on Jupiter",
-                input_schema={
-                    "name": "get_jupiter_tokens",
-                    "description": "Get available Jupiter tokens",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "required": []
-                    }
-                }
-            ),
-            handler=handle_get_jupiter_tokens
         )
     ]
     
