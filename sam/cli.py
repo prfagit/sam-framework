@@ -62,7 +62,8 @@ TOOL_DISPLAY_NAMES = {
     'get_swap_quote': '💱 Getting swap quote',
     'jupiter_swap': '🌌 Swapping on Jupiter',
     'get_jupiter_tokens': '🪐 Getting Jupiter tokens',
-    'brave_search': '🔍 Searching web'
+    'search_web': '🔍 Searching web',
+    'search_news': '📰 Searching news'
 }
 
 
@@ -316,7 +317,8 @@ async def run_interactive_session(session_id: str):
             "📊 Token Data": ["get_token_data", "get_token_pairs", "search_pairs", "get_solana_pair"],
             "🚀 Pump.fun": ["pump_fun_buy", "pump_fun_sell", "get_pump_token_info", "get_token_trades"],
             "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap", "get_jupiter_tokens"],
-            "📈 Market Data": ["get_trending_pairs", "brave_search"]
+            "📈 Market Data": ["get_trending_pairs"],
+            "🌐 Web Search": ["search_web", "search_news"]
         }
         
         for category, tool_names in categories.items():
