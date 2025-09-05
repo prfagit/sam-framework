@@ -33,7 +33,7 @@ class SolanaTools:
                 self.keypair = Keypair.from_bytes(private_key_bytes)
                 self.wallet_address = str(self.keypair.pubkey())
                 logger.info(f"Initialized Solana tools with wallet: {self.wallet_address}")
-            except (ValueError, TypeError, base58.Base58Error) as e:
+            except (ValueError, TypeError, Exception) as e:
                 logger.error(f"Failed to initialize keypair from private key: {e}")
                 raise ValueError(f"Invalid private key: {e}")
         else:

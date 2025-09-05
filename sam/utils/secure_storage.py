@@ -20,9 +20,24 @@ class SecureStorage:
         logger.info(f"Initialized secure storage for service: {service_name}")
     
     def _get_or_create_encryption_key(self) -> Optional[bytes]:
-        """Get encryption key from environment or keyring."""
-        # First try environment variable (for compatibility)
+        """Get encryption key from environment or keyring with fallback logic."""
+        # Try to load from .env file directly if environment is empty
         env_key = os.getenv("SAM_FERNET_KEY")
+        if not env_key:
+            # Try to load from .env file directly
+            env_file_path = os.path.join(os.getcwd(), '.env')
+            if os.path.exists(env_file_path):
+                try:
+                    with open(env_file_path, 'r') as f:
+                        for line in f:
+                            if line.startswith('SAM_FERNET_KEY='):
+                                env_key = line.split('=', 1)[1].strip()
+                                logger.debug("Loaded SAM_FERNET_KEY from .env file")
+                                break
+                except Exception as e:
+                    logger.warning(f"Could not read .env file: {e}")
+        
+        # Use environment/file key if available
         if env_key:
             try:
                 # SAM_FERNET_KEY should already be a base64-encoded string
@@ -30,16 +45,18 @@ class SecureStorage:
                 # Also update the keyring to match the environment for consistency
                 try:
                     keyring.set_password(self.service_name, "encryption_key", env_key)
+                    logger.debug("Synced encryption key to keyring")
                 except Exception as e:
                     logger.warning(f"Could not sync environment key to keyring: {e}")
                 return key_bytes
             except (UnicodeDecodeError, AttributeError) as e:
-                logger.warning(f"Invalid SAM_FERNET_KEY in environment: {e}")
+                logger.warning(f"Invalid SAM_FERNET_KEY format: {e}")
         
         # Try to get key from keyring
         try:
             stored_key = keyring.get_password(self.service_name, "encryption_key")
             if stored_key:
+                logger.debug("Using encryption key from keyring")
                 return stored_key.encode()
         except Exception as e:
             logger.warning(f"Could not retrieve encryption key from keyring: {e}")
