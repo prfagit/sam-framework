@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from ..utils.http_client import get_session
+from ..config.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,56 +17,60 @@ class ChatResponse:
 
 
 class LLMProvider:
+    """Abstract-ish base for LLM providers."""
+
     def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
         self.api_key = api_key
         self.model = model
-        self.base_url = base_url or "https://api.openai.com/v1"
-        
+        self.base_url = base_url
+
     async def close(self):
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
-        
-    async def chat_completion(
-        self, 
-        messages: List[Dict[str, Any]], 
-        tools: Optional[List[Dict[str, Any]]] = None
-    ) -> ChatResponse:
-        """Make a chat completion request to the LLM provider."""
-        
+
+    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
+        raise NotImplementedError
+
+
+class OpenAICompatibleProvider(LLMProvider):
+    """Provider for OpenAI and OpenAI-compatible chat APIs (tool calling)."""
+
+    def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
+        super().__init__(api_key, model, base_url or "https://api.openai.com/v1")
+
+    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        
-        payload = {
+
+        payload: Dict[str, Any] = {
             "model": self.model,
             "messages": messages
         }
-        
+
         # Add tools if provided, converting to OpenAI function format
         if tools:
             formatted_tools = []
             for tool in tools:
-                # Extract parameters from input_schema (OpenAI expects just the JSON schema)
                 input_schema = tool["input_schema"]
                 parameters = input_schema.get("parameters") if isinstance(input_schema, dict) else input_schema
-                
                 function_def = {
                     "name": tool["name"],
                     "description": tool["description"],
                     "parameters": parameters
                 }
                 formatted_tools.append({"type": "function", "function": function_def})
-            
+
             payload["tools"] = formatted_tools
             payload["tool_choice"] = "auto"
-        
+
         logger.debug(f"Sending chat completion request to {self.base_url}/chat/completions")
-        
+
         # Retry logic with exponential backoff
         max_retries = 3
         base_delay = 1.0
-        
+
         for attempt in range(max_retries + 1):
             try:
                 session = await get_session()
@@ -76,24 +81,21 @@ class LLMProvider:
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        
-                        # Extract response data
+
                         if "choices" not in data or not data["choices"]:
                             raise Exception("No choices in LLM response")
-                        
+
                         choice = data["choices"][0]["message"]
-                        # Some providers return explicit null for content when using tools
                         raw_content = choice.get("content")
                         content = raw_content if isinstance(raw_content, str) else ""
                         tool_calls = choice.get("tool_calls") or []
                         usage = data.get("usage", {})
-                        
+
                         content_len = len(content) if isinstance(content, str) else 0
                         logger.debug(f"LLM response: content_length={content_len}, tool_calls={len(tool_calls)}")
-                        
+
                         return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
-                    
-                    # Handle server errors with retry
+
                     elif response.status >= 500:
                         error_text = await response.text()
                         if attempt < max_retries:
@@ -103,13 +105,12 @@ class LLMProvider:
                             continue
                         else:
                             raise Exception(f"LLM API server error {response.status}: {error_text}")
-                    
-                    # Client errors - don't retry
+
                     else:
                         error_text = await response.text()
                         logger.error(f"LLM API error {response.status}: {error_text}")
                         raise Exception(f"LLM API error {response.status}: {error_text}")
-                        
+
             except aiohttp.ClientError as e:
                 if attempt < max_retries:
                     delay = base_delay * (2 ** attempt)
@@ -119,18 +120,16 @@ class LLMProvider:
                 else:
                     logger.error(f"HTTP error in LLM request after all retries: {e}")
                     raise Exception(f"Network error: {str(e)}")
-                    
+
             except json.JSONDecodeError as e:
                 logger.error(f"JSON decode error in LLM response: {e}")
                 raise Exception(f"Invalid JSON response: {str(e)}")
-                
+
             except Exception as e:
-                # For non-retryable errors, fail immediately
                 if "choices" in str(e) or "Invalid JSON" in str(e):
                     logger.error(f"LLM response error: {e}")
                     raise
-                    
-                # For other errors, retry if we have attempts left
+
                 if attempt < max_retries:
                     delay = base_delay * (2 ** attempt)
                     logger.warning(f"Unexpected error in LLM request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}")
@@ -139,6 +138,221 @@ class LLMProvider:
                 else:
                     logger.error(f"Unexpected error in LLM request after all retries: {e}")
                     raise
-        
-        # This should never be reached due to the raise statements above
+
         raise Exception("Maximum retries exceeded for LLM request")
+
+
+class AnthropicProvider(LLMProvider):
+    """Provider for Anthropic Messages API with tool use."""
+
+    API_VERSION = "2023-06-01"
+
+    def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
+        super().__init__(api_key, model, base_url or "https://api.anthropic.com")
+
+    def _format_tools(self, tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+        if not tools:
+            return None
+        formatted = []
+        for tool in tools:
+            # Anthropic expects input_schema at top-level of the tool specification
+            input_schema = tool.get("input_schema")
+            formatted.append({
+                "name": tool.get("name"),
+                "description": tool.get("description"),
+                "input_schema": input_schema,
+            })
+        return formatted
+
+    def _convert_messages(self, messages: List[Dict[str, Any]]):
+        system_parts: List[str] = []
+        anth_messages: List[Dict[str, Any]] = []
+
+        # Helper to append a message
+        def add_msg(role: str, blocks: List[Dict[str, Any]]):
+            if blocks:
+                anth_messages.append({"role": role, "content": blocks})
+
+        # Iterate and convert
+        pending_tool_results: List[Dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role")
+            if role == "system":
+                content = msg.get("content") or ""
+                system_parts.append(str(content))
+                continue
+
+            if role == "assistant":
+                blocks: List[Dict[str, Any]] = []
+                content = msg.get("content")
+                if content:
+                    blocks.append({"type": "text", "text": str(content)})
+                # Convert OpenAI-style tool_calls to Anthropic tool_use blocks
+                for call in (msg.get("tool_calls") or []):
+                    fn = call.get("function", {})
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": call.get("id") or fn.get("name"),
+                        "name": fn.get("name"),
+                        "input": json.loads(fn.get("arguments") or "{}") if isinstance(fn.get("arguments"), str) else fn.get("arguments") or {},
+                    })
+                add_msg("assistant", blocks)
+                continue
+
+            if role == "tool":
+                # Collect as tool_result blocks under a subsequent user message
+                pending_tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id"),
+                    "content": msg.get("content", ""),
+                    "name": msg.get("name"),
+                })
+                continue
+
+            if role in ("user",):
+                # Flush any pending tool results before new user message
+                if pending_tool_results:
+                    add_msg("user", pending_tool_results)
+                    pending_tool_results = []
+                content = msg.get("content") or ""
+                add_msg("user", [{"type": "text", "text": str(content)}])
+                continue
+
+        # Flush any remaining tool results at end
+        if pending_tool_results:
+            add_msg("user", pending_tool_results)
+
+        system_text = "\n".join([p for p in system_parts if p]) or None
+        return system_text, anth_messages
+
+    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
+        system_text, anth_messages = self._convert_messages(messages)
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": self.API_VERSION,
+            "content-type": "application/json",
+        }
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": anth_messages,
+        }
+        if system_text:
+            payload["system"] = system_text
+        formatted_tools = self._format_tools(tools)
+        if formatted_tools:
+            payload["tools"] = formatted_tools
+
+        url = f"{self.base_url}/v1/messages" if not self.base_url.endswith("/v1") else f"{self.base_url}/messages"
+        logger.debug(f"Sending Anthropic messages request to {url}")
+
+        # Retry with backoff
+        max_retries = 3
+        base_delay = 1.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                session = await get_session()
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        blocks = data.get("content", [])
+                        text_parts: List[str] = []
+                        tool_calls: List[Dict[str, Any]] = []
+                        for b in blocks:
+                            if b.get("type") == "text":
+                                text_parts.append(b.get("text", ""))
+                            elif b.get("type") == "tool_use":
+                                # Convert back to OpenAI-style tool_calls for agent
+                                tool_calls.append({
+                                    "id": b.get("id"),
+                                    "type": "function",
+                                    "function": {
+                                        "name": b.get("name"),
+                                        "arguments": json.dumps(b.get("input") or {}),
+                                    },
+                                })
+
+                        content = "\n".join([p for p in text_parts if p])
+                        usage = data.get("usage", {})
+                        return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
+
+                    elif response.status >= 500:
+                        error_text = await response.text()
+                        if attempt < max_retries:
+                            delay = base_delay * (2 ** attempt)
+                            logger.warning(f"Anthropic server error {response.status}, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1})")
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            raise Exception(f"Anthropic server error {response.status}: {error_text}")
+
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Anthropic API error {response.status}: {error_text}")
+                        raise Exception(f"Anthropic API error {response.status}: {error_text}")
+
+            except aiohttp.ClientError as e:
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"Network error in Anthropic request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"HTTP error in Anthropic request after all retries: {e}")
+                    raise Exception(f"Network error: {str(e)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error in Anthropic response: {e}")
+                raise Exception(f"Invalid JSON response: {str(e)}")
+            except Exception as e:
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"Unexpected error in Anthropic request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Unexpected error in Anthropic request after all retries: {e}")
+                    raise
+
+        raise Exception("Maximum retries exceeded for Anthropic request")
+
+
+def create_llm_provider() -> LLMProvider:
+    """Factory to create the configured LLM provider from Settings."""
+    provider = Settings.LLM_PROVIDER
+
+    if provider == "openai":
+        return OpenAICompatibleProvider(
+            api_key=Settings.OPENAI_API_KEY,
+            model=Settings.OPENAI_MODEL,
+            base_url=Settings.OPENAI_BASE_URL or "https://api.openai.com/v1",
+        )
+
+    if provider == "xai":
+        # xAI Grok exposes OpenAI-compatible /v1/chat/completions
+        return OpenAICompatibleProvider(
+            api_key=Settings.XAI_API_KEY or "",
+            model=Settings.XAI_MODEL,
+            base_url=Settings.XAI_BASE_URL,
+        )
+
+    if provider in ("openai_compat", "local"):
+        # Generic OpenAI-compatible server (e.g., Ollama/LM Studio/vLLM)
+        base_url = Settings.OPENAI_BASE_URL if provider == "openai_compat" else Settings.LOCAL_LLM_BASE_URL
+        api_key = Settings.OPENAI_API_KEY if provider == "openai_compat" else (Settings.LOCAL_LLM_API_KEY or "")
+        model = Settings.OPENAI_MODEL if provider == "openai_compat" else Settings.LOCAL_LLM_MODEL
+        return OpenAICompatibleProvider(api_key=api_key, model=model, base_url=base_url)
+
+    if provider == "anthropic":
+        return AnthropicProvider(
+            api_key=Settings.ANTHROPIC_API_KEY or "",
+            model=Settings.ANTHROPIC_MODEL,
+            base_url=Settings.ANTHROPIC_BASE_URL,
+        )
+
+    # Fallback
+    logger.warning(f"Unknown LLM_PROVIDER '{provider}', defaulting to OpenAI-compatible with OPENAI settings")
+    return OpenAICompatibleProvider(
+        api_key=Settings.OPENAI_API_KEY,
+        model=Settings.OPENAI_MODEL,
+        base_url=Settings.OPENAI_BASE_URL or "https://api.openai.com/v1",
+    )

@@ -22,7 +22,7 @@ except ImportError:
     pass  # Fallback to standard asyncio
 
 from .core.agent import SAMAgent
-from .core.llm_provider import LLMProvider
+from .core.llm_provider import LLMProvider, create_llm_provider
 from .core.memory import MemoryManager
 from .core.tools import ToolRegistry
 from .config.prompts import SOLANA_AGENT_PROMPT
@@ -170,11 +170,7 @@ async def setup_agent() -> SAMAgent:
     """Initialize the SAM agent with all tools and integrations."""
     
     # Initialize core components
-    llm = LLMProvider(
-        api_key=Settings.OPENAI_API_KEY,
-        model=Settings.OPENAI_MODEL,
-        base_url=Settings.OPENAI_BASE_URL
-    )
+    llm = create_llm_provider()
     
     memory = MemoryManager(Settings.SAM_DB_PATH)
     await memory.initialize()  # Initialize database tables
@@ -335,8 +331,21 @@ async def run_interactive_session(session_id: str):
         print(colorize(hr(), Style.FG_GRAY))
         print(colorize("Configuration", Style.BOLD))
         from .config.settings import Settings
-        print(f" OpenAI Model: {Settings.OPENAI_MODEL}")
-        print(f" OpenAI Base URL: {Settings.OPENAI_BASE_URL or 'default'}")
+        print(f" LLM Provider: {Settings.LLM_PROVIDER}")
+        if Settings.LLM_PROVIDER == 'openai':
+            print(f" OpenAI Model: {Settings.OPENAI_MODEL}")
+            print(f" OpenAI Base URL: {Settings.OPENAI_BASE_URL or 'default'}")
+        elif Settings.LLM_PROVIDER == 'anthropic':
+            print(f" Anthropic Model: {Settings.ANTHROPIC_MODEL}")
+            print(f" Anthropic Base URL: {Settings.ANTHROPIC_BASE_URL}")
+        elif Settings.LLM_PROVIDER == 'xai':
+            print(f" xAI Model: {Settings.XAI_MODEL}")
+            print(f" xAI Base URL: {Settings.XAI_BASE_URL}")
+        elif Settings.LLM_PROVIDER in ('openai_compat', 'local'):
+            model = Settings.OPENAI_MODEL if Settings.LLM_PROVIDER == 'openai_compat' else Settings.LOCAL_LLM_MODEL
+            base = Settings.OPENAI_BASE_URL if Settings.LLM_PROVIDER == 'openai_compat' else Settings.LOCAL_LLM_BASE_URL
+            print(f" Compatible Model: {model}")
+            print(f" Compatible Base URL: {base}")
         print(f" Solana RPC: {Settings.SAM_SOLANA_RPC_URL}")
         print(f" DB Path: {Settings.SAM_DB_PATH}")
         print(f" Rate Limiting: {'Enabled' if Settings.RATE_LIMITING_ENABLED else 'Disabled'}")
@@ -539,23 +548,94 @@ def _write_env_file(path: str, values: dict) -> None:
 
 
 async def run_onboarding() -> int:
-    """Streamlined onboarding - just the essentials."""
+    """Streamlined onboarding with provider selection."""
     print(banner("SAM Setup"))
     print()
 
     try:
-        # Step 1: OpenAI API Key
-        print(colorize("Step 1: OpenAI Configuration", Style.BOLD, Style.FG_CYAN))
-        print(colorize("Get your API key from: https://platform.openai.com/api-keys", Style.DIM))
-        openai_key = getpass.getpass("Enter your OpenAI API Key (hidden): ").strip()
-        while not openai_key:
-            print(colorize("API key is required to continue.", Style.FG_YELLOW))
-            openai_key = getpass.getpass("Enter your OpenAI API Key: ").strip()
+        # Step 1: LLM Provider Configuration
+        print(colorize("Step 1: LLM Configuration", Style.BOLD, Style.FG_CYAN))
+        print(colorize("Select your LLM provider:", Style.DIM))
+        print("1. OpenAI")
+        print("2. Anthropic (Claude)")
+        print("3. xAI (Grok)")
+        print("4. Local OpenAI-compatible (e.g., Ollama)")
+        provider_choice = (input("Choice (1-4, default: 1): ").strip() or "1")
 
-        # OpenAI Model
-        print()
-        print(colorize("OpenAI Model (default: gpt-4o):", Style.DIM))
-        model = input("Model: ").strip() or "gpt-4o"
+        provider_map = {
+            "1": "openai",
+            "2": "anthropic",
+            "3": "xai",
+            "4": "local",
+        }
+        provider = provider_map.get(provider_choice, "openai")
+
+        # Collect provider-specific config
+        config_data = {"LLM_PROVIDER": provider}
+
+        if provider == "openai":
+            print()
+            print(colorize("OpenAI API Key", Style.DIM))
+            print(colorize("Get your key: https://platform.openai.com/api-keys", Style.DIM))
+            openai_key = getpass.getpass("Enter your OpenAI API Key (hidden): ").strip()
+            while not openai_key:
+                print(colorize("API key is required.", Style.FG_YELLOW))
+                openai_key = getpass.getpass("Enter your OpenAI API Key: ").strip()
+            print()
+            model = input("OpenAI Model (default: gpt-4o-mini): ").strip() or "gpt-4o-mini"
+            base_url = input("OpenAI Base URL (blank for default): ").strip()
+            config_data.update({
+                "OPENAI_API_KEY": openai_key,
+                "OPENAI_MODEL": model,
+            })
+            if base_url:
+                config_data["OPENAI_BASE_URL"] = base_url
+
+        elif provider == "anthropic":
+            print()
+            print(colorize("Anthropic API Key", Style.DIM))
+            print(colorize("Get your key: https://console.anthropic.com/", Style.DIM))
+            ant_key = getpass.getpass("Enter your Anthropic API Key (hidden): ").strip()
+            while not ant_key:
+                print(colorize("API key is required.", Style.FG_YELLOW))
+                ant_key = getpass.getpass("Enter your Anthropic API Key: ").strip()
+            model = input("Anthropic Model (default: claude-3-5-sonnet-latest): ").strip() or "claude-3-5-sonnet-latest"
+            base_url = input("Anthropic Base URL (blank for default): ").strip()
+            config_data.update({
+                "ANTHROPIC_API_KEY": ant_key,
+                "ANTHROPIC_MODEL": model,
+            })
+            if base_url:
+                config_data["ANTHROPIC_BASE_URL"] = base_url
+
+        elif provider == "xai":
+            print()
+            print(colorize("xAI (Grok) API Key", Style.DIM))
+            print(colorize("Docs: https://docs.x.ai/", Style.DIM))
+            xai_key = getpass.getpass("Enter your xAI API Key (hidden): ").strip()
+            while not xai_key:
+                print(colorize("API key is required.", Style.FG_YELLOW))
+                xai_key = getpass.getpass("Enter your xAI API Key: ").strip()
+            model = input("xAI Model (default: grok-2-latest): ").strip() or "grok-2-latest"
+            base_url = input("xAI Base URL (default: https://api.x.ai/v1): ").strip() or "https://api.x.ai/v1"
+            config_data.update({
+                "XAI_API_KEY": xai_key,
+                "XAI_MODEL": model,
+                "XAI_BASE_URL": base_url,
+            })
+
+        elif provider == "local":
+            print()
+            print(colorize("Local OpenAI-compatible endpoint (e.g., Ollama/LM Studio)", Style.DIM))
+            base_url = input("Base URL (default: http://localhost:11434/v1): ").strip() or "http://localhost:11434/v1"
+            model = input("Model name (e.g., llama3.1): ").strip() or "llama3.1"
+            api_key = getpass.getpass("API Key if required (optional, hidden): ").strip()
+            config_data.update({
+                "LOCAL_LLM_BASE_URL": base_url,
+                "LOCAL_LLM_MODEL": model,
+            })
+            if api_key:
+                config_data["LOCAL_LLM_API_KEY"] = api_key
 
         # Step 2: Solana Configuration
         print()
@@ -596,10 +676,8 @@ async def run_onboarding() -> int:
         
         fernet_key = generate_encryption_key()
         
-        # Create complete config with user-provided and default settings
-        config_data = {
-            "OPENAI_API_KEY": openai_key,
-            "OPENAI_MODEL": model,
+        # Merge common config defaults
+        config_data.update({
             "SAM_FERNET_KEY": fernet_key,
             "SAM_DB_PATH": ".sam/sam_memory.db",
             "SAM_SOLANA_RPC_URL": rpc_url,
@@ -607,7 +685,7 @@ async def run_onboarding() -> int:
             "MAX_TRANSACTION_SOL": "1000",
             "DEFAULT_SLIPPAGE": "1",
             "LOG_LEVEL": "NO",
-        }
+        })
         
         # Add Brave API key if provided
         if brave_key:
@@ -628,8 +706,24 @@ async def run_onboarding() -> int:
             os.environ[key] = value
             
         # Update Settings class to reflect new values
-        Settings.OPENAI_API_KEY = openai_key
-        Settings.OPENAI_MODEL = model
+        # Apply provider-specific settings to runtime Settings
+        Settings.LLM_PROVIDER = provider
+        if provider == "openai":
+            Settings.OPENAI_API_KEY = config_data.get("OPENAI_API_KEY", "")
+            Settings.OPENAI_MODEL = config_data.get("OPENAI_MODEL", Settings.OPENAI_MODEL)
+            Settings.OPENAI_BASE_URL = config_data.get("OPENAI_BASE_URL", Settings.OPENAI_BASE_URL)
+        elif provider == "anthropic":
+            Settings.ANTHROPIC_API_KEY = config_data.get("ANTHROPIC_API_KEY")
+            Settings.ANTHROPIC_MODEL = config_data.get("ANTHROPIC_MODEL", Settings.ANTHROPIC_MODEL)
+            Settings.ANTHROPIC_BASE_URL = config_data.get("ANTHROPIC_BASE_URL", Settings.ANTHROPIC_BASE_URL)
+        elif provider == "xai":
+            Settings.XAI_API_KEY = config_data.get("XAI_API_KEY")
+            Settings.XAI_MODEL = config_data.get("XAI_MODEL", Settings.XAI_MODEL)
+            Settings.XAI_BASE_URL = config_data.get("XAI_BASE_URL", Settings.XAI_BASE_URL)
+        elif provider == "local":
+            Settings.LOCAL_LLM_BASE_URL = config_data.get("LOCAL_LLM_BASE_URL", Settings.LOCAL_LLM_BASE_URL)
+            Settings.LOCAL_LLM_MODEL = config_data.get("LOCAL_LLM_MODEL", Settings.LOCAL_LLM_MODEL)
+            Settings.LOCAL_LLM_API_KEY = config_data.get("LOCAL_LLM_API_KEY", Settings.LOCAL_LLM_API_KEY)
         Settings.SAM_FERNET_KEY = fernet_key
         Settings.SAM_DB_PATH = db_path
         Settings.SAM_SOLANA_RPC_URL = rpc_url

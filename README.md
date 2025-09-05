@@ -57,15 +57,37 @@ uv sync
 
 ### Configuration
 
-Create `.env` file with required variables:
+Create a `.env` file and choose your LLM provider. You can also run `uv run sam onboard` to be guided interactively.
 
 ```bash
-# Required
+# Choose provider: openai (default), anthropic, xai, openai_compat, local
+LLM_PROVIDER=openai
+
+# OpenAI
 OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4o-mini
+# OPENAI_BASE_URL=https://api.openai.com/v1  # optional override
+
+# Anthropic (Claude)
+# ANTHROPIC_API_KEY=your_anthropic_api_key
+# ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+# ANTHROPIC_BASE_URL=https://api.anthropic.com
+
+# xAI (Grok) — OpenAI-compatible
+# XAI_API_KEY=your_xai_api_key
+# XAI_MODEL=grok-2-latest
+# XAI_BASE_URL=https://api.x.ai/v1
+
+# Local OpenAI-compatible (e.g., Ollama/LM Studio/vLLM)
+# LOCAL_LLM_BASE_URL=http://localhost:11434/v1
+# LOCAL_LLM_MODEL=llama3.1
+# LOCAL_LLM_API_KEY=
+
+# Required for secure wallet storage
 SAM_FERNET_KEY=your_generated_key
 
-# Optional
-BRAVE_API_KEY=your_brave_api_key  # For web search functionality
+# Optional: Brave Search for web search tools
+# BRAVE_API_KEY=your_brave_api_key
 ```
 
 ### First Run
@@ -79,7 +101,7 @@ uv run sam
 ```
 
 On first run, configure:
-1. **OpenAI API Key** from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+1. **LLM Provider** (OpenAI, Anthropic/Claude, xAI/Grok, or Local OpenAI-compatible) and credentials
 2. **Solana Private Key** for wallet operations
 
 ### Start Trading
@@ -155,7 +177,7 @@ sam/
 ├── cli.py             # Command-line interface
 ├── core/              # Agent orchestration and LLM integration
 │   ├── agent.py       # Main SAMAgent class
-│   ├── llm_provider.py # OpenAI API integration
+│   ├── llm_provider.py # Multi‑LLM providers (OpenAI‑compatible, Anthropic) + factory
 │   ├── memory.py      # Conversation persistence
 │   └── tools.py       # Tool registry and execution
 ├── config/            # Configuration and prompts
@@ -203,18 +225,18 @@ sam tools                    # List available tools
 
 ## Configuration Options
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key | Required |
-| `OPENAI_MODEL` | OpenAI model to use | gpt-5-nano |
-| `SAM_FERNET_KEY` | Fernet encryption key | Required |
-| `SAM_SOLANA_RPC_URL` | Solana RPC endpoint | https://api.mainnet-beta.solana.com |
-| `SAM_DB_PATH` | Database file path | .sam/sam_memory.db |
-| `BRAVE_API_KEY` | Brave Search API key | Optional |
-| `RATE_LIMITING_ENABLED` | Enable rate limiting | false |
-| `MAX_TRANSACTION_SOL` | Maximum transaction size | 1000.0 |
-| `DEFAULT_SLIPPAGE` | Default slippage tolerance | 1 |
-| `LOG_LEVEL` | Logging level | INFO |
+- LLM
+  - `LLM_PROVIDER`: one of `openai` (default), `anthropic`, `xai`, `openai_compat`, `local`.
+  - OpenAI: `OPENAI_API_KEY` (required), `OPENAI_MODEL` (default `gpt-4o-mini`), `OPENAI_BASE_URL` (optional).
+  - Anthropic: `ANTHROPIC_API_KEY` (required), `ANTHROPIC_MODEL` (default `claude-3-5-sonnet-latest`), `ANTHROPIC_BASE_URL` (optional).
+  - xAI (Grok): `XAI_API_KEY` (required), `XAI_MODEL` (default `grok-2-latest`), `XAI_BASE_URL` (default `https://api.x.ai/v1`).
+  - Local/OpenAI-compatible: `LOCAL_LLM_BASE_URL` (default `http://localhost:11434/v1`), `LOCAL_LLM_MODEL` (e.g., `llama3.1`), `LOCAL_LLM_API_KEY` (optional).
+- Security: `SAM_FERNET_KEY` (required).
+- Solana: `SAM_SOLANA_RPC_URL` (default `https://api.mainnet-beta.solana.com`).
+- Storage: `SAM_DB_PATH` (default `.sam/sam_memory.db`).
+- Web Search: `BRAVE_API_KEY` (optional).
+- Safety: `RATE_LIMITING_ENABLED`, `MAX_TRANSACTION_SOL`, `DEFAULT_SLIPPAGE`.
+- Logging: `LOG_LEVEL` (use `NO` to suppress logs in TTY UI).
 
 ## Examples
 

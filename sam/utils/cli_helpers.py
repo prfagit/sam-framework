@@ -91,10 +91,25 @@ class CLIFormatter:
         return f"{top}\n" + "\n".join(boxed_lines) + f"\n{bottom}"
 
 
+def _llm_api_configured() -> bool:
+    """Check if the configured LLM provider has the required API key or base URL."""
+    provider = Settings.LLM_PROVIDER
+    if provider == "openai":
+        return bool(Settings.OPENAI_API_KEY)
+    if provider == "anthropic":
+        return bool(Settings.ANTHROPIC_API_KEY)
+    if provider == "xai":
+        return bool(Settings.XAI_API_KEY)
+    if provider in ("openai_compat", "local"):
+        base = Settings.OPENAI_BASE_URL if provider == "openai_compat" else Settings.LOCAL_LLM_BASE_URL
+        return bool(base)
+    return False
+
+
 def check_setup_status() -> Dict[str, Any]:
     """Check if SAM is properly set up."""
     status = {
-        "openai_api_key": bool(Settings.OPENAI_API_KEY),
+        "openai_api_key": _llm_api_configured(),
         "wallet_configured": False,
         "database_path": Settings.SAM_DB_PATH,
         "rpc_url": Settings.SAM_SOLANA_RPC_URL,
@@ -120,10 +135,20 @@ def check_setup_status() -> Dict[str, Any]:
         status["issues"].append(f"Wallet check failed: {e}")
         status["recommendations"].append("Check secure storage setup")
     
-    # Check API key
+    # Check API key / provider configuration
     if not status["openai_api_key"]:
-        status["issues"].append("OpenAI API key not set")
-        status["recommendations"].append("Set OPENAI_API_KEY environment variable")
+        if Settings.LLM_PROVIDER == "openai":
+            status["issues"].append("OpenAI API key not set")
+            status["recommendations"].append("Set OPENAI_API_KEY environment variable")
+        elif Settings.LLM_PROVIDER == "anthropic":
+            status["issues"].append("Anthropic API key not set")
+            status["recommendations"].append("Set ANTHROPIC_API_KEY environment variable")
+        elif Settings.LLM_PROVIDER == "xai":
+            status["issues"].append("xAI API key not set")
+            status["recommendations"].append("Set XAI_API_KEY environment variable")
+        else:
+            status["issues"].append("OpenAI-compatible base URL not configured")
+            status["recommendations"].append("Set OPENAI_BASE_URL or LOCAL_LLM_BASE_URL depending on provider")
     
     # Check database path
     if not os.path.exists(os.path.dirname(status["database_path"]) or "."):
@@ -151,10 +176,10 @@ def show_setup_status(verbose: bool = False):
     print(CLIFormatter.header("Setup Status"))
     
     # Show status checks
-    api_status = "✅ Connected" if status["openai_api_key"] else "❌ Missing"
+    api_status = "✅ Configured" if status["openai_api_key"] else "❌ Missing"
     wallet_status = "✅ Configured" if status["wallet_configured"] else "❌ Not configured"
     
-    print(f"OpenAI API: {api_status}")
+    print(f"LLM Provider ({Settings.LLM_PROVIDER}): {api_status}")
     print(f"Wallet:     {wallet_status}")
     print(f"RPC URL:    {CLIFormatter.colorize(status['rpc_url'], CLIFormatter.DIM)}")
     
@@ -184,12 +209,20 @@ def show_onboarding_guide():
     
     if not status["openai_api_key"]:
         steps.append({
-            "title": "1️⃣  Set up OpenAI API Key",
+            "title": "1️⃣  Configure LLM Provider",
             "commands": [
-                "export OPENAI_API_KEY='your-api-key-here'",
-                "# Or add to your ~/.bashrc or ~/.zshrc"
+                "# Example for OpenAI",
+                "export LLM_PROVIDER=openai",
+                "export OPENAI_API_KEY='your-api-key'",
+                "# Example for Anthropic",
+                "# export LLM_PROVIDER=anthropic",
+                "# export ANTHROPIC_API_KEY='your-api-key'",
+                "# Example for local OpenAI-compatible (e.g., Ollama)",
+                "# export LLM_PROVIDER=local",
+                "# export LOCAL_LLM_BASE_URL='http://localhost:11434/v1'",
+                "# export LOCAL_LLM_MODEL='llama3.1'",
             ],
-            "description": "Get your API key from: https://platform.openai.com/api-keys"
+            "description": "Set LLM_PROVIDER and required credentials for your provider"
         })
     
     if not status["wallet_configured"]:
