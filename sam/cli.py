@@ -28,14 +28,13 @@ from .core.tools import ToolRegistry
 from .config.prompts import SOLANA_AGENT_PROMPT
 from .config.settings import Settings, setup_logging
 from .utils.crypto import encrypt_private_key, decrypt_private_key, generate_encryption_key
-from .utils.secure_storage import get_secure_storage, _secure_storage
+from .utils.secure_storage import get_secure_storage
 from .utils.http_client import cleanup_http_client
 from .utils.connection_pool import cleanup_database_pool
 from .utils.rate_limiter import cleanup_rate_limiter
 from .utils.cli_helpers import (
-    CLIFormatter, show_welcome_banner, show_setup_status, show_onboarding_guide,
-    show_quick_help, format_balance_display, format_error_for_cli, 
-    is_first_run, show_first_run_experience, show_startup_summary, check_setup_status
+    CLIFormatter, show_setup_status, show_onboarding_guide,
+    show_first_run_experience, show_startup_summary, check_setup_status
 )
 from .utils.price_service import cleanup_price_service
 from .integrations.solana.solana_tools import SolanaTools, create_solana_tools
@@ -1031,9 +1030,47 @@ async def main():
         return 0
     
     if args.command == "tools":
-        agent = await setup_agent()
-        show_available_tools()
-        await cleanup_agent(agent)
+        # Add tool specs without initializing full agents
+        solana_specs = [
+            {"name": "get_balance", "description": "Check SOL balance for addresses"},
+            {"name": "transfer_sol", "description": "Send SOL between addresses"},
+            {"name": "get_token_data", "description": "Fetch token metadata"},
+        ]
+
+        pump_specs = [
+            {"name": "pump_fun_buy", "description": "Buy tokens on pump.fun"},
+            {"name": "pump_fun_sell", "description": "Sell tokens on pump.fun"},
+            {"name": "get_token_trades", "description": "View trading activity"},
+            {"name": "get_pump_token_info", "description": "Get token information"},
+        ]
+
+        jupiter_specs = [
+            {"name": "get_swap_quote", "description": "Get swap quotes"},
+            {"name": "jupiter_swap", "description": "Execute token swaps"},
+            {"name": "get_jupiter_tokens", "description": "List available tokens"},
+        ]
+
+        dex_specs = [
+            {"name": "search_pairs", "description": "Find trading pairs"},
+            {"name": "get_token_pairs", "description": "Get pairs for tokens"},
+            {"name": "get_solana_pair", "description": "Detailed pair information"},
+            {"name": "get_trending_pairs", "description": "Top performing pairs"},
+        ]
+
+        print(colorize("🔧 Available Tools", Style.BOLD, Style.FG_CYAN))
+        print()
+
+        for category, specs in [
+            ("💰 Wallet & Balance", solana_specs),
+            ("🚀 Pump.fun", pump_specs),
+            ("🌌 Jupiter Swaps", jupiter_specs),
+            ("📈 Market Data", dex_specs),
+        ]:
+            print(colorize(category, Style.BOLD))
+            for spec in specs:
+                print(f"   • {spec['name']}: {spec['description']}")
+            print()
+
         return 0
     
     if args.command == "maintenance":

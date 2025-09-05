@@ -1,7 +1,7 @@
 """Pre-transaction validation to prevent errors and provide warnings."""
 
 import logging
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Optional, List
 from dataclasses import dataclass
 from .price_service import get_price_service
 
@@ -43,7 +43,7 @@ class TransactionValidator:
         
         # Check if insufficient balance
         if wallet_balance < total_needed:
-            errors.append(f"Insufficient SOL balance")
+            errors.append("Insufficient SOL balance")
             errors.append(f"Need: {total_needed:.4f} SOL (transaction + fees)")
             errors.append(f"Have: {wallet_balance:.4f} SOL")
             suggestions.append("Add more SOL to your wallet")

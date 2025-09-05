@@ -5,7 +5,7 @@ import logging
 import time
 import traceback
 import asyncio
-from typing import Dict, Any, Callable, Optional, Union
+from typing import Dict, Any, Callable
 from .error_handling import get_error_tracker, ErrorSeverity
 
 logger = logging.getLogger(__name__)

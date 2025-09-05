@@ -1,8 +1,7 @@
 """CLI helpers for better user experience and onboarding."""
 
 import os
-import sys
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from ..config.settings import Settings
 from .secure_storage import get_secure_storage
 
@@ -286,7 +285,6 @@ def format_balance_display(balance_data: Dict[str, Any]) -> str:
         for token in tokens[:10]:  # Show first 10 tokens
             mint = token.get("mint", "Unknown")
             amount = token.get("uiAmount", 0)
-            decimals = token.get("decimals", 9)
             
             # Short mint address
             short_mint = f"{mint[:6]}...{mint[-4:]}" if len(mint) > 12 else mint

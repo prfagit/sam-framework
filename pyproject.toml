@@ -8,9 +8,41 @@ packages = ["sam"]
 [project]
 name = "sam-framework"
 version = "0.1.0"
-description = "SAM (Solana Agent Middleware) - An AI agent framework for Solana blockchain operations"
+description = "SAM (Solana Agent Middleware) - An AI agent framework for Solana blockchain operations and automated trading"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+    {name = "prfa", email = "prfa@prfa.me"},
+]
+maintainers = [
+    {name = "prfa", email = "prfa@prfa.me"},
+]
+keywords = [
+    "solana",
+    "blockchain",
+    "ai-agent",
+    "trading",
+    "defi",
+    "pump-fun",
+    "jupiter",
+    "dexscreener",
+    "automation",
+    "cryptocurrency",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Internet :: WWW/HTTP",
+]
 dependencies = [
     "aiohttp>=3.9.0",
     "aiosqlite>=0.20.0",
@@ -25,6 +57,12 @@ dependencies = [
     "solders>=0.20.0,<0.22.0",
     "uvloop>=0.21.0",
 ]
+
+[project.urls]
+Homepage = "https://prfa.me"
+Repository = "https://github.com/prfagit/sam-framework"
+Issues = "https://github.com/prfagit/sam-framework/issues"
+Documentation = "https://github.com/prfagit/sam-framework#readme"
 
 [project.scripts]
 sam = "sam.cli:app"

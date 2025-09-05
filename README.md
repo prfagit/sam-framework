@@ -1,234 +1,288 @@
-# SAM Framework - Solana Agent Middleware
+# SAM Framework
 
-An advanced AI agent framework specialized for Solana blockchain operations and memecoin trading. Built with modern Python async patterns and production-ready architecture.
+**Solana Agent Middleware** - An AI-powered framework for automated trading and DeFi operations on Solana blockchain.
 
-## Features
+Created by [@prfa](https://twitter.com/prfa) • [@prfagit](https://github.com/prfagit) • [prfa.me](https://prfa.me)
 
-- **Async-first architecture** with uvloop for maximum performance
-- **Secure private key storage** with Fernet encryption
-- **Persistent memory** with session context and user preferences
-- **Modular tool system** supporting Solana, Pump.fun, and DexScreener
-- **OpenAI-compatible LLM** provider with custom endpoint support
-- **Comprehensive testing** with pytest and async support
-- **Type-safe** with pydantic models and mypy validation
+## What is SAM?
+
+SAM is an intelligent agent framework that enables AI-driven trading and portfolio management on the Solana blockchain. It provides a comprehensive toolkit for:
+
+- **Automated Trading**: Execute trades across Pump.fun, Jupiter aggregator, and DEXs
+- **Portfolio Management**: Track balances, positions, and transaction history
+- **Market Analysis**: Real-time data from DexScreener and blockchain sources
+- **Risk Management**: Built-in safety limits, slippage protection, and validation
+- **Secure Operations**: Encrypted key storage with system keyring integration
+
+## Key Features
+
+- **14 Production-Ready Tools** for Solana ecosystem operations
+- **Secure Key Management** with Fernet encryption and OS keyring
+- **Async Architecture** optimized for high-performance trading
+- **Persistent Memory** with conversation context and trade history
+- **Rate Limiting & Safety** built-in protection against abuse
+- **Clean CLI Interface** with comprehensive command suite
+- **Real Blockchain Integration** - no mock data, live operations
 
 ## Quick Start
 
 ### 1. Installation
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd sam_framework
+# Install with UV package manager
+uv pip install sam-framework
 
-# Install dependencies with UV
+# Or clone and install from source
+git clone https://github.com/prfagit/sam-framework
+cd sam-framework
 uv sync
-
-# Copy environment template
-cp .env.example .env
 ```
 
 ### 2. Configuration
 
-Edit `.env` with your settings:
+Create a `.env` file with required settings:
 
 ```bash
-# Required: OpenAI API key
-OPENAI_API_KEY=your_openai_api_key
+# Required: OpenAI API key for AI agent
+OPENAI_API_KEY=sk-your-openai-api-key
 
-# Required: Generate encryption key for private key storage
-SAM_FERNET_KEY=your_fernet_key
+# Required: Generate encryption key for secure storage
+SAM_FERNET_KEY=your-generated-fernet-key
 
-# Optional: Custom LLM endpoint
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+# Optional: Solana RPC endpoint (defaults to mainnet)
+SAM_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 
-# Solana configuration
-SAM_SOLANA_RPC_URL=https://api.devnet.solana.com
+# Optional: Database path
 SAM_DB_PATH=.sam/sam_memory.db
 ```
 
-### 3. Generate Encryption Key
+### 3. Setup
 
 ```bash
-# Generate a new Fernet key for secure storage
-uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Generate encryption key
+sam generate-key
+
+# Import your Solana private key securely
+sam key import
+
+# Run system health check
+sam health
 ```
 
-### 4. Import Private Key (Secure)
+### 4. Start Trading
 
 ```bash
-# Securely import your Solana private key
-uv run sam key import
+# Launch interactive agent
+sam run
+
+# Or run with custom session
+sam run --session trading_session
 ```
 
-### 5. Run the Agent
+## What You Can Build
+
+### Auto Trading Bot
+```python
+# Agent automatically executes trades based on AI analysis
+"Buy 0.1 SOL of trending meme coins on pump.fun"
+"Sell 50% of my DOGE position if price drops 10%"
+"Monitor BONK/USDC pair and alert on large volume spikes"
+```
+
+### Smart Portfolio Management
+```python
+# AI-driven portfolio rebalancing and position management
+"Check my current SOL and token balances"
+"Show my trading history for the past week"
+"Rebalance portfolio: 40% SOL, 30% stablecoins, 30% altcoins"
+```
+
+### DeFi Operations
+```python
+# Automated DEX interactions and arbitrage
+"Swap 1 SOL for USDC at best available price on Jupiter"
+"Find the best rate for BONK to SOL conversion"
+"Execute arbitrage between pump.fun and Raydium pairs"
+```
+
+### Market Analysis & Research
+```python
+# Real-time market data and analysis
+"Show trending pairs on DexScreener"
+"Get detailed information about BONK token"
+"Search for new meme coins with high volume"
+```
+
+## Available Tools
+
+### Trading & Transactions
+- **Pump.fun**: Buy/sell meme coins with automated execution
+- **Jupiter**: Best-price token swaps across DEX aggregators
+- **Solana Native**: Direct SOL transfers and balance management
+
+### Market Data & Analytics
+- **DexScreener**: Real-time pair data, trending tokens, volume analysis
+- **Token Information**: Metadata, trading history, holder analysis
+- **Price Feeds**: Live price data from multiple sources
+
+### Portfolio & Risk Management
+- **Balance Tracking**: SOL and token holdings across wallets
+- **Transaction History**: Complete trade history and performance
+- **Safety Limits**: Configurable transaction limits and slippage protection
+
+## Architecture
+
+```
+sam/
+├── core/              # Agent orchestration and LLM integration
+├── integrations/      # Blockchain and DeFi protocol connectors
+│   ├── solana/        # Native Solana RPC operations
+│   ├── pump_fun.py    # Pump.fun trading integration
+│   ├── jupiter.py     # Jupiter aggregator swaps
+│   └── dexscreener.py # Market data and analytics
+├── config/            # System prompts and configuration
+├── utils/             # Security, validation, and utilities
+└── cli.py            # Command-line interface
+```
+
+## Security & Safety
+
+- **Encrypted Key Storage**: Private keys secured with Fernet encryption
+- **OS Keyring Integration**: System-level credential storage
+- **Transaction Validation**: Pre-execution safety checks and limits
+- **Rate Limiting**: Built-in protection against API abuse
+- **Slippage Protection**: Configurable slippage tolerance (1-50%)
+- **Address Validation**: Solana address format verification
+
+## CLI Commands
 
 ```bash
-# Start interactive session
-uv run sam run
+# Agent Operations
+sam run [--session ID]        # Start interactive trading agent
+sam health                    # System health diagnostics
+sam maintenance              # Database cleanup and optimization
 
-# Or with custom session ID
-uv run sam run --session trading_bot
+# Security & Configuration
+sam key import               # Secure private key import
+sam generate-key             # Generate encryption keys
+sam setup                    # Interactive configuration setup
+
+# Development & Testing
+sam tools                    # List available tools
+sam test                     # Run test suite
 ```
 
-## Available Commands
+## Configuration Options
 
-### Agent Operations
-```bash
-sam run [--session SESSION_ID]     # Start interactive agent
-sam health                         # Check system health
-sam maintenance                    # Clean up old data
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key for AI agent | Required |
+| `SAM_FERNET_KEY` | Encryption key for secure storage | Required |
+| `SAM_SOLANA_RPC_URL` | Solana RPC endpoint | mainnet-beta |
+| `RATE_LIMITING_ENABLED` | Enable rate limiting | true |
+| `MAX_TRANSACTION_SOL` | Maximum transaction size | 1000 SOL |
+| `DEFAULT_SLIPPAGE` | Default slippage tolerance | 1% |
+
+## Examples
+
+### Basic Trading
+```
+User: "Buy 0.01 SOL worth of BONK on pump.fun"
+Agent: Executes transaction with 5% slippage protection
+
+User: "Check my balance"
+Agent: Returns complete portfolio overview
+
+User: "Show trending pairs on DexScreener"
+Agent: Displays top performing trading pairs
 ```
 
-### Key Management
-```bash
-sam key import                     # Import private key securely
-sam generate-key                   # Generate new encryption key
+### Advanced Automation
+```
+User: "Monitor DOGE price and sell if it drops 15%"
+Agent: Sets up automated monitoring and execution
+
+User: "Swap my entire SOL position to USDC"
+Agent: Executes optimal swap via Jupiter aggregator
+
+User: "Analyze my trading performance this month"
+Agent: Provides detailed performance metrics
 ```
 
-## Supported Tools
+### Risk Management
+```
+User: "Set maximum transaction size to 0.1 SOL"
+Agent: Updates safety limits
 
-### Solana Blockchain
-- `get_balance` - Check SOL balance for addresses
-- `transfer_sol` - Send SOL between addresses
-- `get_token_data` - Fetch token metadata
-
-### Pump.fun Integration
-- `pump_fun_buy` - Buy meme coins
-- `pump_fun_sell` - Sell token holdings
-- `get_token_trades` - View trading activity
-
-### Jupiter Aggregator
-- `get_swap_quote` - Get best swap prices
-- `jupiter_swap` - Execute token swaps
-- `get_jupiter_tokens` - List available tokens
-
-### DexScreener Analytics
-- `search_pairs` - Find trading pairs
-- `get_token_pairs` - Get pairs for specific tokens
-- `get_solana_pair` - Detailed pair information
-- `get_trending_pairs` - Top performing pairs
-
-### Brave Search
-- `search_web` - Search the internet for current information
-- `search_news` - Search for recent news and current events
+User: "Enable high slippage protection for volatile tokens"
+Agent: Adjusts slippage to 10% for pump.fun trades
+```
 
 ## Development
 
 ### Testing
-
 ```bash
-# Run all tests
+# Run complete test suite
 uv run pytest tests/ -v
 
 # Run specific test categories
-uv run pytest tests/test_memory.py -v
-uv run pytest tests/test_integration.py -v
+uv run pytest tests/test_integration.py
+uv run pytest tests/test_security.py
 ```
 
 ### Code Quality
-
 ```bash
-# Format code
-uv run ruff format sam/
-
-# Lint code
-uv run ruff check sam/ --fix
+# Format and lint code
+uv run ruff check --fix
+uv run black .
 
 # Type checking
 uv run mypy sam/
 ```
 
-## Architecture
+## Production Deployment
 
-### Core Components
-
-- **Agent** (`sam/core/agent.py`) - Main orchestration loop with LLM interaction
-- **LLM Provider** (`sam/core/llm_provider.py`) - OpenAI-compatible API client with retry logic
-- **Tools** (`sam/core/tools.py`) - Modular tool system with validation
-- **Memory** (`sam/core/memory.py`) - Persistent async SQLite storage
-
-### Security Features
-
-- **Keyring Storage** - OS-level secure private key storage
-- **Fernet Encryption** - AES 128 encryption for sensitive data
-- **Rate Limiting** - Redis-based token bucket rate limiting
-- **Input Validation** - Pydantic schema validation for all inputs
-
-### Monitoring & Recovery
-
-- **Error Tracking** - Comprehensive error logging with severity levels
-- **Health Checks** - System component health monitoring
-- **Circuit Breakers** - Automatic failure recovery
-- **Maintenance Tools** - Automated cleanup and optimization
-
-## Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `OPENAI_API_KEY` | OpenAI API key | None | Yes |
-| `SAM_FERNET_KEY` | Encryption key for secure storage | None | Yes |
-| `SAM_SOLANA_RPC_URL` | Solana RPC endpoint | devnet | No |
-| `OPENAI_BASE_URL` | Custom LLM endpoint | OpenAI API | No |
-| `OPENAI_MODEL` | LLM model name | gpt-4o-mini | No |
-| `SAM_DB_PATH` | Database file path | .sam/sam_memory.db | No |
-| `REDIS_URL` | Redis connection for rate limiting | localhost:6379 | No |
-| `RATE_LIMITING_ENABLED` | Enable/disable rate limiting | true | No |
-| `BRAVE_API_KEY` | Brave Search API key for web search | None | No |
-` | Logging verbosity | INFO | No |
-
-## Safety Features
-
-- **Transaction Limits** - Configurable SOL amount limits
-- **Slippage Protection** - 1-50% slippage tolerance on trades
-- **Address Validation** - Solana address format verification
-- **Rate Limiting** - Per-tool rate limits to prevent abuse
-- **Devnet Default** - Safe testing environment by default
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Private Key Errors**
-   ```bash
-   sam generate-key  # Generate new encryption key
-   sam key import    # Re-import private key
-   ```
-
-2. **Database Issues**
-   ```bash
-   sam maintenance   # Clean up corrupted data
-   ```
-
-3. **Rate Limiting**
-   ```bash
-   # Check Redis connection or disable rate limiting
-   export RATE_LIMITING_ENABLED=false
-   ```
-
-### Health Diagnostics
-
+### Environment Setup
 ```bash
-# Comprehensive system check
+# Production configuration
+SAM_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+RATE_LIMITING_ENABLED=true
+LOG_LEVEL=WARNING
+MAX_TRANSACTION_SOL=10.0
+```
+
+### Monitoring
+```bash
+# Health checks
 sam health
 
-# View recent errors
-tail -f ~/.sam/logs/sam.log
+# Maintenance
+sam maintenance
+
+# View logs
+tail -f .sam/logs/sam.log
 ```
+
+## Requirements
+
+- Python 3.11+
+- OpenAI API key
+- Solana wallet with private key
+- Internet connection for blockchain/RPC access
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+MIT License
 
 ## Support
 
-For issues, questions, or contributions, please use the GitHub repository.
+- **Documentation**: See `/docs` directory
+- **Issues**: GitHub Issues
+- **Discussions**: GitHub Discussions
+- **Twitter**: [@prfa](https://twitter.com/prfa)
+
+---
+
+**Built for serious traders and DeFi enthusiasts who demand reliability, security, and automation.**
+
+Created by [@prfa](https://twitter.com/prfa) • [@prfagit](https://github.com/prfagit) • [prfa.me](https://prfa.me)

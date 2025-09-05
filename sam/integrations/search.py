@@ -1,7 +1,6 @@
 """Search Tools Integration for SAM Framework."""
 
 import logging
-import aiohttp
 import os
 from typing import Dict, Any, List, Optional
 from ..core.tools import Tool, ToolSpec

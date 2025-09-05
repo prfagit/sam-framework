@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-import aiosqlite
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
