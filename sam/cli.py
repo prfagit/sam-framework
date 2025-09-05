@@ -543,21 +543,50 @@ async def run_onboarding() -> int:
 
     try:
         # Step 1: OpenAI API Key
-        print(colorize("Step 1: OpenAI API Key", Style.BOLD, Style.FG_CYAN))
+        print(colorize("Step 1: OpenAI Configuration", Style.BOLD, Style.FG_CYAN))
         print(colorize("Get your API key from: https://platform.openai.com/api-keys", Style.DIM))
         openai_key = getpass.getpass("Enter your OpenAI API Key (hidden): ").strip()
         while not openai_key:
             print(colorize("API key is required to continue.", Style.FG_YELLOW))
             openai_key = getpass.getpass("Enter your OpenAI API Key: ").strip()
 
-        # Step 2: Solana Private Key  
+        # OpenAI Model
         print()
-        print(colorize("Step 2: Solana Wallet", Style.BOLD, Style.FG_CYAN))
+        print(colorize("OpenAI Model (default: gpt-4o):", Style.DIM))
+        model = input("Model: ").strip() or "gpt-4o"
+
+        # Step 2: Solana Configuration
+        print()
+        print(colorize("Step 2: Solana Configuration", Style.BOLD, Style.FG_CYAN))
+        print(colorize("Choose RPC endpoint (default: mainnet):", Style.DIM))
+        print("1. Mainnet (https://api.mainnet-beta.solana.com)")
+        print("2. Devnet (https://api.devnet.solana.com)")
+        print("3. Custom URL")
+        rpc_choice = input("Choice (1-3): ").strip() or "1"
+        
+        if rpc_choice == "2":
+            rpc_url = "https://api.devnet.solana.com"
+        elif rpc_choice == "3":
+            rpc_url = input("Enter custom RPC URL: ").strip()
+            while not rpc_url:
+                rpc_url = input("RPC URL is required: ").strip()
+        else:
+            rpc_url = "https://api.mainnet-beta.solana.com"
+
+        # Solana Private Key
+        print()
         print(colorize("This enables trading and balance checks. Your key is encrypted and stored securely.", Style.DIM))
         private_key = getpass.getpass("Enter your Solana private key (hidden): ").strip()
         while not private_key:
             print(colorize("Private key is required for wallet operations.", Style.FG_YELLOW))
             private_key = getpass.getpass("Enter your Solana private key: ").strip()
+
+        # Step 3: Brave Search API (Optional)
+        print()
+        print(colorize("Step 3: Brave Search API (Optional)", Style.BOLD, Style.FG_CYAN))
+        print(colorize("Enables web search functionality. Leave empty to skip.", Style.DIM))
+        print(colorize("Get API key from: https://api.search.brave.com/", Style.DIM))
+        brave_key = getpass.getpass("Enter Brave API Key (optional, hidden): ").strip()
 
         # Auto-generate everything else with sensible defaults
         print()
@@ -565,20 +594,48 @@ async def run_onboarding() -> int:
         
         fernet_key = generate_encryption_key()
         
-        # Create minimal config - everything else uses defaults
+        # Create complete config with user-provided and default settings
         config_data = {
             "OPENAI_API_KEY": openai_key,
+            "OPENAI_MODEL": model,
             "SAM_FERNET_KEY": fernet_key,
-            "LOG_LEVEL": "NO",  # Clean interface by default
+            "SAM_DB_PATH": ".sam/sam_memory.db",
+            "SAM_SOLANA_RPC_URL": rpc_url,
+            "RATE_LIMITING_ENABLED": "false",
+            "MAX_TRANSACTION_SOL": "1000",
+            "DEFAULT_SLIPPAGE": "1",
+            "LOG_LEVEL": "NO",
         }
+        
+        # Add Brave API key if provided
+        if brave_key:
+            config_data["BRAVE_API_KEY"] = brave_key
+        
+        # Create .env file for persistence
+        env_path = ".env"
+        with open(env_path, "w") as f:
+            for key, value in config_data.items():
+                f.write(f"{key}={value}\n")
+        
+        # Create database directory if it doesn't exist
+        db_path = config_data["SAM_DB_PATH"]
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
         
         # Apply to current environment
         for key, value in config_data.items():
             os.environ[key] = value
             
-        # Update Settings class
+        # Update Settings class to reflect new values
         Settings.OPENAI_API_KEY = openai_key
+        Settings.OPENAI_MODEL = model
         Settings.SAM_FERNET_KEY = fernet_key
+        Settings.SAM_DB_PATH = db_path
+        Settings.SAM_SOLANA_RPC_URL = rpc_url
+        Settings.RATE_LIMITING_ENABLED = False
+        Settings.MAX_TRANSACTION_SOL = float(config_data["MAX_TRANSACTION_SOL"])
+        Settings.DEFAULT_SLIPPAGE = int(config_data["DEFAULT_SLIPPAGE"])
         Settings.LOG_LEVEL = "NO"
         
         # Store private key securely
