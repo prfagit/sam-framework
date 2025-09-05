@@ -537,137 +537,72 @@ def _write_env_file(path: str, values: dict) -> None:
 
 
 async def run_onboarding() -> int:
-    """Interactive onboarding to set up environment variables and secure key storage."""
-    print(banner("First-time Setup — SAM Framework"))
-    print(colorize("Let’s configure required settings. Press Enter to accept defaults.", Style.DIM))
+    """Streamlined onboarding - just the essentials."""
+    print(banner("SAM Setup"))
     print()
 
-    # Required: OpenAI API key
     try:
-        print(colorize("Get your OpenAI API key from: https://platform.openai.com/api-keys", Style.DIM))
-        openai_key = getpass.getpass("OpenAI API Key (hidden): ").strip()
+        # Step 1: OpenAI API Key
+        print(colorize("Step 1: OpenAI API Key", Style.BOLD, Style.FG_CYAN))
+        print(colorize("Get your API key from: https://platform.openai.com/api-keys", Style.DIM))
+        openai_key = getpass.getpass("Enter your OpenAI API Key (hidden): ").strip()
         while not openai_key:
-            print(colorize("An API key is required.", Style.FG_YELLOW))
-            openai_key = getpass.getpass("OpenAI API Key: ").strip()
+            print(colorize("API key is required to continue.", Style.FG_YELLOW))
+            openai_key = getpass.getpass("Enter your OpenAI API Key: ").strip()
 
-        # Fernet key: generate automatically
-        print(colorize("Generating encryption key (Fernet) for secure storage...", Style.DIM))
-        fernet_key = generate_encryption_key()
-
-        # Network choice + RPC URL (default to mainnet for production)
-        default_rpc = Settings.SAM_SOLANA_RPC_URL or "https://api.mainnet-beta.solana.com"
+        # Step 2: Solana Private Key  
         print()
-        print(colorize("Network", Style.BOLD))
-        net_choice = input("Use mainnet (m) or devnet (d)? [m/d]: ").strip().lower()
-        if net_choice == "d":
-            default_rpc = "https://api.devnet.solana.com"
-        rpc_url = input(f"Solana RPC URL [{default_rpc}]: ").strip() or default_rpc
+        print(colorize("Step 2: Solana Wallet", Style.BOLD, Style.FG_CYAN))
+        print(colorize("This enables trading and balance checks. Your key is encrypted and stored securely.", Style.DIM))
+        private_key = getpass.getpass("Enter your Solana private key (hidden): ").strip()
+        while not private_key:
+            print(colorize("Private key is required for wallet operations.", Style.FG_YELLOW))
+            private_key = getpass.getpass("Enter your Solana private key: ").strip()
 
-        # Optional model/base URL
-        default_model = Settings.OPENAI_MODEL or "gpt-5-nano"
-        model = input(f"OpenAI Model [{default_model}]: ").strip() or default_model
-        base_url_default = Settings.OPENAI_BASE_URL or "https://api.openai.com/v1"
-        base_url = input(f"OpenAI Base URL [{base_url_default}]: ").strip() or base_url_default
-
-        # Optional: Brave Search API key
-        brave_key = getpass.getpass("Brave API Key (optional, hidden): ").strip()
-
-        # Rate limiting (disabled by default for better UX)
+        # Auto-generate everything else with sensible defaults
         print()
-        print(colorize("Rate Limiting", Style.BOLD))
-        print(colorize("Optional protection against API abuse (may slow down responses)", Style.DIM))
-        want_rl = input("Enable rate limiting? (y/N): ").strip().lower()
-        rate_enabled = (want_rl == "y")
-
-        # Optional: DB Path and Log level
-        print()
-        db_default = Settings.SAM_DB_PATH or ".sam/sam_memory.db"
-        db_path = input(f"Database path [{db_default}]: ").strip() or db_default
-        print()
-        print(colorize("Logging", Style.BOLD))
-        print(colorize("Choose logging level (NO = disable all logging for clean interface)", Style.DIM))
-        log_default = (Settings.LOG_LEVEL or "NO").upper()
-        log_level = input(f"Log level [NO/ERROR/WARNING/INFO/DEBUG] [{log_default}]: ").strip().upper() or log_default
-
-        # Persist to .env
-        env_path = _find_env_path()
-        env_values = {
-            "OPENAI_API_KEY": openai_key,
-            "OPENAI_BASE_URL": base_url,
-            "OPENAI_MODEL": model,
-            "SAM_FERNET_KEY": fernet_key,
-            "SAM_SOLANA_RPC_URL": rpc_url,
-            "SAM_DB_PATH": db_path,
-            "RATE_LIMITING_ENABLED": "true" if rate_enabled else "false",
-            "LOG_LEVEL": log_level,
-        }
-        if brave_key:
-            env_values["BRAVE_API_KEY"] = brave_key
-        _write_env_file(env_path, env_values)
-        print(colorize(f"Saved configuration to {env_path}", Style.FG_GREEN))
-
-        # Apply to current process and Settings for immediate use
-        os.environ.update({
-            "OPENAI_API_KEY": openai_key,
-            "OPENAI_BASE_URL": base_url,
-            "OPENAI_MODEL": model,
-            "SAM_FERNET_KEY": fernet_key,
-            "SAM_SOLANA_RPC_URL": rpc_url,
-            "SAM_DB_PATH": db_path,
-            "RATE_LIMITING_ENABLED": "true" if rate_enabled else "false",
-            "LOG_LEVEL": log_level,
-        })
-        if brave_key:
-            os.environ["BRAVE_API_KEY"] = brave_key
-        Settings.OPENAI_API_KEY = openai_key
-        Settings.OPENAI_BASE_URL = base_url
-        Settings.OPENAI_MODEL = model
-        Settings.SAM_FERNET_KEY = fernet_key
-        Settings.SAM_SOLANA_RPC_URL = rpc_url
-        Settings.SAM_DB_PATH = db_path
-        Settings.RATE_LIMITING_ENABLED = rate_enabled
-        Settings.LOG_LEVEL = log_level
+        print(colorize("Configuring SAM with optimal defaults...", Style.DIM))
         
-        # Important: Reset the global secure storage instance to use the new fernet key
-        global _secure_storage
-        _secure_storage = None
+        fernet_key = generate_encryption_key()
+        
+        # Create minimal config - everything else uses defaults
+        config_data = {
+            "OPENAI_API_KEY": openai_key,
+            "SAM_FERNET_KEY": fernet_key,
+            "LOG_LEVEL": "NO",  # Clean interface by default
+        }
+        
+        # Apply to current environment
+        for key, value in config_data.items():
+            os.environ[key] = value
+            
+        # Update Settings class
+        Settings.OPENAI_API_KEY = openai_key
+        Settings.SAM_FERNET_KEY = fernet_key
+        Settings.LOG_LEVEL = "NO"
+        
+        # Store private key securely
+        storage = get_secure_storage()
+        success = storage.store_private_key("default", private_key)
+        
+        if not success:
+            print(colorize("❌ Failed to store private key securely.", Style.FG_YELLOW))
+            return 1
+            
+        # Verify storage worked
+        test_key = storage.get_private_key("default")
+        if not test_key:
+            print(colorize("❌ Could not verify private key storage.", Style.FG_YELLOW))
+            return 1
 
-        # Store Brave key in secure storage if provided
-        if brave_key:
-            try:
-                storage = get_secure_storage()
-                if storage.store_api_key("brave", brave_key):
-                    print(colorize("Brave API key stored in system keyring.", Style.FG_GREEN))
-                else:
-                    print(colorize("Could not store Brave API key in keyring; kept in .env.", Style.FG_YELLOW))
-            except Exception as e:
-                print(colorize(f"Brave API key keyring store failed: {e}", Style.FG_YELLOW))
-
-        # Offer secure key import now
-        print()
-        print(CLIFormatter.info("To enable wallet operations (trading, balance checks), you need to import your private key."))
-        do_import = input("Import Solana private key securely now? (y/N): ").strip().lower() == "y"
-        if do_import:
-            res = import_private_key()
-            if res == 0:
-                print(colorize("Private key stored securely.", Style.FG_GREEN))
-            else:
-                print(colorize("Private key import skipped or failed.", Style.FG_YELLOW))
-
-        print()
-        print(colorize("Onboarding complete.", Style.FG_GREEN))
-        # Mark first-run completed
-        try:
-            with open(_onboarded_flag_path(), "w") as f:
-                f.write(str(int(time.time())))
-        except Exception:
-            pass
+        print(colorize("✅ SAM configured successfully!", Style.FG_GREEN))
         return 0
+        
     except KeyboardInterrupt:
-        print("\nSetup cancelled.")
+        print("\n❌ Setup cancelled.")
         return 1
     except Exception as e:
-        print(f"{colorize('❌ Onboarding error:', Style.FG_YELLOW)} {e}")
+        print(f"{colorize('❌ Setup failed:', Style.FG_YELLOW)} {e}")
         return 1
 
 
@@ -1083,33 +1018,28 @@ async def main():
         return await run_onboarding()
     
     if args.command == "run":
-        # Check if we need onboarding (check both validation and setup status)
-        if not Settings.validate():
-            show_first_run_experience()
-            return 0
-            
-        # Check setup status - if there are critical issues, offer onboarding
-        status = check_setup_status()
-        if status["issues"]:
-            print(CLIFormatter.warning("Setup issues detected:"))
-            for issue in status["issues"]:
-                print(f"  • {issue}")
-            print()
-            
-            # Ask if user wants to run setup/onboarding
+        # Simple check: if no API key or no wallet, run onboarding
+        need_onboarding = False
+        
+        if not Settings.OPENAI_API_KEY:
+            need_onboarding = True
+        else:
+            # Check if wallet is configured
             try:
-                choice = input("Would you like to run setup to fix these issues? (Y/n): ").strip().lower()
-                if choice != 'n':
-                    result = await run_onboarding()
-                    if result == 0:
-                        # Onboarding successful, continue to interactive session
-                        print(CLIFormatter.success("Setup complete! Starting SAM agent..."))
-                        # Continue with the run command
-                    else:
-                        return result  # Return error if onboarding failed
-            except (EOFError, KeyboardInterrupt):
-                # Continue if user cancels input
-                pass
+                from sam.utils.secure_storage import get_secure_storage
+                storage = get_secure_storage()
+                if not storage.get_private_key("default"):
+                    need_onboarding = True
+            except:
+                need_onboarding = True
+        
+        if need_onboarding:
+            print(CLIFormatter.info("Welcome to SAM! Let's get you set up quickly..."))
+            result = await run_onboarding()
+            if result != 0:
+                return result
+            print(CLIFormatter.success("Setup complete! Starting SAM agent..."))
+            print()
         
         # Show startup summary for configured systems
         show_startup_summary()

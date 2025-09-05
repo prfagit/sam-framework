@@ -26,54 +26,32 @@ SAM is an intelligent agent framework that enables AI-driven trading and portfol
 
 ## Quick Start
 
-### 1. Installation
+### Installation & Setup
 
 ```bash
-# Install with UV package manager
-uv pip install sam-framework
-
-# Or clone and install from source
+# 1. Clone and install
 git clone https://github.com/prfagit/sam-framework
 cd sam-framework
 uv sync
+
+# 2. Run SAM (automatic setup on first run)
+uv run sam
 ```
 
-### 2. Configuration
+**That's it!** 🎉
 
-Create a `.env` file with required settings:
+On first run, SAM will automatically guide you through a **2-step setup**:
 
-```bash
-# Required: OpenAI API key for AI agent
-OPENAI_API_KEY=sk-your-openai-api-key
+1. **OpenAI API Key** - Get yours from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. **Solana Private Key** - Your wallet's private key for trading
 
-# Required: Generate encryption key for secure storage
-SAM_FERNET_KEY=your-generated-fernet-key
+Everything else (encryption, configuration, security) is handled automatically.
 
-# Optional: Solana RPC endpoint (defaults to mainnet)
-SAM_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
-
-# Optional: Database path
-SAM_DB_PATH=.sam/sam_memory.db
-```
-
-### 3. Setup
+### Start Trading
 
 ```bash
-# Generate encryption key
-sam generate-key
-
-# Import your Solana private key securely
-sam key import
-
-# Run system health check
-sam health
-```
-
-### 4. Start Trading
-
-```bash
-# Launch interactive agent
-sam run
+# Launch SAM agent
+uv run sam
 
 # Or run with custom session
 sam run --session trading_session

@@ -20,55 +20,40 @@ class SecureStorage:
         logger.info(f"Initialized secure storage for service: {service_name}")
     
     def _get_or_create_encryption_key(self) -> Optional[bytes]:
-        """Get encryption key from environment or keyring with fallback logic."""
-        # Try to load from .env file directly if environment is empty
+        """Get encryption key from environment or keyring - prioritize environment for session."""
+        # First try environment variable (set during onboarding)
         env_key = os.getenv("SAM_FERNET_KEY")
-        if not env_key:
-            # Try to load from .env file directly
-            env_file_path = os.path.join(os.getcwd(), '.env')
-            if os.path.exists(env_file_path):
-                try:
-                    with open(env_file_path, 'r') as f:
-                        for line in f:
-                            if line.startswith('SAM_FERNET_KEY='):
-                                env_key = line.split('=', 1)[1].strip()
-                                logger.debug("Loaded SAM_FERNET_KEY from .env file")
-                                break
-                except Exception as e:
-                    logger.warning(f"Could not read .env file: {e}")
-        
-        # Use environment/file key if available
         if env_key:
             try:
-                # SAM_FERNET_KEY should already be a base64-encoded string
                 key_bytes = env_key.encode('ascii')
-                # Also update the keyring to match the environment for consistency
+                # Sync to keyring for persistence
                 try:
                     keyring.set_password(self.service_name, "encryption_key", env_key)
-                    logger.debug("Synced encryption key to keyring")
-                except Exception as e:
-                    logger.warning(f"Could not sync environment key to keyring: {e}")
+                except Exception:
+                    pass  # Ignore keyring sync failures
                 return key_bytes
-            except (UnicodeDecodeError, AttributeError) as e:
-                logger.warning(f"Invalid SAM_FERNET_KEY format: {e}")
+            except (UnicodeDecodeError, AttributeError):
+                pass  # Fall through to keyring
         
-        # Try to get key from keyring
+        # Try keyring for persistent storage
         try:
             stored_key = keyring.get_password(self.service_name, "encryption_key")
             if stored_key:
-                logger.debug("Using encryption key from keyring")
+                # Also set in environment for this session
+                os.environ["SAM_FERNET_KEY"] = stored_key
                 return stored_key.encode()
-        except Exception as e:
-            logger.warning(f"Could not retrieve encryption key from keyring: {e}")
+        except Exception:
+            pass  # Fall through to generation
         
-        # Generate new key and store in keyring only (not in environment)
+        # Generate new key (shouldn't happen in normal flow)
         try:
             new_key = Fernet.generate_key()
             keyring.set_password(self.service_name, "encryption_key", new_key.decode())
-            logger.info("Generated and stored new encryption key in keyring")
+            os.environ["SAM_FERNET_KEY"] = new_key.decode()
+            logger.info("Generated new encryption key")
             return new_key
         except Exception as e:
-            logger.error(f"Could not store encryption key in keyring: {e}")
+            logger.error(f"Could not generate encryption key: {e}")
             return None
     
     def store_private_key(self, user_id: str, private_key: str) -> bool:
