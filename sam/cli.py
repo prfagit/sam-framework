@@ -613,11 +613,9 @@ async def run_onboarding() -> int:
         if brave_key:
             config_data["BRAVE_API_KEY"] = brave_key
         
-        # Create .env file for persistence
-        env_path = ".env"
-        with open(env_path, "w") as f:
-            for key, value in config_data.items():
-                f.write(f"{key}={value}\n")
+        # Create/update .env file at preferred location
+        env_path = _find_env_path()
+        _write_env_file(env_path, config_data)
         
         # Create database directory if it doesn't exist
         db_path = config_data["SAM_DB_PATH"]
@@ -1077,20 +1075,22 @@ async def main():
         return await run_onboarding()
     
     if args.command == "run":
-        # Simple check: if no API key or no wallet, run onboarding
-        need_onboarding = False
+        # FIRST: Ensure .env is loaded before checking anything
+        from dotenv import load_dotenv
+        import importlib
+
+        # Prefer a stable .env location (CWD/repo) over module path
+        env_path = _find_env_path()
+        load_dotenv(env_path, override=True)
+
+        # Force reload of Settings module to get updated environment variables
+        import sam.config.settings
+        importlib.reload(sam.config.settings)
+        from sam.config.settings import Settings
         
-        if not Settings.OPENAI_API_KEY:
-            need_onboarding = True
-        else:
-            # Check if wallet is configured
-            try:
-                from sam.utils.secure_storage import get_secure_storage
-                storage = get_secure_storage()
-                if not storage.get_private_key("default"):
-                    need_onboarding = True
-            except:
-                need_onboarding = True
+        # Only require onboarding if OpenAI API key is missing.
+        # Wallet setup can be done separately via `sam key import`.
+        need_onboarding = not Settings.OPENAI_API_KEY
         
         if need_onboarding:
             print(CLIFormatter.info("Welcome to SAM! Let's get you set up quickly..."))
@@ -1100,10 +1100,10 @@ async def main():
             
             # Reload environment and Settings after onboarding
             from dotenv import load_dotenv
-            load_dotenv(override=True)  # Reload .env file
+            env_path = _find_env_path()
+            load_dotenv(env_path, override=True)  # Reload .env file
             
             # Refresh Settings class attributes from new environment
-            from sam.config.settings import Settings
             Settings.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
             Settings.OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
             Settings.SAM_FERNET_KEY = os.getenv("SAM_FERNET_KEY")
