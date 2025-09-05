@@ -1097,6 +1097,23 @@ async def main():
             result = await run_onboarding()
             if result != 0:
                 return result
+            
+            # Reload environment and Settings after onboarding
+            from dotenv import load_dotenv
+            load_dotenv(override=True)  # Reload .env file
+            
+            # Refresh Settings class attributes from new environment
+            from sam.config.settings import Settings
+            Settings.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+            Settings.OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+            Settings.SAM_FERNET_KEY = os.getenv("SAM_FERNET_KEY")
+            Settings.SAM_DB_PATH = os.getenv("SAM_DB_PATH", ".sam/sam_memory.db")
+            Settings.SAM_SOLANA_RPC_URL = os.getenv("SAM_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+            Settings.RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "false").lower() == "true"
+            Settings.MAX_TRANSACTION_SOL = float(os.getenv("MAX_TRANSACTION_SOL", "1000"))
+            Settings.DEFAULT_SLIPPAGE = int(os.getenv("DEFAULT_SLIPPAGE", "1"))
+            Settings.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+            
             print(CLIFormatter.success("Setup complete! Starting SAM agent..."))
             print()
         
