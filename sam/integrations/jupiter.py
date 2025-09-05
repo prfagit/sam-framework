@@ -5,6 +5,7 @@ import base64
 
 from ..core.tools import Tool, ToolSpec
 from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
+from ..utils.http_client import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -13,20 +14,10 @@ class JupiterTools:
     def __init__(self, solana_tools=None):
         self.base_url = "https://quote-api.jup.ag"
         self.solana_tools = solana_tools
-        self.session = None
-    
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=30)
-            )
-        return self.session
     
     async def close(self):
-        """Close the HTTP session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
+        """Close method for compatibility - shared client handles cleanup."""
+        pass  # Shared HTTP client handles session lifecycle
 
     @rate_limit("jupiter")
     @retry_with_backoff(max_retries=3)
@@ -40,7 +31,7 @@ class JupiterTools:
     ) -> Dict[str, Any]:
         """Get a swap quote from Jupiter."""
         try:
-            session = await self._get_session()
+            session = await get_session()
             
             params = {
                 "inputMint": input_mint,
@@ -84,7 +75,7 @@ class JupiterTools:
     ) -> Dict[str, Any]:
         """Create a swap transaction from a quote."""
         try:
-            session = await self._get_session()
+            session = await get_session()
             
             payload = {
                 "userPublicKey": user_public_key,

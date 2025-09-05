@@ -1,10 +1,9 @@
-import redis.asyncio as aioredis
 import asyncio
 import logging
 import time
-from typing import Optional, Dict, Any
+from typing import Dict, Any, List, Optional, OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +16,24 @@ class RateLimit:
     burst: int     # Burst limit (immediate requests allowed)
 
 
+@dataclass
+class RequestRecord:
+    """Individual request record."""
+    timestamp: float
+    key: str
+
+
 class RateLimiter:
-    """Redis-based rate limiter using token bucket algorithm."""
+    """Optimized in-memory rate limiter with LRU eviction and memory management."""
     
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
-        self.redis_url = redis_url
-        self.redis: Optional[aioredis.Redis] = None
-        self.connected = False
+    def __init__(self, max_keys: int = 10000, cleanup_interval: int = 60):
+        # In-memory storage for request history with LRU ordering
+        self.request_history: OrderedDict[str, List[RequestRecord]] = OrderedDict()
+        self.lock = asyncio.Lock()
+        self.max_keys = max_keys
+        self.cleanup_interval = cleanup_interval
+        self._cleanup_task: Optional[asyncio.Task] = None
+        self._shutdown = False
         
         # Default rate limits per endpoint/tool
         self.limits = {
@@ -37,204 +47,258 @@ class RateLimiter:
             
             # Tool-specific limits
             "transfer_sol": RateLimit(requests=5, window=60, burst=2),
-            "pump_fun_buy": RateLimit(requests=10, window=60, burst=3),
-            "pump_fun_sell": RateLimit(requests=10, window=60, burst=3),
-            "launch_token": RateLimit(requests=2, window=300, burst=1),  # Very restrictive
+            "pump_fun_buy": RateLimit(requests=10, window=60, burst=2),
+            "pump_fun_sell": RateLimit(requests=10, window=60, burst=2),
             
             # Default fallback
             "default": RateLimit(requests=60, window=60, burst=10)
         }
         
-        logger.info(f"Initialized rate limiter with Redis URL: {redis_url}")
+        logger.info(f"Initialized optimized rate limiter (max_keys: {max_keys})")
+        
+        # Start cleanup task
+        self._start_cleanup_task()
     
-    async def connect(self):
-        """Connect to Redis."""
-        try:
-            self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
-            # Test connection
-            await self.redis.ping()
-            self.connected = True
-            logger.info("Successfully connected to Redis for rate limiting")
-        except Exception as e:
-            logger.warning(f"Failed to connect to Redis: {e}. Rate limiting disabled.")
-            self.connected = False
+    def _start_cleanup_task(self):
+        """Start the cleanup task."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._cleanup_old_records())
     
-    async def close(self):
-        """Close Redis connection."""
-        if self.redis:
-            await self.redis.aclose()
-            self.connected = False
+    async def _evict_lru_keys(self, target_count: int):
+        """Evict least recently used keys to make room."""
+        evicted = 0
+        while len(self.request_history) > target_count and evicted < 1000:  # Prevent infinite loop
+            try:
+                # Remove oldest (least recently used) key
+                oldest_key, _ = self.request_history.popitem(last=False)
+                evicted += 1
+            except KeyError:
+                break
+        
+        if evicted > 0:
+            logger.debug(f"Evicted {evicted} LRU rate limit keys")
+    
+    def _touch_key(self, key: str):
+        """Mark key as recently used by moving it to end of OrderedDict."""
+        if key in self.request_history:
+            # Move to end (most recently used)
+            records = self.request_history.pop(key)
+            self.request_history[key] = records
+    
+    async def _cleanup_old_records(self):
+        """Optimized periodic cleanup with LRU eviction."""
+        while not self._shutdown:
+            try:
+                await asyncio.sleep(self.cleanup_interval)
+                
+                if self._shutdown:
+                    break
+                
+                current_time = time.time()
+                
+                async with self.lock:
+                    initial_size = len(self.request_history)
+                    
+                    # Clean up expired records first
+                    keys_to_remove = []
+                    cleaned_records = 0
+                    
+                    for key, records in list(self.request_history.items()):
+                        # Remove records older than 1 hour
+                        cutoff_time = current_time - 3600
+                        old_count = len(records)
+                        
+                        self.request_history[key] = [
+                            record for record in records 
+                            if record.timestamp > cutoff_time
+                        ]
+                        
+                        cleaned_records += old_count - len(self.request_history[key])
+                        
+                        # Remove empty keys
+                        if not self.request_history[key]:
+                            keys_to_remove.append(key)
+                    
+                    for key in keys_to_remove:
+                        del self.request_history[key]
+                    
+                    # LRU eviction if still over limit
+                    if len(self.request_history) > self.max_keys:
+                        target_size = int(self.max_keys * 0.8)  # Reduce to 80% of max
+                        await self._evict_lru_keys(target_size)
+                    
+                    final_size = len(self.request_history)
+                    
+                    if keys_to_remove or cleaned_records > 0:
+                        logger.debug(
+                            f"Rate limiter cleanup: removed {len(keys_to_remove)} keys, "
+                            f"cleaned {cleaned_records} records, "
+                            f"size: {initial_size} → {final_size}"
+                        )
+                        
+            except asyncio.CancelledError:
+                logger.info("Rate limiter cleanup task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in rate limiter cleanup: {e}")
+                await asyncio.sleep(60)  # Wait before retrying
     
     async def check_rate_limit(self, key: str, limit_type: str = "default") -> tuple[bool, Dict[str, Any]]:
         """
-        Check if request is within rate limit using token bucket algorithm.
+        Check if a request should be allowed based on rate limiting.
         
         Returns:
-            (allowed: bool, info: dict) - Whether request is allowed and rate limit info
+            tuple: (is_allowed: bool, info: Dict[str, Any])
         """
-        if not self.connected:
-            # If Redis is not available, allow all requests but log warning
-            logger.debug(f"Rate limiter not connected, allowing request: {key}")
-            return True, {"status": "no_limit", "reason": "redis_unavailable"}
-        
-        limit = self.limits.get(limit_type, self.limits["default"])
-        now = time.time()
-        
-        # Redis key for this rate limit bucket
-        bucket_key = f"rate_limit:{limit_type}:{key}"
-        
-        try:
-            # Get current bucket state
-            pipe = self.redis.pipeline()
-            pipe.hgetall(bucket_key)
-            result = await pipe.execute()
-            bucket = result[0] if result else {}
+        async with self.lock:
+            current_time = time.time()
+            limit = self.limits.get(limit_type, self.limits["default"])
             
-            # Initialize bucket if it doesn't exist
-            if not bucket:
-                bucket = {
-                    "tokens": str(limit.burst),
-                    "last_refill": str(now),
-                    "total_requests": "0"
-                }
+            # Check for LRU eviction before processing
+            if len(self.request_history) >= self.max_keys and key not in self.request_history:
+                await self._evict_lru_keys(self.max_keys - 1)
             
-            tokens = float(bucket.get("tokens", limit.burst))
-            last_refill = float(bucket.get("last_refill", now))
-            total_requests = int(bucket.get("total_requests", 0))
+            # Get or create request history for this key
+            if key not in self.request_history:
+                self.request_history[key] = []
+            else:
+                # Touch key to mark as recently used
+                self._touch_key(key)
             
-            # Calculate tokens to add based on time elapsed
-            time_passed = now - last_refill
-            tokens_to_add = time_passed * (limit.requests / limit.window)
-            tokens = min(limit.burst, tokens + tokens_to_add)
+            records = self.request_history[key]
             
-            # Check if request can be allowed
-            if tokens >= 1.0:
-                # Allow request and consume token
-                tokens -= 1.0
-                total_requests += 1
+            # Remove old records outside the time window
+            window_start = current_time - limit.window
+            recent_records = [r for r in records if r.timestamp > window_start]
+            self.request_history[key] = recent_records
+            
+            # Count recent requests
+            recent_count = len(recent_records)
+            
+            # Check if within limits
+            if recent_count < limit.requests:
+                # Allow the request
+                new_record = RequestRecord(timestamp=current_time, key=key)
+                self.request_history[key].append(new_record)
                 
-                # Update bucket in Redis
-                pipe = self.redis.pipeline()
-                pipe.hset(bucket_key, mapping={
-                    "tokens": str(tokens),
-                    "last_refill": str(now),
-                    "total_requests": str(total_requests)
-                })
-                pipe.expire(bucket_key, limit.window * 2)  # Expire after 2x window
-                await pipe.execute()
-                
-                logger.debug(f"Rate limit ALLOWED for {key} ({limit_type}): {tokens:.2f} tokens remaining")
                 return True, {
-                    "status": "allowed",
-                    "tokens_remaining": tokens,
+                    "allowed": True,
                     "limit": limit.requests,
-                    "window": limit.window,
-                    "total_requests": total_requests
+                    "remaining": limit.requests - recent_count - 1,
+                    "reset_time": window_start + limit.window,
+                    "retry_after": 0
                 }
             else:
                 # Rate limit exceeded
-                retry_after = max(1, int((1.0 - tokens) * (limit.window / limit.requests)))
+                # Calculate when the oldest request will expire
+                oldest_record = min(recent_records, key=lambda r: r.timestamp)
+                retry_after = oldest_record.timestamp + limit.window - current_time
                 
-                logger.warning(f"Rate limit EXCEEDED for {key} ({limit_type}): retry after {retry_after}s")
                 return False, {
-                    "status": "rate_limited",
-                    "retry_after": retry_after,
-                    "tokens_remaining": tokens,
+                    "allowed": False,
                     "limit": limit.requests,
-                    "window": limit.window,
-                    "total_requests": total_requests
+                    "remaining": 0,
+                    "reset_time": oldest_record.timestamp + limit.window,
+                    "retry_after": max(0, retry_after)
                 }
-                
-        except Exception as e:
-            logger.error(f"Rate limiter error for {key}: {e}")
-            # On error, allow request but log the issue
-            return True, {"status": "error", "error": str(e)}
     
     async def reset_rate_limit(self, key: str, limit_type: str = "default"):
-        """Reset rate limit for a specific key (admin function)."""
-        if not self.connected:
-            return
-        
-        bucket_key = f"rate_limit:{limit_type}:{key}"
-        try:
-            await self.redis.delete(bucket_key)
-            logger.info(f"Reset rate limit for {key} ({limit_type})")
-        except Exception as e:
-            logger.error(f"Failed to reset rate limit for {key}: {e}")
+        """Reset rate limit for a specific key."""
+        async with self.lock:
+            if key in self.request_history:
+                del self.request_history[key]
+                logger.info(f"Reset rate limit for key: {key}")
     
     async def get_rate_limit_info(self, key: str, limit_type: str = "default") -> Dict[str, Any]:
-        """Get current rate limit status for a key."""
-        if not self.connected:
-            return {"status": "unavailable"}
-        
-        bucket_key = f"rate_limit:{limit_type}:{key}"
-        limit = self.limits.get(limit_type, self.limits["default"])
-        
-        try:
-            bucket = await self.redis.hgetall(bucket_key)
-            if not bucket:
+        """Get current rate limit status for a key without making a request."""
+        async with self.lock:
+            current_time = time.time()
+            limit = self.limits.get(limit_type, self.limits["default"])
+            
+            if key not in self.request_history:
                 return {
-                    "status": "clean",
-                    "tokens_available": limit.burst,
                     "limit": limit.requests,
-                    "window": limit.window
+                    "remaining": limit.requests,
+                    "used": 0,
+                    "reset_time": current_time + limit.window
                 }
             
-            tokens = float(bucket.get("tokens", limit.burst))
-            total_requests = int(bucket.get("total_requests", 0))
+            # Count recent requests within the window
+            window_start = current_time - limit.window
+            recent_records = [r for r in self.request_history[key] if r.timestamp > window_start]
+            used_count = len(recent_records)
+            
+            reset_time = current_time + limit.window
+            if recent_records:
+                oldest_record = min(recent_records, key=lambda r: r.timestamp)
+                reset_time = oldest_record.timestamp + limit.window
             
             return {
-                "status": "active",
-                "tokens_available": tokens,
-                "total_requests": total_requests,
                 "limit": limit.requests,
-                "window": limit.window
+                "remaining": max(0, limit.requests - used_count),
+                "used": used_count,
+                "reset_time": reset_time
             }
+    
+    async def shutdown(self):
+        """Shutdown the rate limiter and cleanup resources."""
+        self._shutdown = True
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
+        async with self.lock:
+            self.request_history.clear()
+        
+        logger.info("Rate limiter shutdown completed")
+    
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get rate limiter statistics."""
+        async with self.lock:
+            total_records = sum(len(records) for records in self.request_history.values())
             
-        except Exception as e:
-            logger.error(f"Failed to get rate limit info for {key}: {e}")
-            return {"status": "error", "error": str(e)}
+            return {
+                "total_keys": len(self.request_history),
+                "max_keys": self.max_keys,
+                "total_records": total_records,
+                "cleanup_interval": self.cleanup_interval,
+                "is_shutdown": self._shutdown,
+                "memory_usage_pct": (len(self.request_history) / self.max_keys) * 100
+            }
 
 
 # Global rate limiter instance
-_rate_limiter: Optional[RateLimiter] = None
+_global_rate_limiter: Optional[RateLimiter] = None
 
 
 async def get_rate_limiter() -> RateLimiter:
-    """Get the global rate limiter instance."""
-    global _rate_limiter
-    if _rate_limiter is None:
-        from ..config.settings import Settings
-        _rate_limiter = RateLimiter(Settings.REDIS_URL)
-        await _rate_limiter.connect()
-    return _rate_limiter
+    """Get or create the global rate limiter instance."""
+    global _global_rate_limiter
+    
+    if _global_rate_limiter is None:
+        _global_rate_limiter = RateLimiter()
+    
+    return _global_rate_limiter
+
+
+async def cleanup_rate_limiter():
+    """Cleanup global rate limiter."""
+    global _global_rate_limiter
+    if _global_rate_limiter:
+        await _global_rate_limiter.shutdown()
+        _global_rate_limiter = None
 
 
 async def check_rate_limit(identifier: str, limit_type: str = "default") -> tuple[bool, Dict[str, Any]]:
-    """Convenience function to check rate limits."""
+    """Global function to check rate limits."""
     limiter = await get_rate_limiter()
     return await limiter.check_rate_limit(identifier, limit_type)
 
 
 async def rate_limited(identifier: str, limit_type: str = "default"):
-    """
-    Decorator/context manager for rate limiting.
-    Raises RateLimitExceeded if limit is exceeded.
-    """
+    """Check if an identifier is currently rate limited."""
     allowed, info = await check_rate_limit(identifier, limit_type)
-    if not allowed:
-        raise RateLimitExceeded(
-            f"Rate limit exceeded for {limit_type}. Retry after {info.get('retry_after', 60)} seconds",
-            retry_after=info.get('retry_after', 60),
-            info=info
-        )
-    return info
-
-
-class RateLimitExceeded(Exception):
-    """Exception raised when rate limit is exceeded."""
-    
-    def __init__(self, message: str, retry_after: int = 60, info: Dict[str, Any] = None):
-        super().__init__(message)
-        self.retry_after = retry_after
-        self.info = info or {}
+    return not allowed

@@ -28,7 +28,16 @@ from .core.tools import ToolRegistry
 from .config.prompts import SOLANA_AGENT_PROMPT
 from .config.settings import Settings, setup_logging
 from .utils.crypto import encrypt_private_key, decrypt_private_key, generate_encryption_key
-from .utils.secure_storage import get_secure_storage
+from .utils.secure_storage import get_secure_storage, _secure_storage
+from .utils.http_client import cleanup_http_client
+from .utils.connection_pool import cleanup_database_pool
+from .utils.rate_limiter import cleanup_rate_limiter
+from .utils.cli_helpers import (
+    CLIFormatter, show_welcome_banner, show_setup_status, show_onboarding_guide,
+    show_quick_help, format_balance_display, format_error_for_cli, 
+    is_first_run, show_first_run_experience, show_startup_summary, check_setup_status
+)
+from .utils.price_service import cleanup_price_service
 from .integrations.solana.solana_tools import SolanaTools, create_solana_tools
 from .integrations.pump_fun import PumpFunTools, create_pump_fun_tools
 from .integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
@@ -45,7 +54,6 @@ TOOL_DISPLAY_NAMES = {
     'get_token_data': '📊 Getting token data',
     'pump_fun_buy': '🚀 Buying on pump.fun',
     'pump_fun_sell': '📉 Selling on pump.fun',
-    'launch_token': '🎯 Launching token',
     'get_token_trades': '📈 Getting trade data',
     'get_pump_token_info': '🔍 Getting token info',
     'search_pairs': '🔎 Searching pairs',
@@ -89,7 +97,7 @@ def colorize(text: str, *styles: str) -> str:
 def term_width(default: int = 80) -> int:
     try:
         return shutil.get_terminal_size().columns
-    except Exception:
+    except (OSError, ValueError):
         return default
 
 
@@ -152,7 +160,7 @@ class Spinner:
             if self._task:
                 try:
                     await self._task
-                except Exception:
+                except asyncio.CancelledError:
                     pass
             # Clear spinner line
             sys.stdout.write("\r" + " " * max(0, term_width() - 1) + "\r")
@@ -262,6 +270,12 @@ async def cleanup_agent(agent):
         if hasattr(agent, '_llm') and hasattr(agent._llm, 'close'):
             await agent._llm.close()
         
+        # Cleanup shared resources
+        await cleanup_http_client()
+        await cleanup_database_pool()
+        await cleanup_rate_limiter()
+        await cleanup_price_service()
+        
         logger.info("Agent cleanup completed")
     except Exception as e:
         logger.error(f"Error during agent cleanup: {e}")
@@ -301,7 +315,7 @@ async def run_interactive_session(session_id: str):
         categories = {
             "💰 Wallet & Balance": ["get_balance", "transfer_sol"],
             "📊 Token Data": ["get_token_data", "get_token_pairs", "search_pairs", "get_solana_pair"],
-            "🚀 Pump.fun": ["pump_fun_buy", "pump_fun_sell", "launch_token", "get_pump_token_info", "get_token_trades"],
+            "🚀 Pump.fun": ["pump_fun_buy", "pump_fun_sell", "get_pump_token_info", "get_token_trades"],
             "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap", "get_jupiter_tokens"],
             "📈 Market Data": ["get_trending_pairs", "brave_search"]
         }
@@ -531,7 +545,8 @@ async def run_onboarding() -> int:
 
     # Required: OpenAI API key
     try:
-        openai_key = getpass.getpass("OpenAI API Key (required, hidden): ").strip()
+        print(colorize("Get your OpenAI API key from: https://platform.openai.com/api-keys", Style.DIM))
+        openai_key = getpass.getpass("OpenAI API Key (hidden): ").strip()
         while not openai_key:
             print(colorize("An API key is required.", Style.FG_YELLOW))
             openai_key = getpass.getpass("OpenAI API Key: ").strip()
@@ -540,17 +555,17 @@ async def run_onboarding() -> int:
         print(colorize("Generating encryption key (Fernet) for secure storage...", Style.DIM))
         fernet_key = generate_encryption_key()
 
-        # Network choice + RPC URL
-        default_rpc = Settings.SAM_SOLANA_RPC_URL or "https://api.devnet.solana.com"
+        # Network choice + RPC URL (default to mainnet for production)
+        default_rpc = Settings.SAM_SOLANA_RPC_URL or "https://api.mainnet-beta.solana.com"
         print()
         print(colorize("Network", Style.BOLD))
-        net_choice = input("Use devnet (d) or mainnet (m)? [d/m]: ").strip().lower()
-        if net_choice == "m":
-            default_rpc = "https://api.mainnet-beta.solana.com"
+        net_choice = input("Use mainnet (m) or devnet (d)? [m/d]: ").strip().lower()
+        if net_choice == "d":
+            default_rpc = "https://api.devnet.solana.com"
         rpc_url = input(f"Solana RPC URL [{default_rpc}]: ").strip() or default_rpc
 
         # Optional model/base URL
-        default_model = Settings.OPENAI_MODEL or "gpt-4o-mini"
+        default_model = Settings.OPENAI_MODEL or "gpt-5-nano"
         model = input(f"OpenAI Model [{default_model}]: ").strip() or default_model
         base_url_default = Settings.OPENAI_BASE_URL or "https://api.openai.com/v1"
         base_url = input(f"OpenAI Base URL [{base_url_default}]: ").strip() or base_url_default
@@ -558,25 +573,22 @@ async def run_onboarding() -> int:
         # Optional: Brave Search API key
         brave_key = getpass.getpass("Brave API Key (optional, hidden): ").strip()
 
-        # Optional: Brave Search API key
-        brave_key = getpass.getpass("Brave API Key (optional, hidden): ").strip()
-
-        # Optional: Redis / rate limiting
+        # Rate limiting (disabled by default for better UX)
         print()
         print(colorize("Rate Limiting", Style.BOLD))
-        redis_default = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        want_rl = input("Enable Redis-backed rate limiting? (Y/n): ").strip().lower() or "y"
-        rate_enabled = (want_rl != "n")
-        redis_url = redis_default
-        if rate_enabled:
-            redis_url = input(f"Redis URL [{redis_default}]: ").strip() or redis_default
+        print(colorize("Optional protection against API abuse (may slow down responses)", Style.DIM))
+        want_rl = input("Enable rate limiting? (y/N): ").strip().lower()
+        rate_enabled = (want_rl == "y")
 
         # Optional: DB Path and Log level
         print()
         db_default = Settings.SAM_DB_PATH or ".sam/sam_memory.db"
         db_path = input(f"Database path [{db_default}]: ").strip() or db_default
-        log_default = (Settings.LOG_LEVEL or "INFO").upper()
-        log_level = input(f"Log level [DEBUG/INFO/WARNING/ERROR] [{log_default}]: ").strip().upper() or log_default
+        print()
+        print(colorize("Logging", Style.BOLD))
+        print(colorize("Choose logging level (NO = disable all logging for clean interface)", Style.DIM))
+        log_default = (Settings.LOG_LEVEL or "NO").upper()
+        log_level = input(f"Log level [NO/ERROR/WARNING/INFO/DEBUG] [{log_default}]: ").strip().upper() or log_default
 
         # Persist to .env
         env_path = _find_env_path()
@@ -587,7 +599,6 @@ async def run_onboarding() -> int:
             "SAM_FERNET_KEY": fernet_key,
             "SAM_SOLANA_RPC_URL": rpc_url,
             "SAM_DB_PATH": db_path,
-            "REDIS_URL": redis_url,
             "RATE_LIMITING_ENABLED": "true" if rate_enabled else "false",
             "LOG_LEVEL": log_level,
         }
@@ -604,7 +615,6 @@ async def run_onboarding() -> int:
             "SAM_FERNET_KEY": fernet_key,
             "SAM_SOLANA_RPC_URL": rpc_url,
             "SAM_DB_PATH": db_path,
-            "REDIS_URL": redis_url,
             "RATE_LIMITING_ENABLED": "true" if rate_enabled else "false",
             "LOG_LEVEL": log_level,
         })
@@ -616,9 +626,12 @@ async def run_onboarding() -> int:
         Settings.SAM_FERNET_KEY = fernet_key
         Settings.SAM_SOLANA_RPC_URL = rpc_url
         Settings.SAM_DB_PATH = db_path
-        Settings.REDIS_URL = redis_url
         Settings.RATE_LIMITING_ENABLED = rate_enabled
         Settings.LOG_LEVEL = log_level
+        
+        # Important: Reset the global secure storage instance to use the new fernet key
+        global _secure_storage
+        _secure_storage = None
 
         # Store Brave key in secure storage if provided
         if brave_key:
@@ -633,6 +646,7 @@ async def run_onboarding() -> int:
 
         # Offer secure key import now
         print()
+        print(CLIFormatter.info("To enable wallet operations (trading, balance checks), you need to import your private key."))
         do_import = input("Import Solana private key securely now? (y/N): ").strip().lower() == "y"
         if do_import:
             res = import_private_key()
@@ -720,8 +734,8 @@ def import_private_key_legacy():
     print("This will encrypt and store your private key as an environment variable.")
     
     if not Settings.SAM_FERNET_KEY:
-        print("❌ SAM_FERNET_KEY not set. Generate one with:")
-        print("python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
+        print("❌ SAM_FERNET_KEY not set. Generate one securely with:")
+        print("sam generate-key")
         return 1
     
     try:
@@ -748,11 +762,46 @@ def import_private_key_legacy():
 
 
 def generate_key():
-    """Generate a new Fernet encryption key."""
-    key = generate_encryption_key()
-    print(f"Generated encryption key: {key}")
-    print("Add this to your .env file as SAM_FERNET_KEY")
-    return 0
+    """Generate a new Fernet encryption key and store it securely."""
+    try:
+        # Generate key
+        key = generate_encryption_key()
+        
+        # Try to store in environment file automatically
+        env_path = _find_env_path()
+        if os.path.exists(env_path):
+            print(f"🔐 Generated new encryption key and updated {env_path}")
+            # Update existing .env file
+            env_values = {}
+            try:
+                with open(env_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and '=' in line and not line.startswith('#'):
+                            k, v = line.split('=', 1)
+                            env_values[k] = v
+            except Exception:
+                pass
+            
+            env_values["SAM_FERNET_KEY"] = key
+            _write_env_file(env_path, env_values)
+            
+            # Apply to current environment
+            os.environ["SAM_FERNET_KEY"] = key
+            print("✅ Key generated and configured automatically")
+        else:
+            print("🔐 Generated new encryption key")
+            print(f"Key stored in new .env file: {env_path}")
+            _write_env_file(env_path, {"SAM_FERNET_KEY": key})
+            os.environ["SAM_FERNET_KEY"] = key
+        
+        print("🔒 Key is ready for use. Restart your session to apply changes.")
+        return 0
+        
+    except Exception as e:
+        print(f"❌ Failed to generate key: {e}")
+        print("Manual fallback: Add SAM_FERNET_KEY to your .env file")
+        return 1
 
 
 async def run_maintenance():
@@ -850,7 +899,9 @@ async def run_health_check():
         
         async def rate_limiter_health():
             limiter = await get_rate_limiter()
-            return {"connected": limiter.connected}
+            # Get stats about the in-memory rate limiter
+            num_keys = len(limiter.request_history)
+            return {"status": "healthy", "active_keys": num_keys}
         
         async def error_tracker_health():
             tracker = await get_error_tracker()
@@ -904,17 +955,17 @@ async def run_health_check():
             
             critical_errors = error_stats.get("critical_errors", [])
             if critical_errors:
-                print(f"\n🚨 Recent critical errors:")
+                print("\n🚨 Recent critical errors:")
                 for error in critical_errors[:3]:
                     print(f"     {error['timestamp']}: {error['component']} - {error['error_message']}")
         else:
-            print(f"\n✅ No errors in the last 24 hours")
+            print("\n✅ No errors in the last 24 hours")
         
         if all_healthy and total_errors == 0:
-            print(f"\n🎉 All systems healthy!")
+            print("\n🎉 All systems healthy!")
             return 0
         else:
-            print(f"\n⚠️  Some issues detected")
+            print("\n⚠️  Some issues detected")
             return 1
         
     except Exception as e:
@@ -925,26 +976,65 @@ async def run_health_check():
 async def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="SAM Framework CLI")
-    parser.add_argument("command", nargs="?", default="run", 
-                       choices=["run", "key", "generate-key", "maintenance", "health", "onboard"],
-                       help="Command to execute")
-    parser.add_argument("--session", "-s", default="default",
-                       help="Session ID for conversation context")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    
+    # Run command (default)
+    run_parser = subparsers.add_parser("run", help="Start the interactive agent")
+    run_parser.add_argument("--session", "-s", default="default", help="Session ID for conversation context")
+    
+    # Key management
+    key_parser = subparsers.add_parser("key", help="Private key management")
+    key_subparsers = key_parser.add_subparsers(dest="key_action")
+    key_subparsers.add_parser("import", help="Import private key securely")
+    key_subparsers.add_parser("generate", help="Generate new encryption key")
+    
+    # Other commands
+    subparsers.add_parser("setup", help="Check setup status and configuration")
+    subparsers.add_parser("tools", help="List available tools")
+    subparsers.add_parser("health", help="System health check")
+    subparsers.add_parser("maintenance", help="Database maintenance and cleanup")
+    subparsers.add_parser("onboard", help="Run onboarding setup")
+    
+    # Global arguments
     parser.add_argument("--log-level", default=None,
                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                        help="Set log level")
     
     args = parser.parse_args()
     
+    # Default to run command if no command specified
+    if args.command is None:
+        args.command = "run"
+        args.session = getattr(args, 'session', 'default')
+    
     # Setup logging
     setup_logging(args.log_level)
     
     # Handle different commands
-    if args.command == "generate-key":
-        return generate_key()
-    
     if args.command == "key":
-        return import_private_key()
+        if hasattr(args, 'key_action') and args.key_action:
+            if args.key_action == "import":
+                return import_private_key()
+            elif args.key_action == "generate":
+                return generate_key()
+        else:
+            print("Usage: sam key {import|generate}")
+            return 1
+    
+    if args.command == "setup":
+        show_setup_status(verbose=True)
+        status = check_setup_status()
+        if status["issues"]:
+            print(f"\n{CLIFormatter.info('Run setup guide?')} ", end="")
+            if input("(Y/n): ").strip().lower() != 'n':
+                show_onboarding_guide()
+        return 0
+    
+    if args.command == "tools":
+        agent = await setup_agent()
+        show_available_tools()
+        await cleanup_agent(agent)
+        return 0
     
     if args.command == "maintenance":
         return await run_maintenance()
@@ -956,26 +1046,40 @@ async def main():
         return await run_onboarding()
     
     if args.command == "run":
-        # First-run onboarding even if some config exists, unless explicitly skipped
-        skip_onboard = os.environ.get("SAM_SKIP_ONBOARDING", "").lower() in ("1", "true", "yes")
-        force_onboard = os.environ.get("SAM_FORCE_ONBOARDING", "").lower() in ("1", "true", "yes")
-        if not skip_onboard and (force_onboard or not os.path.exists(_onboarded_flag_path())):
-            print(colorize("First run detected. Launching onboarding...", Style.FG_YELLOW))
-            ob_res = await run_onboarding()
-            if ob_res != 0:
-                return ob_res
-        # Validate configuration; if invalid, trigger onboarding
+        # Check if we need onboarding (check both validation and setup status)
         if not Settings.validate():
-            print(colorize("Configuration missing or invalid. Starting onboarding...", Style.FG_YELLOW))
-            ob_res = await run_onboarding()
-            if ob_res != 0:
-                return ob_res
-            # Re-validate after onboarding
-            if not Settings.validate():
-                print("❌ Configuration still invalid after onboarding. Please check your .env.")
-                return 1
+            show_first_run_experience()
+            return 0
+            
+        # Check setup status - if there are critical issues, offer onboarding
+        status = check_setup_status()
+        if status["issues"]:
+            print(CLIFormatter.warning("Setup issues detected:"))
+            for issue in status["issues"]:
+                print(f"  • {issue}")
+            print()
+            
+            # Ask if user wants to run setup/onboarding
+            try:
+                choice = input("Would you like to run setup to fix these issues? (Y/n): ").strip().lower()
+                if choice != 'n':
+                    result = await run_onboarding()
+                    if result == 0:
+                        # Onboarding successful, continue to interactive session
+                        print(CLIFormatter.success("Setup complete! Starting SAM agent..."))
+                        # Continue with the run command
+                    else:
+                        return result  # Return error if onboarding failed
+            except (EOFError, KeyboardInterrupt):
+                # Continue if user cancels input
+                pass
+        
+        # Show startup summary for configured systems
+        show_startup_summary()
+        
         Settings.log_config()
-        return await run_interactive_session(args.session)
+        session_id = getattr(args, 'session', 'default')
+        return await run_interactive_session(session_id)
     
     return 1
 

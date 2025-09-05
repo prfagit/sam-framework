@@ -7,16 +7,14 @@ logger = logging.getLogger(__name__)
 
 def get_fernet() -> Fernet:
     """Get Fernet encryption instance from environment key."""
-    key = os.environ.get("SAM_FERNET_KEY")
-    if not key:
+    key_str = os.environ.get("SAM_FERNET_KEY")
+    if not key_str:
         raise RuntimeError(
-            "SAM_FERNET_KEY not set. Generate one with: "
-            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            "SAM_FERNET_KEY not set. Generate one securely with: sam generate-key"
         )
     
     # Handle both raw bytes and string formats
-    if isinstance(key, str):
-        key = key.encode()
+    key = key_str.encode() if isinstance(key_str, str) else key_str
     
     try:
         return Fernet(key)

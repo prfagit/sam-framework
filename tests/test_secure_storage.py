@@ -1,6 +1,5 @@
 import pytest
 from sam.utils.secure_storage import SecureStorage
-import tempfile
 import os
 
 

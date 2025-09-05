@@ -15,22 +15,22 @@ SAM (Solana Agent Middleware) is a **production-ready AI agent framework** speci
 - **Async Framework**: Native asyncio with uvloop optimization
 - **Database**: aiosqlite (async SQLite operations)
 - **Security**: System keyring + Fernet encryption
-- **Rate Limiting**: Redis-based token bucket algorithm
+- **Rate Limiting**: In-memory token bucket algorithm
 - **Testing**: pytest with 46 comprehensive tests
 
 ### **Production Architecture**
 ```
 sam/
 ├── core/              # Agent loop, LLM provider, async memory, tool registry
-├── integrations/      # Real blockchain integrations (15 tools)
+├── integrations/      # Real blockchain integrations (14 tools)
 │   ├── solana/        # Native Solana RPC calls  
-│   ├── pump_fun.py    # Meme coin trading + token launches
+│   ├── pump_fun.py    # Meme coin trading
 │   ├── jupiter.py     # Best-price token swapping
 │   └── dexscreener.py # Market data & token discovery
 ├── config/            # System prompts and settings
 ├── utils/             # Security, validation, rate limiting, error handling
 │   ├── secure_storage.py    # System keyring integration
-│   ├── rate_limiter.py      # Redis-based rate limiting
+│   ├── rate_limiter.py      # In-memory rate limiting
 │   ├── error_handling.py    # Circuit breakers, health checks
 │   ├── validators.py        # Input validation & safety
 │   └── decorators.py        # Rate limits, retries, logging
@@ -39,7 +39,7 @@ sam/
 
 ---
 
-## 🛠️ Complete Tool Arsenal (15 Tools)
+## 🛠️ Complete Tool Arsenal (14 Tools)
 
 ### **🔗 Solana Blockchain (3 tools)**
 ```bash
@@ -48,11 +48,10 @@ transfer_sol     # Actual SOL transfers with signing
 get_token_data   # Live token metadata from blockchain
 ```
 
-### **💎 Pump.fun Integration (4 tools)**  
+### **💎 Pump.fun Integration (3 tools)**  
 ```bash
 pump_fun_buy     # Buy meme coins with real transactions
 pump_fun_sell    # Sell positions with slippage protection
-launch_token     # Create new tokens with metadata 🚀
 get_token_trades # View recent trading activity
 ```
 
@@ -108,10 +107,10 @@ secure_data  # Encrypted wallet information
 - **Secure CLI**: `sam key import` with hidden input prompts
 
 ### **⚡ Rate Limiting & Protection**
-- **Redis Backend**: Distributed rate limiting with token buckets
-- **Per-Tool Limits**: Custom limits (transfers: 5/min, launches: 2/5min)
+- **In-Memory Rate Limiting**: Simple, fast token bucket algorithm
+- **Per-Tool Limits**: Custom limits (transfers: 5/min, trades: 10/min)
 - **Burst Protection**: Immediate request allowance with gradual refill
-- **Graceful Degradation**: Continues operation if Redis unavailable
+- **Zero Dependencies**: No Redis or external services required
 
 ### **🔍 Input Validation & Safety**
 - **Pydantic Schemas**: Type-safe validation for all tool inputs
@@ -136,7 +135,7 @@ async def get_balance(...):
 sam health    # Component status monitoring
 # ✅ database: healthy (sessions: 15, trades: 42)
 # ✅ secure_storage: healthy (keyring available)
-# ⚠️  rate_limiter: degraded (redis disconnected) 
+# ✅ rate_limiter: healthy (12 active keys) 
 # ✅ error_tracker: healthy (2 errors/24h)
 ```
 
@@ -202,8 +201,7 @@ SAM_FERNET_KEY=<generated_key>           # Encryption key
 SAM_SOLANA_RPC_URL=https://api.devnet.solana.com  # Solana endpoint
 
 # Optional Configuration  
-REDIS_URL=redis://localhost:6379/0      # Rate limiting backend
-RATE_LIMITING_ENABLED=true              # Enable/disable rate limits
+RATE_LIMITING_ENABLED=true              # Enable in-memory rate limits
 SAM_DB_PATH=.sam/sam_memory.db          # Database location
 LOG_LEVEL=INFO                          # Logging verbosity
 ```
@@ -225,7 +223,7 @@ RATE_LIMITING_ENABLED=true              # Always enabled in prod
 - [x] **Real Blockchain Integration**: All 15 tools use live APIs
 - [x] **Async Database Operations**: Native aiosqlite, no blocking calls
 - [x] **Secure Key Storage**: System keyring + Fernet encryption  
-- [x] **Rate Limiting**: Redis-based token bucket with per-tool limits
+- [x] **Rate Limiting**: In-memory token bucket with per-tool limits
 - [x] **Error Handling**: Circuit breakers, health checks, recovery
 - [x] **Comprehensive Testing**: 46 tests including integration tests
 - [x] **Memory Management**: Session context, preferences, trade history
@@ -255,7 +253,6 @@ RATE_LIMITING_ENABLED=true              # Always enabled in prod
 ### **🚀 Meme Coin Trading**  
 ```
 "Buy 0.1 SOL of BONK on pump.fun"       → pump_fun_buy
-"Launch a token called MOON"            → launch_token
 "Sell 50% of my DOGE holdings"          → pump_fun_sell  
 "What's trending on pump.fun?"          → get_trending_pairs
 ```
@@ -284,7 +281,7 @@ RATE_LIMITING_ENABLED=true              # Always enabled in prod
 - ✅ 100% real blockchain integration (15 working tools)
 - ✅ Native async database operations 
 - ✅ System keyring with Fernet encryption
-- ✅ Redis-based rate limiting with circuit breakers
+- ✅ In-memory rate limiting with automatic cleanup
 - ✅ Comprehensive testing (46 tests + integration)
 - ✅ Full monitoring, health checks, and maintenance automation
 

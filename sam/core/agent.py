@@ -49,8 +49,9 @@ class SAMAgent:
         self.session_stats["context_length"] = len(messages)
         
         # Main execution loop
-        max_iterations = 10  # Prevent infinite loops
+        max_iterations = 5  # Reduced to prevent infinite loops more aggressively
         iteration = 0
+        tool_call_history = []  # Track tool calls to prevent immediate loops
         
         while iteration < max_iterations:
             iteration += 1
@@ -90,6 +91,53 @@ class SAMAgent:
                         except json.JSONDecodeError as e:
                             logger.error(f"Failed to parse tool arguments as JSON: {e}")
                             tool_args = {}
+                        
+                        # Check for immediate repetitive calls (more aggressive prevention)
+                        call_signature = (tool_name, json.dumps(tool_args, sort_keys=True))
+                        
+                        # Prevent any tool from being called more than once with same args
+                        if call_signature in tool_call_history:
+                            logger.warning(f"Preventing duplicate tool call: {tool_name}")
+                            # Add a synthetic result to break the loop
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call_id,
+                                "name": tool_name,
+                                "content": json.dumps({
+                                    "error": "TOOL_ALREADY_CALLED",
+                                    "message": f"The tool '{tool_name}' was already called in this conversation. Use the previous result instead of calling it again.",
+                                    "instructions": "Please provide a response based on the previous tool result rather than making another call."
+                                })
+                            })
+                            continue
+                        
+                        # Also check for balance-specific loops (even stricter)
+                        if tool_name == "get_balance":
+                            balance_calls = [sig for sig in tool_call_history if sig[0] == "get_balance"]
+                            if len(balance_calls) >= 1:
+                                logger.warning(f"Preventing balance loop - already called {len(balance_calls)} times")
+                                # Insert a strong system message to stop the loop
+                                messages.append({
+                                    "role": "system",
+                                    "content": "STOP: You already called get_balance() in this conversation. The previous result contains all wallet information. DO NOT call get_balance() again. Use the previous result to answer the user's question about their balance."
+                                })
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call_id,
+                                    "name": tool_name,
+                                    "content": json.dumps({
+                                        "error": "BALANCE_ALREADY_CHECKED",
+                                        "message": "Balance was already checked in this conversation. The previous balance result contains all wallet information including SOL balance, tokens, and wallet address.",
+                                        "instructions": "Use the previous balance data to answer the user's question. Do not call get_balance again."
+                                    })
+                                })
+                                continue
+                        
+                        # Track this tool call
+                        tool_call_history.append(call_signature)
+                        # Keep only last 5 calls in history
+                        if len(tool_call_history) > 5:
+                            tool_call_history.pop(0)
                         
                         logger.info(f"Calling tool: {tool_name}")
                         

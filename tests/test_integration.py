@@ -35,7 +35,6 @@ async def test_agent_initialization():
             "get_token_data",
             "pump_fun_buy",
             "pump_fun_sell",
-            "launch_token",
             "jupiter_swap",
             "get_swap_quote",
             "search_pairs"
@@ -251,6 +250,7 @@ async def test_agent_session_workflow():
                     def __init__(self):
                         self.content = "Hello! I'm a test agent. I can help you with Solana operations but I currently have no tools available."
                         self.tool_calls = None
+                        self.usage = {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
                 
                 return MockResponse()
         

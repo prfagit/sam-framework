@@ -110,36 +110,24 @@ def validate_tool_input(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     elif tool_name == "pump_fun_buy":
         validated_address = SolanaAddress(address=args.get("mint", ""))
         validated_amount = TradeAmount(amount=args.get("amount", 0))
-        validated_slippage = SlippageTolerance(slippage=args.get("slippage", 1))
+        validated_slippage = SlippageTolerance(slippage=args.get("slippage", 5))
         
-        result = {
+        return {
             "mint": validated_address.address,
             "amount": validated_amount.amount,
             "slippage": validated_slippage.slippage
         }
-        
-        if "public_key" in args:
-            public_key = SolanaAddress(address=args["public_key"])
-            result["public_key"] = public_key.address
-        
-        return result
     
     elif tool_name == "pump_fun_sell":
         validated_address = SolanaAddress(address=args.get("mint", ""))
         validated_percentage = SellPercentage(percentage=args.get("percentage", 100))
-        validated_slippage = SlippageTolerance(slippage=args.get("slippage", 1))
+        validated_slippage = SlippageTolerance(slippage=args.get("slippage", 5))
         
-        result = {
+        return {
             "mint": validated_address.address,
             "percentage": validated_percentage.percentage,
             "slippage": validated_slippage.slippage
         }
-        
-        if "public_key" in args:
-            public_key = SolanaAddress(address=args["public_key"])
-            result["public_key"] = public_key.address
-        
-        return result
     
     elif tool_name == "get_token_data":
         validated = SolanaAddress(address=args.get("address", ""))

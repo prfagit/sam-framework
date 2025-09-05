@@ -3,6 +3,7 @@ import aiohttp
 import asyncio
 import json
 import logging
+from ..utils.http_client import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -19,19 +20,10 @@ class LLMProvider:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url or "https://api.openai.com/v1"
-        self._session = None
-        
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create the HTTP session with proper timeout and settings."""
-        if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=60, connect=10)
-            self._session = aiohttp.ClientSession(timeout=timeout)
-        return self._session
         
     async def close(self):
-        """Close the HTTP session."""
-        if self._session and not self._session.closed:
-            await self._session.close()
+        """Close method for compatibility - shared client handles cleanup."""
+        pass  # Shared HTTP client handles session lifecycle
         
     async def chat_completion(
         self, 
@@ -76,7 +68,7 @@ class LLMProvider:
         
         for attempt in range(max_retries + 1):
             try:
-                session = await self._get_session()
+                session = await get_session()
                 async with session.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,

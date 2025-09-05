@@ -170,7 +170,7 @@ async def test_tool_call_argument_parsing():
     
     agent = SAMAgent(mock_llm, tool_registry, mock_memory, "Test")
     
-    result = await agent.run("Sell tokens", "test_session")
+    await agent.run("Sell tokens", "test_session")
     
     # Verify tool received correctly parsed arguments
     assert received_args == complex_args

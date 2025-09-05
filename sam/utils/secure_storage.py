@@ -25,8 +25,15 @@ class SecureStorage:
         env_key = os.getenv("SAM_FERNET_KEY")
         if env_key:
             try:
-                return env_key.encode() if isinstance(env_key, str) else env_key
-            except Exception as e:
+                # SAM_FERNET_KEY should already be a base64-encoded string
+                key_bytes = env_key.encode('ascii')
+                # Also update the keyring to match the environment for consistency
+                try:
+                    keyring.set_password(self.service_name, "encryption_key", env_key)
+                except Exception as e:
+                    logger.warning(f"Could not sync environment key to keyring: {e}")
+                return key_bytes
+            except (UnicodeDecodeError, AttributeError) as e:
                 logger.warning(f"Invalid SAM_FERNET_KEY in environment: {e}")
         
         # Try to get key from keyring
@@ -37,7 +44,7 @@ class SecureStorage:
         except Exception as e:
             logger.warning(f"Could not retrieve encryption key from keyring: {e}")
         
-        # Generate new key and store in keyring
+        # Generate new key and store in keyring only (not in environment)
         try:
             new_key = Fernet.generate_key()
             keyring.set_password(self.service_name, "encryption_key", new_key.decode())
@@ -203,7 +210,7 @@ class SecureStorage:
             # Clean up test data
             try:
                 keyring.delete_password(self.service_name, test_key)
-            except:
+            except Exception:
                 pass  # Ignore cleanup errors
                 
             results["keyring_available"] = True

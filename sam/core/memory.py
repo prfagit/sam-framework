@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 import logging
 import os
+from ..utils.connection_pool import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -48,63 +49,69 @@ class MemoryManager:
         
         logger.info(f"Initialized memory manager with database: {db_path}")
     
+    # Connection pooling is now handled by the connection_pool utility
+    
     async def initialize(self):
         """Initialize database tables. Must be called after creating the manager."""
         await self._init_database()
         logger.info(f"Database tables initialized: {self.db_path}")
 
     async def _init_database(self):
-        """Initialize database tables using aiosqlite."""
-        async with aiosqlite.connect(self.db_path) as conn:
-            # Create sessions table
-            await conn.execute('''
+        """Initialize database tables using connection pool."""
+        async with get_db_connection(self.db_path) as conn:
+            try:
+                # Create sessions table
+                await conn.execute('''
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
                     messages TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
-            ''')
-            
-            # Create preferences table
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS preferences (
-                    user_id TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY (user_id, key)
-                )
-            ''')
-            
-            # Create trades table
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT NOT NULL,
-                    token_address TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    amount REAL NOT NULL,
-                    timestamp TEXT NOT NULL
-                )
-            ''')
-            
-            # Create secure_data table
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS secure_data (
-                    user_id TEXT PRIMARY KEY,
-                    encrypted_private_key TEXT NOT NULL,
-                    wallet_address TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-            ''')
-            
-            await conn.commit()
+                ''')
+                
+                # Create preferences table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS preferences (
+                        user_id TEXT NOT NULL,
+                        key TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        PRIMARY KEY (user_id, key)
+                    )
+                ''')
+                
+                # Create trades table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS trades (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT NOT NULL,
+                        token_address TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        timestamp TEXT NOT NULL
+                    )
+                ''')
+                
+                # Create secure_data table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS secure_data (
+                        user_id TEXT PRIMARY KEY,
+                        encrypted_private_key TEXT NOT NULL,
+                        wallet_address TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                ''')
+                
+                await conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to initialize database: {e}")
+                raise
 
 
     async def save_session(self, session_id: str, messages: List[Dict]):
         """Save session messages to database."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
             
             # Check if session exists
@@ -128,12 +135,11 @@ class MemoryManager:
                 ''', (session_id, messages_json, now, now))
             
             await conn.commit()
-        
-        logger.debug(f"Saved session {session_id} with {len(messages)} messages")
+            logger.debug(f"Saved session {session_id} with {len(messages)} messages")
 
     async def load_session(self, session_id: str) -> List[Dict]:
         """Load session messages from database."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             cursor = await conn.execute('SELECT messages FROM sessions WHERE session_id = ?', (session_id,))
             result = await cursor.fetchone()
             
@@ -147,7 +153,7 @@ class MemoryManager:
 
     async def save_user_preference(self, user_id: str, key: str, value: str):
         """Save user preference."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
             
             # Use REPLACE to handle both insert and update
@@ -162,7 +168,7 @@ class MemoryManager:
 
     async def get_user_preference(self, user_id: str, key: str) -> Optional[str]:
         """Get user preference."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             cursor = await conn.execute('SELECT value FROM preferences WHERE user_id = ? AND key = ?', 
                          (user_id, key))
             result = await cursor.fetchone()
@@ -174,7 +180,7 @@ class MemoryManager:
 
     async def save_trade_history(self, user_id: str, token_address: str, action: str, amount: float):
         """Save trade to history."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
             
             await conn.execute('''
@@ -188,7 +194,7 @@ class MemoryManager:
 
     async def get_trade_history(self, user_id: str, limit: int = 10) -> List[Dict]:
         """Get recent trades for user."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             cursor = await conn.execute('''
                 SELECT token_address, action, amount, timestamp
                 FROM trades 
@@ -213,7 +219,7 @@ class MemoryManager:
 
     async def store_secure_data(self, user_id: str, encrypted_private_key: str, wallet_address: str):
         """Store encrypted private key and wallet address."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
             
             # Use REPLACE to handle both insert and update
@@ -228,7 +234,7 @@ class MemoryManager:
 
     async def get_secure_data(self, user_id: str) -> Optional[Dict[str, str]]:
         """Get encrypted private key and wallet address for user."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             cursor = await conn.execute('''
                 SELECT encrypted_private_key, wallet_address 
                 FROM secure_data 
@@ -249,7 +255,7 @@ class MemoryManager:
 
     async def cleanup_old_sessions(self, days_old: int = 30):
         """Clean up sessions older than specified days."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             # Use timedelta for proper date arithmetic
             cutoff_date = datetime.utcnow() - timedelta(days=days_old)
             cutoff_str = cutoff_date.isoformat()
@@ -266,7 +272,7 @@ class MemoryManager:
 
     async def cleanup_old_trades(self, days_old: int = 90):
         """Clean up old trade history."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             cutoff_date = datetime.utcnow() - timedelta(days=days_old)
             cutoff_str = cutoff_date.isoformat()
             
@@ -283,7 +289,7 @@ class MemoryManager:
     async def vacuum_database(self):
         """Vacuum the database to reclaim space after cleanup."""
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
+            async with get_db_connection(self.db_path) as conn:
                 await conn.execute('VACUUM')
                 logger.info("Database vacuum completed successfully")
                 return True
@@ -318,7 +324,7 @@ class MemoryManager:
 
     async def get_session_stats(self) -> Dict[str, int]:
         """Get database statistics."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             stats = {}
             
             # Count sessions
@@ -346,7 +352,7 @@ class MemoryManager:
 
     async def clear_session(self, session_id: str) -> int:
         """Clear session messages from database."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with get_db_connection(self.db_path) as conn:
             cursor = await conn.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
             deleted_count = cursor.rowcount
             await conn.commit()

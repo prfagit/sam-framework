@@ -97,7 +97,6 @@ sam generate-key                   # Generate new encryption key
 ### Pump.fun Integration
 - `pump_fun_buy` - Buy meme coins
 - `pump_fun_sell` - Sell token holdings
-- `launch_token` - Create new tokens
 - `get_token_trades` - View trading activity
 
 ### Jupiter Aggregator
@@ -177,7 +176,7 @@ uv run mypy sam/
 | `REDIS_URL` | Redis connection for rate limiting | localhost:6379 | No |
 | `RATE_LIMITING_ENABLED` | Enable/disable rate limiting | true | No |
 | `BRAVE_API_KEY` | Brave Search API key for web search | None | No |
-| `LOG_LEVEL` | Logging verbosity | INFO | No |
+` | Logging verbosity | INFO | No |
 
 ## Safety Features
 

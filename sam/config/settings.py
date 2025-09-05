@@ -15,18 +15,17 @@ class Settings:
     # LLM Configuration
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_BASE_URL: Optional[str] = os.getenv("OPENAI_BASE_URL")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-5-nano")
     
-    # Solana Configuration
-    SAM_SOLANA_RPC_URL: str = os.getenv("SAM_SOLANA_RPC_URL", "https://api.devnet.solana.com")
+    # Solana Configuration  
+    SAM_SOLANA_RPC_URL: str = os.getenv("SAM_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
     SAM_WALLET_PRIVATE_KEY: Optional[str] = os.getenv("SAM_WALLET_PRIVATE_KEY")
     
     # Database Configuration
     SAM_DB_PATH: str = os.getenv("SAM_DB_PATH", ".sam/sam_memory.db")
     
-    # Redis Configuration
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    RATE_LIMITING_ENABLED: bool = os.getenv("RATE_LIMITING_ENABLED", "true").lower() == "true"
+    # Rate Limiting Configuration (disabled by default for better UX)
+    RATE_LIMITING_ENABLED: bool = os.getenv("RATE_LIMITING_ENABLED", "false").lower() == "true"
     
     # Encryption Configuration
     SAM_FERNET_KEY: Optional[str] = os.getenv("SAM_FERNET_KEY")
@@ -65,7 +64,6 @@ class Settings:
         logger.info(f"  OpenAI Base URL: {cls.OPENAI_BASE_URL or 'default'}")
         logger.info(f"  Solana RPC: {cls.SAM_SOLANA_RPC_URL}")
         logger.info(f"  Database Path: {cls.SAM_DB_PATH}")
-        logger.info(f"  Redis URL: {cls.REDIS_URL}")
         logger.info(f"  Rate Limiting: {'Enabled' if cls.RATE_LIMITING_ENABLED else 'Disabled'}")
         logger.info(f"  Max Transaction: {cls.MAX_TRANSACTION_SOL} SOL")
         logger.info(f"  Default Slippage: {cls.DEFAULT_SLIPPAGE}%")
@@ -74,12 +72,17 @@ class Settings:
         logger.info(f"  Encryption Key: {'Set' if cls.SAM_FERNET_KEY else 'Missing'}")
 
 
-def setup_logging(level: str = None):
+def setup_logging(level: Optional[str] = None):
     """Set up logging configuration."""
     log_level = level or Settings.LOG_LEVEL
     
-    # Convert string level to logging constant
-    numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    # Handle special "NO" level to disable all logging
+    if log_level.upper() == "NO":
+        numeric_level = logging.CRITICAL + 1  # Disable all logging
+        # Don't log the configuration message when logging is disabled
+    else:
+        # Convert string level to logging constant
+        numeric_level = getattr(logging, log_level.upper(), logging.INFO)
     
     # Configure logging format
     logging.basicConfig(
@@ -89,8 +92,10 @@ def setup_logging(level: str = None):
     )
     
     # Reduce noise from third-party libraries
-    logging.getLogger('aiohttp').setLevel(logging.WARNING)
-    logging.getLogger('solana').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('aiohttp').setLevel(max(numeric_level, logging.WARNING))
+    logging.getLogger('solana').setLevel(max(numeric_level, logging.WARNING))
+    logging.getLogger('urllib3').setLevel(max(numeric_level, logging.WARNING))
     
-    logger.info(f"Logging configured at {log_level.upper()} level")
+    # Only log configuration if logging is enabled
+    if log_level.upper() != "NO":
+        logger.info(f"Logging configured at {log_level.upper()} level")

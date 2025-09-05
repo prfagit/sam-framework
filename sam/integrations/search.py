@@ -2,11 +2,11 @@
 
 import logging
 import aiohttp
-import asyncio
 import os
 from typing import Dict, Any, List, Optional
 from ..core.tools import Tool, ToolSpec
 from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
+from ..utils.http_client import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -17,21 +17,11 @@ class SearchTools:
     def __init__(self, api_key: Optional[str] = None):
         """Initialize search tools with optional Brave API key."""
         self.api_key = api_key or os.getenv("BRAVE_API_KEY")
-        self.session = None
         logger.info(f"Initialized search tools {'with API key' if self.api_key else 'with fallback mode'}")
     
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session."""
-        if self.session is None or self.session.closed:
-            timeout = aiohttp.ClientTimeout(total=30)
-            self.session = aiohttp.ClientSession(timeout=timeout)
-        return self.session
-    
     async def close(self):
-        """Close HTTP session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
-            logger.info("Closed search tools session")
+        """Close method for compatibility - shared client handles cleanup."""
+        pass  # Shared HTTP client handles session lifecycle
     
     @rate_limit("search")
     @retry_with_backoff(max_retries=2) 
@@ -69,7 +59,7 @@ class SearchTools:
     
     async def _brave_api_search(self, query: str, count: int, search_type: str, freshness: str = None) -> Dict[str, Any]:
         """Search using Brave Search API."""
-        session = await self._get_session()
+        session = await get_session()
         
         url = "https://api.search.brave.com/res/v1/web/search"
         if search_type == "news":

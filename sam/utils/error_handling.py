@@ -4,7 +4,7 @@ import time
 import traceback
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Callable, List
+from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
 import aiosqlite
@@ -40,7 +40,7 @@ class ErrorTracker:
     
     def __init__(self, db_path: str = ".sam/errors.db"):
         self.db_path = db_path
-        self.error_counts = {}
+        self.error_counts: Dict[str, int] = {}
         self.last_cleanup = datetime.utcnow()
         
         # Ensure directory exists (handle case where db_path has no directory)
@@ -159,7 +159,7 @@ class ErrorTracker:
                     GROUP BY severity
                 ''', (cutoff_str,))
                 
-                severity_counts = dict(await cursor.fetchall())
+                severity_counts: Dict[str, int] = {row[0]: row[1] for row in await cursor.fetchall()}
                 
                 # Errors by component
                 cursor = await conn.execute('''
@@ -171,7 +171,7 @@ class ErrorTracker:
                     LIMIT 10
                 ''', (cutoff_str,))
                 
-                component_counts = dict(await cursor.fetchall())
+                component_counts: Dict[str, int] = {row[0]: row[1] for row in await cursor.fetchall()}
                 
                 # Recent critical errors
                 cursor = await conn.execute('''
@@ -234,7 +234,7 @@ class CircuitBreaker:
         name: str,
         failure_threshold: int = 5,
         recovery_timeout: int = 60,
-        expected_exception: type = Exception
+        expected_exception: type[Exception] = Exception
     ):
         self.name = name
         self.failure_threshold = failure_threshold
@@ -242,7 +242,7 @@ class CircuitBreaker:
         self.expected_exception = expected_exception
         
         self.failure_count = 0
-        self.last_failure_time = None
+        self.last_failure_time: Optional[float] = None
         self.state = "closed"  # closed, open, half_open
         
         logger.info(f"Initialized circuit breaker: {name}")
@@ -251,7 +251,7 @@ class CircuitBreaker:
         """Check if we should attempt to reset the circuit breaker."""
         return (
             self.state == "open" and
-            self.last_failure_time and
+            self.last_failure_time is not None and
             time.time() - self.last_failure_time >= self.recovery_timeout
         )
     

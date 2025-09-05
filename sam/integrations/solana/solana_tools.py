@@ -1,9 +1,6 @@
 from typing import Dict, Any, Optional
 import logging
 import base58
-import json
-import asyncio
-from decimal import Decimal
 
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TxOpts
@@ -11,11 +8,13 @@ from solana.transaction import Transaction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.system_program import transfer, TransferParams
-from solders.transaction import VersionedTransaction
 
 from ...core.tools import Tool, ToolSpec
 from ...utils.validators import validate_tool_input
 from ...utils.decorators import rate_limit, retry_with_backoff, log_execution
+from ...utils.http_client import get_session
+from ...utils.error_messages import handle_error_gracefully
+from ...utils.price_service import get_price_service
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ class SolanaTools:
                 self.keypair = Keypair.from_bytes(private_key_bytes)
                 self.wallet_address = str(self.keypair.pubkey())
                 logger.info(f"Initialized Solana tools with wallet: {self.wallet_address}")
-            except Exception as e:
+            except (ValueError, TypeError, base58.Base58Error) as e:
                 logger.error(f"Failed to initialize keypair from private key: {e}")
                 raise ValueError(f"Invalid private key: {e}")
         else:
@@ -85,16 +84,14 @@ class SolanaTools:
                 ]
             }
             
-            import aiohttp
-            session = aiohttp.ClientSession()
+            session = await get_session()
             tokens = []
             
-            try:
-                async with session.post(
-                    self.rpc_url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                ) as token_response:
+            async with session.post(
+                self.rpc_url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            ) as token_response:
                     if token_response.status == 200:
                         token_data = await token_response.json()
                         token_accounts = token_data.get("result", {}).get("value", [])
@@ -109,21 +106,42 @@ class SolanaTools:
                                     "uiAmount": float(info["tokenAmount"]["uiAmount"] or 0),
                                     "decimals": info["tokenAmount"]["decimals"]
                                 })
-            finally:
-                await session.close()
             
-            logger.info(f"Retrieved balances for {target_address}: {balance_sol} SOL + {len(tokens)} tokens")
-            return {
-                "address": target_address,
-                "sol_balance": balance_sol,
-                "sol_balance_lamports": balance_lamports,
-                "tokens": tokens,
-                "token_count": len(tokens)
-            }
+            # Add USD pricing information
+            try:
+                price_service = await get_price_service()
+                portfolio_info = await price_service.format_portfolio_value(balance_sol, tokens)
+                
+                result = {
+                    "address": target_address,
+                    "sol_balance": balance_sol,
+                    "sol_balance_lamports": balance_lamports,
+                    "sol_usd": portfolio_info.get("sol_usd", 0.0),
+                    "sol_price": portfolio_info.get("sol_price", 0.0),
+                    "formatted_sol": portfolio_info.get("formatted_sol", f"{balance_sol:.4f} SOL"),
+                    "tokens": tokens,
+                    "token_count": len(tokens),
+                    "total_portfolio_usd": portfolio_info.get("total_usd", 0.0)
+                }
+                
+                logger.info(f"Retrieved balances for {target_address}: {portfolio_info.get('formatted_sol', f'{balance_sol} SOL')} + {len(tokens)} tokens")
+                return result
+                
+            except Exception as price_error:
+                logger.warning(f"Could not fetch USD prices: {price_error}")
+                # Return without USD info if price service fails
+                logger.info(f"Retrieved balances for {target_address}: {balance_sol} SOL + {len(tokens)} tokens")
+                return {
+                    "address": target_address,
+                    "sol_balance": balance_sol,
+                    "sol_balance_lamports": balance_lamports,
+                    "tokens": tokens,
+                    "token_count": len(tokens)
+                }
                     
         except Exception as e:
             logger.error(f"Failed to get balance: {e}")
-            return {"error": str(e)}
+            return handle_error_gracefully(e, {"operation": "get_balance", "address": target_address})
 
     @rate_limit("transfer_sol", identifier_key="to_address")
     @retry_with_backoff(max_retries=1)  # Be careful with transaction retries
@@ -186,7 +204,7 @@ class SolanaTools:
                 
         except Exception as e:
             logger.error(f"Transfer failed: {e}")
-            return {"error": str(e)}
+            return handle_error_gracefully(e, {"operation": "transfer_sol", "to_address": to_address, "amount": amount})
 
     @rate_limit("solana_rpc")
     @retry_with_backoff(max_retries=2)
@@ -249,14 +267,12 @@ class SolanaTools:
                 "params": {"id": mint_address}
             }
             
-            import aiohttp
-            session = aiohttp.ClientSession()
-            try:
-                async with session.post(
-                    self.rpc_url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                ) as response:
+            session = await get_session()
+            async with session.post(
+                self.rpc_url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            ) as response:
                     if response.status == 200:
                         data = await response.json()
                         
@@ -284,17 +300,11 @@ class SolanaTools:
                     else:
                         error_text = await response.text()
                         return {"error": f"RPC error {response.status}: {error_text}"}
-            finally:
-                await session.close()
                 
         except Exception as e:
             logger.error(f"Failed to get token metadata: {e}")
             return {"error": str(e)}
     
-    async def close(self):
-        """Close the RPC client connection."""
-        if self.client:
-            await self.client.close()
 
 
 def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
@@ -355,16 +365,16 @@ def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
         Tool(
             spec=ToolSpec(
                 name="get_balance",
-                description="Get SOL balance for the configured wallet or a specific address",
+                description="Get comprehensive wallet information including SOL balance, all SPL token balances, and wallet address. Returns complete portfolio overview in one call.",
                 input_schema={
                     "name": "get_balance",
-                    "description": "Get SOL balance",
+                    "description": "Get complete wallet balance (SOL + all tokens)",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "address": {
                                 "type": "string",
-                                "description": "Optional: specific address to check (uses wallet address if not provided)"
+                                "description": "Optional: specific address to check (uses configured wallet if not provided)"
                             }
                         },
                         "required": []

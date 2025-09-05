@@ -1,13 +1,13 @@
 import functools
 import logging
-from typing import Dict, Any, Callable
-from .rate_limiter import check_rate_limit, RateLimitExceeded
+from typing import Dict, Any, Callable, Optional
+from .rate_limiter import check_rate_limit
 from ..config.settings import Settings
 
 logger = logging.getLogger(__name__)
 
 
-def rate_limit(limit_type: str = "default", identifier_key: str = None):
+def rate_limit(limit_type: str = "default", identifier_key: Optional[str] = None):
     """
     Decorator to add rate limiting to tool functions.
     
@@ -65,9 +65,9 @@ def rate_limit(limit_type: str = "default", identifier_key: str = None):
                 # Add rate limit info to successful responses
                 if isinstance(result, dict) and "error" not in result:
                     result["rate_limit_info"] = {
-                        "tokens_remaining": info.get("tokens_remaining", 0),
+                        "remaining": info.get("remaining", 0),
                         "limit": info.get("limit", 0),
-                        "window": info.get("window", 60)
+                        "reset_time": info.get("reset_time", 0)
                     }
                 
                 return result

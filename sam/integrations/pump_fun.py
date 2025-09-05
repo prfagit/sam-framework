@@ -1,10 +1,13 @@
 import aiohttp
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from ..core.tools import Tool, ToolSpec
 from ..utils.validators import validate_tool_input
 from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
+from ..utils.http_client import get_session
+from ..utils.error_messages import handle_error_gracefully
+from ..utils.transaction_validator import validate_pump_buy, validate_pump_sell
 
 logger = logging.getLogger(__name__)
 
@@ -12,21 +15,11 @@ logger = logging.getLogger(__name__)
 class PumpFunTools:
     def __init__(self, solana_tools=None):
         self.base_url = "https://pumpportal.fun/api"
-        self.session = None
         self.solana_tools = solana_tools  # For transaction signing and sending
     
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=30)
-            )
-        return self.session
-    
     async def close(self):
-        """Close the HTTP session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
+        """Close method for compatibility - shared client handles cleanup."""
+        pass  # Shared HTTP client handles session lifecycle
 
     async def _sign_and_send_transaction(self, transaction_hex: str, action: str) -> Dict[str, Any]:
         """Sign and send a pump.fun transaction with fresh blockhash."""
@@ -63,7 +56,7 @@ class PumpFunTools:
                 error_msg = str(first_attempt_error)
                 if "blockhash" in error_msg.lower():
                     logger.warning(f"Blockhash error, transaction may be stale: {first_attempt_error}")
-                    return {"error": f"Transaction expired (stale blockhash). Please try again."}
+                    return {"error": "Transaction expired (stale blockhash). Please try again."}
                 else:
                     logger.warning(f"Preflight skip failed, retrying with preflight: {first_attempt_error}")
                     # If that fails, try with preflight enabled
@@ -82,7 +75,7 @@ class PumpFunTools:
                     "action": action
                 }
             else:
-                logger.error(f"Transaction failed to send - no signature returned")
+                logger.error("Transaction failed to send - no signature returned")
                 return {
                     "error": "Transaction failed: No signature returned"
                 }
@@ -96,7 +89,7 @@ class PumpFunTools:
     async def get_token_trades(self, mint: str, limit: int = 10) -> Dict[str, Any]:
         """Get recent trades for a token."""
         try:
-            session = await self._get_session()
+            session = await get_session()
             
             params = {
                 "mint": mint,
@@ -125,7 +118,7 @@ class PumpFunTools:
             logger.error(f"Unexpected error getting trades: {e}")
             return {"error": str(e)}
 
-    @rate_limit("pump_fun_buy", identifier_key="public_key")
+    @rate_limit("pump_fun_buy", identifier_key="mint")
     @retry_with_backoff(max_retries=2)
     @log_execution()
     async def create_buy_transaction(
@@ -137,7 +130,7 @@ class PumpFunTools:
     ) -> Dict[str, Any]:
         """Create a buy transaction for a token on pump.fun."""
         try:
-            session = await self._get_session()
+            session = await get_session()
             
             payload = {
                 "publicKey": public_key,
@@ -181,9 +174,9 @@ class PumpFunTools:
             return {"error": f"Network error: {str(e)}"}
         except Exception as e:
             logger.error(f"Unexpected error creating buy transaction: {e}")
-            return {"error": str(e)}
+            return handle_error_gracefully(e, {"operation": "pump_fun_buy"})
 
-    @rate_limit("pump_fun_sell", identifier_key="public_key")
+    @rate_limit("pump_fun_sell", identifier_key="mint")
     @retry_with_backoff(max_retries=2)
     @log_execution()
     async def create_sell_transaction(
@@ -195,7 +188,7 @@ class PumpFunTools:
     ) -> Dict[str, Any]:
         """Create a sell transaction for a token on pump.fun."""
         try:
-            session = await self._get_session()
+            session = await get_session()
             
             payload = {
                 "publicKey": public_key,
@@ -244,7 +237,7 @@ class PumpFunTools:
     async def get_token_info(self, mint: str) -> Dict[str, Any]:
         """Get basic information about a token."""
         try:
-            session = await self._get_session()
+            session = await get_session()
             
             async with session.get(f"{self.base_url}/coin-data/{mint}") as response:
                 if response.status != 200:
@@ -275,35 +268,6 @@ class PumpFunTools:
             logger.error(f"Unexpected error getting token info: {e}")
             return {"error": str(e)}
 
-    @rate_limit("launch_token", identifier_key="public_key")
-    @retry_with_backoff(max_retries=1)  # Be very careful with token launches
-    @log_execution(include_args=True)  # Log args for token launches
-    async def launch_token(
-        self,
-        public_key: str,
-        name: str,
-        symbol: str,
-        description: str,
-        image_url: str,
-        initial_buy_amount: float = 0.01,
-        website: str = None,
-        twitter: str = None,
-        telegram: str = None
-    ) -> Dict[str, Any]:
-        """Launch a new token on pump.fun - COMPLEX IMPLEMENTATION NEEDED."""
-        # TODO: This needs to be implemented properly following the pumplaunchtoken.js pattern:
-        # 1. Create keypair for new mint
-        # 2. Create metadata account 
-        # 3. Create bonding curve PDA
-        # 4. Create associated token accounts
-        # 5. Build transaction with create + buy instructions
-        # 6. Sign with both wallet keypair and mint keypair
-        # 7. Send transaction
-        
-        logger.warning("Token launch not fully implemented - requires complex transaction building")
-        return {
-            "error": "Token launch feature is not yet fully implemented. This requires building complex Solana transactions with multiple instructions including token creation, metadata creation, and bonding curve setup."
-        }
 
 
 def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool]:
@@ -311,11 +275,56 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
     
     async def handle_pump_fun_buy(args: Dict[str, Any]) -> Dict[str, Any]:
         validated_args = validate_tool_input("pump_fun_buy", args)
+        
+        # Use configured wallet automatically
+        public_key = pump_fun_tools.solana_tools.wallet_address if pump_fun_tools.solana_tools else None
+        if not public_key:
+            return handle_error_gracefully(
+                ValueError("No wallet configured for trading"), 
+                {"operation": "pump_fun_buy"}
+            )
+        
+        # Get current balance for validation
+        try:
+            wallet_balance = 0.0
+            if pump_fun_tools.solana_tools:
+                balance_result = await pump_fun_tools.solana_tools.get_balance()
+                if "sol_balance" in balance_result:
+                    wallet_balance = balance_result["sol_balance"]
+        except Exception as e:
+            logger.warning(f"Could not get balance for validation: {e}")
+        
+        # Pre-transaction validation
+        validation_result = await validate_pump_buy(
+            wallet_balance,
+            validated_args["amount"],
+            validated_args.get("slippage", 5),
+            validated_args["mint"]
+        )
+        
+        # If validation fails, return error
+        if not validation_result.is_valid:
+            from ..utils.transaction_validator import TransactionValidator
+            validator = TransactionValidator()
+            error_message = validator.format_validation_result(validation_result)
+            return {
+                "error": True,
+                "category": "validation", 
+                "title": "Transaction Validation Failed",
+                "message": "Cannot proceed with pump.fun buy",
+                "validation_details": error_message,
+                "solutions": validation_result.suggestions[:3]  # Top 3 suggestions
+            }
+        
+        # Show warnings if any (but proceed)
+        if validation_result.warnings:
+            logger.warning(f"Transaction warnings: {validation_result.warnings}")
+        
         result = await pump_fun_tools.create_buy_transaction(
-            validated_args["public_key"],
+            public_key,
             validated_args["mint"],
             validated_args["amount"],
-            validated_args.get("slippage", 1)
+            validated_args.get("slippage", 5)  # Default to 5% for pump.fun
         )
         
         # Invalidate balance cache after successful transaction
@@ -326,11 +335,45 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
     
     async def handle_pump_fun_sell(args: Dict[str, Any]) -> Dict[str, Any]:
         validated_args = validate_tool_input("pump_fun_sell", args)
+        
+        # Use configured wallet automatically
+        public_key = pump_fun_tools.solana_tools.wallet_address if pump_fun_tools.solana_tools else None
+        if not public_key:
+            return handle_error_gracefully(
+                ValueError("No wallet configured for trading"), 
+                {"operation": "pump_fun_sell"}
+            )
+        
+        # Pre-transaction validation
+        validation_result = await validate_pump_sell(
+            validated_args.get("percentage", 100),
+            validated_args.get("slippage", 5),
+            validated_args["mint"]
+        )
+        
+        # If validation fails, return error
+        if not validation_result.is_valid:
+            from ..utils.transaction_validator import TransactionValidator
+            validator = TransactionValidator()
+            error_message = validator.format_validation_result(validation_result)
+            return {
+                "error": True,
+                "category": "validation",
+                "title": "Transaction Validation Failed", 
+                "message": "Cannot proceed with pump.fun sell",
+                "validation_details": error_message,
+                "solutions": validation_result.suggestions[:3]
+            }
+        
+        # Show warnings if any (but proceed)
+        if validation_result.warnings:
+            logger.warning(f"Transaction warnings: {validation_result.warnings}")
+        
         result = await pump_fun_tools.create_sell_transaction(
-            validated_args["public_key"],
+            public_key,
             validated_args["mint"],
             validated_args.get("percentage", 100),
-            validated_args.get("slippage", 1)
+            validated_args.get("slippage", 5)  # Default to 5% for pump.fun
         )
         
         # Invalidate balance cache after successful transaction
@@ -348,34 +391,18 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
         mint = args.get("mint", "")
         return await pump_fun_tools.get_token_info(mint)
     
-    async def handle_launch_token(args: Dict[str, Any]) -> Dict[str, Any]:
-        return await pump_fun_tools.launch_token(
-            args.get("public_key", ""),
-            args.get("name", ""),
-            args.get("symbol", ""),
-            args.get("description", ""),
-            args.get("image_url", ""),
-            args.get("initial_buy_amount", 0.01),
-            args.get("website"),
-            args.get("twitter"),
-            args.get("telegram")
-        )
     
     tools = [
         Tool(
             spec=ToolSpec(
                 name="pump_fun_buy",
-                description="Create a buy transaction for a token on pump.fun",
+                description="Buy a token on pump.fun using the configured wallet. Executes immediately with automatic wallet and slippage settings.",
                 input_schema={
                     "name": "pump_fun_buy",
                     "description": "Buy token on pump.fun",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "public_key": {
-                                "type": "string",
-                                "description": "Your wallet public key"
-                            },
                             "mint": {
                                 "type": "string",
                                 "description": "Token mint address"
@@ -391,10 +418,10 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
                                 "description": "Slippage tolerance (1-50%)",
                                 "minimum": 1,
                                 "maximum": 50,
-                                "default": 1
+                                "default": 5
                             }
                         },
-                        "required": ["public_key", "mint", "amount"]
+                        "required": ["mint", "amount"]
                     }
                 }
             ),
@@ -403,17 +430,13 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
         Tool(
             spec=ToolSpec(
                 name="pump_fun_sell",
-                description="Create a sell transaction for a token on pump.fun",
+                description="Sell a token on pump.fun using the configured wallet. Executes immediately with automatic wallet and slippage settings.",
                 input_schema={
                     "name": "pump_fun_sell",
                     "description": "Sell token on pump.fun",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "public_key": {
-                                "type": "string",
-                                "description": "Your wallet public key"
-                            },
                             "mint": {
                                 "type": "string",
                                 "description": "Token mint address"
@@ -430,10 +453,10 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
                                 "description": "Slippage tolerance (1-50%)",
                                 "minimum": 1,
                                 "maximum": 50,
-                                "default": 1
+                                "default": 5
                             }
                         },
-                        "required": ["public_key", "mint"]
+                        "required": ["mint"]
                     }
                 }
             ),
@@ -487,65 +510,6 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
                 }
             ),
             handler=handle_get_pump_token_info
-        ),
-        Tool(
-            spec=ToolSpec(
-                name="launch_token",
-                description="Launch a new token on pump.fun with metadata and initial buy",
-                input_schema={
-                    "name": "launch_token",
-                    "description": "Launch new token on pump.fun",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "public_key": {
-                                "type": "string",
-                                "description": "Your wallet public key"
-                            },
-                            "name": {
-                                "type": "string",
-                                "description": "Token name",
-                                "maxLength": 50
-                            },
-                            "symbol": {
-                                "type": "string",
-                                "description": "Token symbol",
-                                "maxLength": 10
-                            },
-                            "description": {
-                                "type": "string",
-                                "description": "Token description",
-                                "maxLength": 500
-                            },
-                            "image_url": {
-                                "type": "string",
-                                "description": "URL to token image/logo"
-                            },
-                            "initial_buy_amount": {
-                                "type": "number",
-                                "description": "Initial buy amount in SOL",
-                                "minimum": 0.001,
-                                "maximum": 10.0,
-                                "default": 0.01
-                            },
-                            "website": {
-                                "type": "string",
-                                "description": "Optional: Token website URL"
-                            },
-                            "twitter": {
-                                "type": "string", 
-                                "description": "Optional: Twitter handle (without @)"
-                            },
-                            "telegram": {
-                                "type": "string",
-                                "description": "Optional: Telegram channel/group"
-                            }
-                        },
-                        "required": ["public_key", "name", "symbol", "description", "image_url"]
-                    }
-                }
-            ),
-            handler=handle_launch_token
         )
     ]
     
