@@ -189,11 +189,16 @@ def test_pump_fun_sell_validation():
     assert result["percentage"] == 100
 
 
-def test_memory_path_edge_case():
+@pytest.mark.asyncio
+async def test_memory_path_edge_case():
     """Test that memory path handling works with bare filenames."""
     from sam.core.memory import MemoryManager
+    from sam.utils.connection_pool import cleanup_database_pool
     import tempfile
     import os
+
+    # Clean up any existing connection pools
+    await cleanup_database_pool()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         # Test with bare filename (no directory)
@@ -206,12 +211,13 @@ def test_memory_path_edge_case():
             assert memory.db_path == "test.db"
 
             # Initialize should work without errors
-            import asyncio
-
-            asyncio.run(memory.initialize())
+            await memory.initialize()
 
             # Database file should exist
             assert os.path.exists("test.db")
+            
+            # Clean up after test
+            await cleanup_database_pool()
         finally:
             os.chdir(original_cwd)
 

@@ -8,42 +8,96 @@ from sam.core.llm_provider import LLMProvider
 from sam.core.memory import MemoryManager
 from sam.core.tools import ToolRegistry
 from sam.config.prompts import SOLANA_AGENT_PROMPT
+from sam.utils.connection_pool import cleanup_database_pool
 
 
 @pytest.mark.asyncio
 async def test_agent_initialization():
     """Test that the agent initializes properly with all components."""
+    # Clean up any existing connection pools
+    await cleanup_database_pool()
+    
     try:
-        agent = await setup_agent()
+        # Use a temporary database for this test
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_db_path = os.path.join(tmpdir, "test_agent.db")
+            
+            # Create components manually with test database
+            from sam.core.llm_provider import create_llm_provider
+            from sam.utils.secure_storage import get_secure_storage
+            from sam.config.settings import Settings
+            
+            llm = create_llm_provider()
+            memory = MemoryManager(test_db_path)
+            await memory.initialize()
+            tools = ToolRegistry()
+            
+            # Create agent with test components (needed for tool registration)
+            agent = SAMAgent(
+                llm=llm,
+                memory=memory,
+                tools=tools,
+                system_prompt=SOLANA_AGENT_PROMPT
+            )
+            
+            # Register tools like in CLI setup
+            from sam.integrations.solana.solana_tools import SolanaTools, create_solana_tools
+            from sam.integrations.pump_fun import PumpFunTools, create_pump_fun_tools
+            from sam.integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
+            from sam.integrations.jupiter import JupiterTools, create_jupiter_tools
+            from sam.integrations.search import SearchTools, create_search_tools
+            
+            # Initialize tools (minimal setup for test)
+            solana_tools = SolanaTools(rpc_url="https://api.mainnet-beta.solana.com")  # No private key needed for test
+            pump_tools = PumpFunTools(solana_tools)
+            dex_tools = DexScreenerTools()
+            jupiter_tools = JupiterTools(solana_tools)
+            search_tools = SearchTools()  # No API key needed for test
+            
+            # Register all tools
+            for tool in create_solana_tools(solana_tools, agent=agent):
+                tools.register(tool)
+            for tool in create_pump_fun_tools(pump_tools, agent=agent):
+                tools.register(tool)
+            for tool in create_dexscreener_tools(dex_tools):
+                tools.register(tool)
+            for tool in create_jupiter_tools(jupiter_tools):
+                tools.register(tool)
+            for tool in create_search_tools(search_tools):
+                tools.register(tool)
 
-        # Verify agent has all required components
-        assert isinstance(agent, SAMAgent)
-        assert isinstance(agent.llm, LLMProvider)
-        assert isinstance(agent.memory, MemoryManager)
-        assert isinstance(agent.tools, ToolRegistry)
-        assert agent.system_prompt == SOLANA_AGENT_PROMPT
+            # Verify agent has all required components
+            assert isinstance(agent, SAMAgent)
+            assert isinstance(agent.llm, LLMProvider)
+            assert isinstance(agent.memory, MemoryManager)
+            assert isinstance(agent.tools, ToolRegistry)
+            assert agent.system_prompt == SOLANA_AGENT_PROMPT
 
-        # Verify tools are loaded
-        tools = agent.tools.list_specs()
-        assert len(tools) >= 15  # Should have at least 15 tools
+            # Verify tools are loaded
+            tools_specs = agent.tools.list_specs()
+            assert len(tools_specs) >= 15  # Should have at least 15 tools
 
-        # Verify specific tools exist
-        tool_names = [tool["name"] for tool in tools]
-        expected_tools = [
-            "get_balance",
-            "transfer_sol",
-            "get_token_data",
-            "pump_fun_buy",
-            "pump_fun_sell",
-            "jupiter_swap",
-            "get_swap_quote",
-            "search_pairs",
-        ]
+            # Verify specific tools exist
+            tool_names = [tool["name"] for tool in tools_specs]
+            expected_tools = [
+                "get_balance",
+                "transfer_sol",
+                "get_token_data",
+                "pump_fun_buy",
+                "pump_fun_sell",
+                "jupiter_swap",
+                "get_swap_quote",
+                "search_pairs",
+            ]
 
-        for expected_tool in expected_tools:
-            assert expected_tool in tool_names, f"Missing tool: {expected_tool}"
+            for expected_tool in expected_tools:
+                assert expected_tool in tool_names, f"Missing tool: {expected_tool}"
+                
+            # Clean up after test
+            await cleanup_database_pool()
 
     except Exception as e:
+        await cleanup_database_pool()  # Clean up even on exception
         if "OPENAI_API_KEY" in str(e):
             pytest.skip("OpenAI API key not available for integration test")
         else:
@@ -53,6 +107,9 @@ async def test_agent_initialization():
 @pytest.mark.asyncio
 async def test_memory_integration():
     """Test memory system integration."""
+    # Clean up any existing connection pools
+    await cleanup_database_pool()
+    
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test_integration.db")
         memory = MemoryManager(db_path)
@@ -86,6 +143,9 @@ async def test_memory_integration():
         assert stats["sessions"] >= 1
         assert stats["preferences"] >= 1
         assert stats["trades"] >= 1
+        
+        # Clean up after test
+        await cleanup_database_pool()
 
 
 @pytest.mark.asyncio
@@ -236,6 +296,9 @@ async def test_validators():
 @pytest.mark.asyncio
 async def test_agent_session_workflow():
     """Test a complete agent session workflow with mock LLM."""
+    # Clean up any existing connection pools
+    await cleanup_database_pool()
+    
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test_session.db")
 
@@ -280,6 +343,9 @@ async def test_agent_session_workflow():
         assert len(loaded_session) >= 1  # Should have user message at least
         assert loaded_session[0]["role"] == "user"
         assert "Hello, what can you help me with?" in loaded_session[0]["content"]
+        
+        # Clean up after test
+        await cleanup_database_pool()
 
 
 if __name__ == "__main__":

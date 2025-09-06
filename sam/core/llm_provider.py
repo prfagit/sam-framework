@@ -297,11 +297,30 @@ class AnthropicProvider(LLMProvider):
         for tool in tools:
             # Anthropic expects input_schema at top-level of the tool specification
             input_schema = tool.get("input_schema")
+            
+            # Handle different input_schema formats:
+            # 1. Direct schema: {"type": "object", "properties": {...}}
+            # 2. Nested schema: {"parameters": {"type": "object", ...}}
+            if isinstance(input_schema, dict):
+                if "parameters" in input_schema:
+                    # Format 2: Extract the nested parameters
+                    schema = input_schema["parameters"]
+                else:
+                    # Format 1: Use directly, but ensure it has required fields
+                    schema = input_schema
+                
+                # Ensure the schema has a type field (required by Anthropic)
+                if "type" not in schema:
+                    schema = {"type": "object", **schema}
+            else:
+                # Fallback for unexpected formats
+                schema = {"type": "object", "properties": {}}
+            
             formatted.append(
                 {
                     "name": tool.get("name"),
                     "description": tool.get("description"),
-                    "input_schema": input_schema,
+                    "input_schema": schema,
                 }
             )
         return formatted
@@ -352,7 +371,6 @@ class AnthropicProvider(LLMProvider):
                         "type": "tool_result",
                         "tool_use_id": msg.get("tool_call_id"),
                         "content": msg.get("content", ""),
-                        "name": msg.get("name"),
                     }
                 )
                 continue
@@ -385,6 +403,7 @@ class AnthropicProvider(LLMProvider):
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": anth_messages,
+            "max_tokens": 4000,  # Required parameter for Anthropic API
         }
         if system_text:
             payload["system"] = system_text
