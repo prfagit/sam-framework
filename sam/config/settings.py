@@ -57,6 +57,54 @@ class Settings:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     
     @classmethod
+    def refresh_from_env(cls) -> None:
+        """Refresh Settings class attributes from current environment.
+        Use this instead of reloading the module to avoid stale references.
+        """
+        # LLM provider
+        cls.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
+
+        # OpenAI / OpenAI-compatible
+        cls.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+        cls.OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
+        cls.OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+        # Anthropic
+        cls.ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+        cls.ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+        cls.ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+
+        # xAI (Grok)
+        cls.XAI_API_KEY = os.getenv("XAI_API_KEY")
+        cls.XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1")
+        cls.XAI_MODEL = os.getenv("XAI_MODEL", "grok-2-latest")
+
+        # Local LLM
+        cls.LOCAL_LLM_BASE_URL = os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
+        cls.LOCAL_LLM_API_KEY = os.getenv("LOCAL_LLM_API_KEY")
+        cls.LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "llama3.1")
+
+        # Solana
+        cls.SAM_SOLANA_RPC_URL = os.getenv("SAM_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+        cls.SAM_WALLET_PRIVATE_KEY = os.getenv("SAM_WALLET_PRIVATE_KEY")
+
+        # Database
+        cls.SAM_DB_PATH = os.getenv("SAM_DB_PATH", ".sam/sam_memory.db")
+
+        # Rate limiting
+        cls.RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "false").lower() == "true"
+
+        # Encryption
+        cls.SAM_FERNET_KEY = os.getenv("SAM_FERNET_KEY")
+
+        # Safety
+        cls.MAX_TRANSACTION_SOL = float(os.getenv("MAX_TRANSACTION_SOL", "1000"))
+        cls.DEFAULT_SLIPPAGE = int(os.getenv("DEFAULT_SLIPPAGE", "1"))
+
+        # Logging
+        cls.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    
+    @classmethod
     def validate(cls) -> bool:
         """Validate that required settings are present."""
         errors = []

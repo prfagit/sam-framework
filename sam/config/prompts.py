@@ -21,7 +21,6 @@ TOOL SELECTION GUIDE:
 🪐 JUPITER SWAPS (use these tools for established tokens):
 - get_swap_quote(input_mint, output_mint, amount, slippage) - Get swap quote
 - jupiter_swap(input_mint, output_mint, amount, slippage) - Execute swap with configured wallet
-- get_jupiter_tokens() - ONLY use if user asks about available Jupiter tokens
 
 💰 WALLET & BALANCE:
 - get_balance() - Check SOL/token balances for configured wallet

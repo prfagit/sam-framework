@@ -10,51 +10,125 @@ logger = logging.getLogger(__name__)
 
 
 class SecureStorage:
-    """Secure storage for sensitive data using system keyring and encryption."""
+    """Secure storage for sensitive data using system keyring and encryption.
+
+    Improvements:
+    - Prefer existing keyring key if it conflicts with env to preserve access.
+    - Do not silently swallow keyring sync failures.
+    - Maintain an encrypted canary to detect key mismatches early.
+    - Track the current key string for safe reloads.
+    """
     
     def __init__(self, service_name: str = "sam-framework"):
         self.service_name = service_name
-        self.fernet_key = self._get_or_create_encryption_key()
+        self.current_key_str: Optional[str] = None
+        self.fernet_key = self._select_and_sync_encryption_key()
         self.fernet = Fernet(self.fernet_key) if self.fernet_key else None
+        
+        if self.fernet:
+            try:
+                self._ensure_canary()
+            except Exception as e:
+                logger.warning(f"Encryption canary check failed: {e}")
         
         logger.info(f"Initialized secure storage for service: {service_name}")
     
-    def _get_or_create_encryption_key(self) -> Optional[bytes]:
-        """Get encryption key from environment or keyring - prioritize environment for session."""
-        # First try environment variable (set during onboarding)
+    def _select_and_sync_encryption_key(self) -> Optional[bytes]:
+        """Determine the encryption key with safe precedence and sync.
+
+        Rules:
+        - If keyring has a key, prefer it to preserve access to existing ciphertexts.
+        - If env has a key but keyring is empty, write env -> keyring (log on failure).
+        - If both exist and differ, prefer keyring, set env to keyring, and warn.
+        - If neither exists, generate, persist to keyring, and set env.
+        """
         env_key = os.getenv("SAM_FERNET_KEY")
-        if env_key:
-            try:
-                key_bytes = env_key.encode('ascii')
-                # Sync to keyring for persistence
-                try:
-                    keyring.set_password(self.service_name, "encryption_key", env_key)
-                except Exception:
-                    pass  # Ignore keyring sync failures
-                return key_bytes
-            except (UnicodeDecodeError, AttributeError):
-                pass  # Fall through to keyring
-        
-        # Try keyring for persistent storage
+        kr_key = None
         try:
-            stored_key = keyring.get_password(self.service_name, "encryption_key")
-            if stored_key:
-                # Also set in environment for this session
-                os.environ["SAM_FERNET_KEY"] = stored_key
-                return stored_key.encode()
-        except Exception:
-            pass  # Fall through to generation
-        
-        # Generate new key (shouldn't happen in normal flow)
+            kr_key = keyring.get_password(self.service_name, "encryption_key")
+        except Exception as e:
+            logger.warning(f"Keyring read failed: {e}")
+
+        # Both present
+        if env_key and kr_key:
+            if env_key != kr_key:
+                logger.warning("SAM_FERNET_KEY mismatch between environment and keyring; using keyring key to preserve access. Update your .env to match.")
+                try:
+                    os.environ["SAM_FERNET_KEY"] = kr_key
+                except Exception:
+                    pass
+                self.current_key_str = kr_key
+                return kr_key.encode()
+            # Equal
+            self.current_key_str = env_key
+            return env_key.encode()
+
+        # Only env present
+        if env_key and not kr_key:
+            try:
+                keyring.set_password(self.service_name, "encryption_key", env_key)
+            except Exception as e:
+                logger.error(f"Failed to persist SAM_FERNET_KEY to keyring: {e}")
+            self.current_key_str = env_key
+            return env_key.encode()
+
+        # Only keyring present
+        if kr_key and not env_key:
+            try:
+                os.environ["SAM_FERNET_KEY"] = kr_key
+            except Exception:
+                pass
+            self.current_key_str = kr_key
+            return kr_key.encode()
+
+        # Neither present: generate new
         try:
             new_key = Fernet.generate_key()
-            keyring.set_password(self.service_name, "encryption_key", new_key.decode())
-            os.environ["SAM_FERNET_KEY"] = new_key.decode()
+            new_key_str = new_key.decode()
+            try:
+                keyring.set_password(self.service_name, "encryption_key", new_key_str)
+            except Exception as e:
+                logger.error(f"Failed to write new encryption key to keyring: {e}")
+            try:
+                os.environ["SAM_FERNET_KEY"] = new_key_str
+            except Exception:
+                pass
+            self.current_key_str = new_key_str
             logger.info("Generated new encryption key")
             return new_key
         except Exception as e:
             logger.error(f"Could not generate encryption key: {e}")
             return None
+
+    def _ensure_canary(self) -> None:
+        """Ensure an encrypted canary exists and is decryptable with current key.
+
+        Stores a small value encrypted with the active key as 'encryption_canary'.
+        If present but undecryptable, logs a clear mismatch warning.
+        """
+        if not self.fernet:
+            return
+        try:
+            canary = keyring.get_password(self.service_name, "encryption_canary")
+        except Exception as e:
+            logger.warning(f"Keyring canary read failed: {e}")
+            canary = None
+
+        if canary:
+            try:
+                # base64 decode then decrypt
+                data = base64.b64decode(canary.encode())
+                _ = self.fernet.decrypt(data)
+            except Exception:
+                logger.error("Encryption key mismatch detected: cannot decrypt canary with current SAM_FERNET_KEY. Stored secrets may be inaccessible.")
+                return
+        else:
+            # Create canary
+            try:
+                blob = self.fernet.encrypt(b"canary_v1")
+                keyring.set_password(self.service_name, "encryption_canary", base64.b64encode(blob).decode())
+            except Exception as e:
+                logger.warning(f"Failed to write encryption canary: {e}")
     
     def store_private_key(self, user_id: str, private_key: str) -> bool:
         """Store encrypted private key in keyring."""
@@ -230,8 +304,18 @@ _secure_storage: Optional[SecureStorage] = None
 def get_secure_storage() -> SecureStorage:
     """Get the global secure storage instance."""
     global _secure_storage
+    # If env key changed since last use, recreate to avoid stale Fernet
+    env_key = os.getenv("SAM_FERNET_KEY")
     if _secure_storage is None:
         _secure_storage = SecureStorage()
+    else:
+        try:
+            if getattr(_secure_storage, "current_key_str", None) != env_key and env_key is not None:
+                logger.info("SAM_FERNET_KEY changed in environment; reinitializing secure storage")
+                _secure_storage = SecureStorage()
+        except Exception:
+            # Best-effort safeguard
+            _secure_storage = SecureStorage()
     return _secure_storage
 
 

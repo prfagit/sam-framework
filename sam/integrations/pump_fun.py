@@ -136,7 +136,7 @@ class PumpFunTools:
                 "publicKey": public_key,
                 "action": "buy",
                 "mint": mint,
-                "denominatedInSol": "true",
+                "denominatedInSol": True,
                 "amount": amount,
                 "slippage": slippage,
                 "priorityFee": 0.00001
@@ -194,7 +194,7 @@ class PumpFunTools:
                 "publicKey": public_key,
                 "action": "sell",
                 "mint": mint,
-                "denominatedInSol": "false",
+                "denominatedInSol": False,
                 "amount": percentage,  # Percentage of holdings to sell
                 "slippage": slippage,
                 "priorityFee": 0.00001

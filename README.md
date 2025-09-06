@@ -114,6 +114,12 @@ uv run sam
 uv run sam --session trading_session
 ```
 
+### Private Key Format
+
+- Use a base58-encoded Solana secret key string (not a JSON array).
+- Recommended: import securely via `uv run sam key import` (encrypted in OS keyring).
+- If using `.env`, set `SAM_WALLET_PRIVATE_KEY` to the base58 string. You may also use a Fernet‑encrypted value (strings starting with `gAAAAA...`).
+
 ## Usage Examples
 
 ### Trading Operations

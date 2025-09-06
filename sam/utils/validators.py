@@ -111,23 +111,29 @@ def validate_tool_input(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         validated_address = SolanaAddress(address=args.get("mint", ""))
         validated_amount = TradeAmount(amount=args.get("amount", 0))
         validated_slippage = SlippageTolerance(slippage=args.get("slippage", 5))
-        
-        return {
+        result = {
             "mint": validated_address.address,
             "amount": validated_amount.amount,
             "slippage": validated_slippage.slippage
         }
+        # Pass through public_key if caller provided it (tests expect this)
+        if "public_key" in args:
+            result["public_key"] = args["public_key"]
+        return result
     
     elif tool_name == "pump_fun_sell":
         validated_address = SolanaAddress(address=args.get("mint", ""))
         validated_percentage = SellPercentage(percentage=args.get("percentage", 100))
         validated_slippage = SlippageTolerance(slippage=args.get("slippage", 5))
-        
-        return {
+        result = {
             "mint": validated_address.address,
             "percentage": validated_percentage.percentage,
             "slippage": validated_slippage.slippage
         }
+        # Pass through public_key if provided (used in tests and some flows)
+        if "public_key" in args:
+            result["public_key"] = args["public_key"]
+        return result
     
     elif tool_name == "get_token_data":
         validated = SolanaAddress(address=args.get("address", ""))

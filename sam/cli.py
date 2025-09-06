@@ -61,7 +61,6 @@ TOOL_DISPLAY_NAMES = {
     'get_trending_pairs': '🔥 Getting trending pairs',
     'get_swap_quote': '💱 Getting swap quote',
     'jupiter_swap': '🌌 Swapping on Jupiter',
-    'get_jupiter_tokens': '🪐 Getting Jupiter tokens',
     'search_web': '🔍 Searching web',
     'search_news': '📰 Searching news'
 }
@@ -312,7 +311,7 @@ async def run_interactive_session(session_id: str):
             "💰 Wallet & Balance": ["get_balance", "transfer_sol"],
             "📊 Token Data": ["get_token_data", "get_token_pairs", "search_pairs", "get_solana_pair"],
             "🚀 Pump.fun": ["pump_fun_buy", "pump_fun_sell", "get_pump_token_info", "get_token_trades"],
-            "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap", "get_jupiter_tokens"],
+            "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap"],
             "📈 Market Data": ["get_trending_pairs"],
             "🌐 Web Search": ["search_web", "search_news"]
         }
@@ -719,33 +718,9 @@ async def run_onboarding() -> int:
         # Apply to current environment
         for key, value in config_data.items():
             os.environ[key] = value
-            
-        # Update Settings class to reflect new values
-        # Apply provider-specific settings to runtime Settings
-        Settings.LLM_PROVIDER = provider
-        if provider == "openai":
-            Settings.OPENAI_API_KEY = config_data.get("OPENAI_API_KEY", "")
-            Settings.OPENAI_MODEL = config_data.get("OPENAI_MODEL", Settings.OPENAI_MODEL)
-            Settings.OPENAI_BASE_URL = config_data.get("OPENAI_BASE_URL", Settings.OPENAI_BASE_URL)
-        elif provider == "anthropic":
-            Settings.ANTHROPIC_API_KEY = config_data.get("ANTHROPIC_API_KEY")
-            Settings.ANTHROPIC_MODEL = config_data.get("ANTHROPIC_MODEL", Settings.ANTHROPIC_MODEL)
-            Settings.ANTHROPIC_BASE_URL = config_data.get("ANTHROPIC_BASE_URL", Settings.ANTHROPIC_BASE_URL)
-        elif provider == "xai":
-            Settings.XAI_API_KEY = config_data.get("XAI_API_KEY")
-            Settings.XAI_MODEL = config_data.get("XAI_MODEL", Settings.XAI_MODEL)
-            Settings.XAI_BASE_URL = config_data.get("XAI_BASE_URL", Settings.XAI_BASE_URL)
-        elif provider == "local":
-            Settings.LOCAL_LLM_BASE_URL = config_data.get("LOCAL_LLM_BASE_URL", Settings.LOCAL_LLM_BASE_URL)
-            Settings.LOCAL_LLM_MODEL = config_data.get("LOCAL_LLM_MODEL", Settings.LOCAL_LLM_MODEL)
-            Settings.LOCAL_LLM_API_KEY = config_data.get("LOCAL_LLM_API_KEY", Settings.LOCAL_LLM_API_KEY)
-        Settings.SAM_FERNET_KEY = fernet_key
-        Settings.SAM_DB_PATH = db_path
-        Settings.SAM_SOLANA_RPC_URL = rpc_url
-        Settings.RATE_LIMITING_ENABLED = False
-        Settings.MAX_TRANSACTION_SOL = float(config_data["MAX_TRANSACTION_SOL"])
-        Settings.DEFAULT_SLIPPAGE = int(config_data["DEFAULT_SLIPPAGE"])
-        Settings.LOG_LEVEL = "NO"
+
+        # Refresh Settings from environment to reflect new values consistently
+        Settings.refresh_from_env()
         
         # Store private key securely
         storage = get_secure_storage()
@@ -1283,7 +1258,9 @@ async def main():
     # Default to run command if no command specified
     if args.command is None:
         args.command = "run"
-        args.session = getattr(args, 'session', 'default')
+        # Create a simple namespace for session since it belongs to run subparser
+        if not hasattr(args, 'session'):
+            args.session = 'default'
     
     # Setup logging
     setup_logging(args.log_level)
@@ -1308,7 +1285,11 @@ async def main():
                 show_current_provider()
                 return 0
             elif args.provider_action == "switch":
-                return switch_provider(args.name)
+                if hasattr(args, 'name'):
+                    return switch_provider(args.name)
+                else:
+                    print(colorize("❌ Provider name required. Usage: sam provider switch <name>", Style.FG_YELLOW))
+                    return 1
             elif args.provider_action == "test":
                 return await test_provider(getattr(args, 'provider', None))
         else:
@@ -1342,7 +1323,6 @@ async def main():
         jupiter_specs = [
             {"name": "get_swap_quote", "description": "Get swap quotes"},
             {"name": "jupiter_swap", "description": "Execute token swaps"},
-            {"name": "get_jupiter_tokens", "description": "List available tokens"},
         ]
 
         dex_specs = [
@@ -1350,6 +1330,11 @@ async def main():
             {"name": "get_token_pairs", "description": "Get pairs for tokens"},
             {"name": "get_solana_pair", "description": "Detailed pair information"},
             {"name": "get_trending_pairs", "description": "Top performing pairs"},
+        ]
+
+        search_specs = [
+            {"name": "search_web", "description": "Search internet content"},
+            {"name": "search_news", "description": "Search news articles"},
         ]
 
         print(colorize("🔧 Available Tools", Style.BOLD, Style.FG_CYAN))
@@ -1360,6 +1345,7 @@ async def main():
             ("🚀 Pump.fun", pump_specs),
             ("🌌 Jupiter Swaps", jupiter_specs),
             ("📈 Market Data", dex_specs),
+            ("🌐 Web Search", search_specs),
         ]:
             print(colorize(category, Style.BOLD))
             for spec in specs:
@@ -1380,20 +1366,24 @@ async def main():
     if args.command == "run":
         # FIRST: Ensure .env is loaded before checking anything
         from dotenv import load_dotenv
-        import importlib
 
         # Prefer a stable .env location (CWD/repo) over module path
         env_path = _find_env_path()
         load_dotenv(env_path, override=True)
 
-        # Force reload of Settings module to get updated environment variables
-        import sam.config.settings
-        importlib.reload(sam.config.settings)
-        from sam.config.settings import Settings
+        # Refresh Settings from current environment to avoid stale class attributes
+        Settings.refresh_from_env()
         
-        # Only require onboarding if OpenAI API key is missing.
+        # Only require onboarding if primary LLM provider API key is missing.
         # Wallet setup can be done separately via `sam key import`.
-        need_onboarding = not Settings.OPENAI_API_KEY
+        need_onboarding = False
+        if Settings.LLM_PROVIDER == "openai" and not Settings.OPENAI_API_KEY:
+            need_onboarding = True
+        elif Settings.LLM_PROVIDER == "anthropic" and not Settings.ANTHROPIC_API_KEY:
+            need_onboarding = True
+        elif Settings.LLM_PROVIDER == "xai" and not Settings.XAI_API_KEY:
+            need_onboarding = True
+        # local/openai_compat may not need API keys in some cases
         
         if need_onboarding:
             print(CLIFormatter.info("Welcome to SAM! Let's get you set up quickly..."))
@@ -1401,21 +1391,11 @@ async def main():
             if result != 0:
                 return result
             
-            # Reload environment and Settings after onboarding
+            # Reload environment and refresh Settings after onboarding
             from dotenv import load_dotenv
             env_path = _find_env_path()
-            load_dotenv(env_path, override=True)  # Reload .env file
-            
-            # Refresh Settings class attributes from new environment
-            Settings.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-            Settings.OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
-            Settings.SAM_FERNET_KEY = os.getenv("SAM_FERNET_KEY")
-            Settings.SAM_DB_PATH = os.getenv("SAM_DB_PATH", ".sam/sam_memory.db")
-            Settings.SAM_SOLANA_RPC_URL = os.getenv("SAM_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
-            Settings.RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "false").lower() == "true"
-            Settings.MAX_TRANSACTION_SOL = float(os.getenv("MAX_TRANSACTION_SOL", "1000"))
-            Settings.DEFAULT_SLIPPAGE = int(os.getenv("DEFAULT_SLIPPAGE", "1"))
-            Settings.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+            load_dotenv(env_path, override=True)
+            Settings.refresh_from_env()
             
             print(CLIFormatter.success("Setup complete! Starting SAM agent..."))
             print()
