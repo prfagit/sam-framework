@@ -162,6 +162,10 @@ class TestErrorTracker:
     @pytest.mark.asyncio
     async def test_get_error_tracker_global_instance(self):
         """Test global error tracker instance."""
+        # Reset the global instance
+        import sam.utils.error_handling
+        sam.utils.error_handling._error_tracker = None
+
         with patch('sam.utils.error_handling.ErrorTracker') as mock_tracker_class:
             mock_tracker = AsyncMock()
             mock_tracker_class.return_value = mock_tracker

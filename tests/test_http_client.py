@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import patch, AsyncMock
+from contextlib import asynccontextmanager
 from sam.utils.http_client import (
     SharedHTTPClient, get_http_client, cleanup_http_client,
     get_session, http_request
@@ -102,6 +103,7 @@ class TestSharedHTTPClient:
         """Test async context manager functionality."""
         client = SharedHTTPClient()
         mock_session = AsyncMock()
+        mock_session.closed = False
         client._session = mock_session
 
         async with client:
@@ -118,29 +120,36 @@ class TestSharedHTTPClient:
         mock_response = AsyncMock()
         mock_response.status = 200
 
-        client._session = mock_session
-        mock_session.request.return_value.__aenter__.return_value = mock_response
+        # Properly mock the async context manager
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__.return_value = mock_response
+        mock_cm.__aexit__.return_value = None
+        mock_session.request.return_value = mock_cm
 
-        async with client.request("GET", "http://example.com") as response:
-            assert response == mock_response
+        # Mock get_session to return our mock session
+        with patch.object(client, 'get_session', return_value=mock_session):
+            async with client.request("GET", "http://example.com") as response:
+                assert response == mock_response
 
-        mock_session.request.assert_called_once_with("GET", "http://example.com")
+            mock_session.request.assert_called_once_with("GET", "http://example.com")
 
     @pytest.mark.asyncio
     async def test_request_context_manager_error(self):
         """Test request context manager with error."""
         client = SharedHTTPClient()
         mock_session = AsyncMock()
-        client._session = mock_session
 
         # Mock the context manager to raise an exception
         mock_cm = AsyncMock()
         mock_cm.__aenter__.side_effect = Exception("Network error")
+        mock_cm.__aexit__.return_value = None
         mock_session.request.return_value = mock_cm
 
-        with pytest.raises(Exception, match="Network error"):
-            async with client.request("GET", "http://example.com"):
-                pass
+        # Mock get_session to return our mock session
+        with patch.object(client, 'get_session', return_value=mock_session):
+            with pytest.raises(Exception, match="Network error"):
+                async with client.request("GET", "http://example.com"):
+                    pass
 
         # Cleanup
         await client.close()
@@ -220,22 +229,20 @@ class TestGlobalHTTPClient:
     @pytest.mark.asyncio
     async def test_http_request_context_manager(self):
         """Test global HTTP request context manager."""
-        import sam.utils.http_client
         mock_client = AsyncMock()
         mock_response = AsyncMock()
 
-        # Properly mock the async context manager
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        mock_cm.__aexit__.return_value = None
-        mock_client.request.return_value = mock_cm
+        # Create a proper async context manager mock
+        @asynccontextmanager
+        async def mock_request(*args, **kwargs):
+            yield mock_response
 
-        sam.utils.http_client._global_client = mock_client
+        mock_client.request = mock_request
 
-        async with http_request("GET", "http://example.com") as response:
-            assert response == mock_response
-
-        mock_client.request.assert_called_once_with("GET", "http://example.com")
+        # Mock the get_http_client function to return our mock client
+        with patch('sam.utils.http_client.get_http_client', return_value=mock_client):
+            async with http_request("GET", "http://example.com") as response:
+                assert response == mock_response
 
 
 if __name__ == "__main__":

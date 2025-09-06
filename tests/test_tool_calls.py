@@ -239,7 +239,7 @@ async def test_multiple_tool_calls():
                 "id": "call_001",
                 "type": "function",
                 "function": {
-                    "name": "get_balance", 
+                    "name": "get_wallet_info",
                     "arguments": json.dumps({"address": "address1"})
                 }
             },
@@ -247,7 +247,7 @@ async def test_multiple_tool_calls():
                 "id": "call_002", 
                 "type": "function",
                 "function": {
-                    "name": "get_balance",
+                    "name": "get_wallet_info",
                     "arguments": json.dumps({"address": "address2"})
                 }
             }
@@ -263,7 +263,7 @@ async def test_multiple_tool_calls():
     
     call_count = 0
     
-    async def mock_get_balance(args):
+    async def mock_get_wallet_info(args):
         nonlocal call_count
         call_count += 1
         if args["address"] == "address1":
@@ -274,18 +274,18 @@ async def test_multiple_tool_calls():
     tool_registry = ToolRegistry()
     test_tool = Tool(
         spec=ToolSpec(
-            name="get_balance",
-            description="Get balance",
+            name="get_wallet_info",
+            description="Get wallet info",
             input_schema={
                 "parameters": {
-                    "type": "object", 
+                    "type": "object",
                     "properties": {
                         "address": {"type": "string"}
                     }
                 }
             }
         ),
-        handler=mock_get_balance
+        handler=mock_get_wallet_info
     )
     tool_registry.register(test_tool)
     
