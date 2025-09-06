@@ -1,9 +1,12 @@
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from contextlib import asynccontextmanager
 from sam.utils.http_client import (
-    SharedHTTPClient, get_http_client, cleanup_http_client,
-    get_session, http_request
+    SharedHTTPClient,
+    get_http_client,
+    cleanup_http_client,
+    get_session,
+    http_request,
 )
 
 
@@ -23,7 +26,7 @@ class TestSharedHTTPClient:
         assert isinstance(instance1, SharedHTTPClient)
 
         # Cleanup
-        if hasattr(instance1, '_session') and instance1._session:
+        if hasattr(instance1, "_session") and instance1._session:
             await instance1.close()
 
     @pytest.mark.asyncio
@@ -32,7 +35,7 @@ class TestSharedHTTPClient:
         client = SharedHTTPClient()
         client._session = None
 
-        with patch('aiohttp.ClientSession') as mock_session_class:
+        with patch("aiohttp.ClientSession") as mock_session_class:
             mock_session = AsyncMock()
             mock_session_class.return_value = mock_session
 
@@ -63,7 +66,7 @@ class TestSharedHTTPClient:
         client = SharedHTTPClient()
         client._closed = True
 
-        with patch('aiohttp.ClientSession') as mock_session_class:
+        with patch("aiohttp.ClientSession") as mock_session_class:
             mock_session = AsyncMock()
             mock_session_class.return_value = mock_session
 
@@ -116,18 +119,18 @@ class TestSharedHTTPClient:
     async def test_request_context_manager_success(self):
         """Test request context manager with successful response."""
         client = SharedHTTPClient()
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
 
-        # Properly mock the async context manager
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_response
-        mock_cm.__aexit__.return_value = None
+        # Create a proper async context manager mock
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
         mock_session.request.return_value = mock_cm
 
         # Mock get_session to return our mock session
-        with patch.object(client, 'get_session', return_value=mock_session):
+        with patch.object(client, "get_session", new_callable=AsyncMock, return_value=mock_session):
             async with client.request("GET", "http://example.com") as response:
                 assert response == mock_response
 
@@ -137,16 +140,16 @@ class TestSharedHTTPClient:
     async def test_request_context_manager_error(self):
         """Test request context manager with error."""
         client = SharedHTTPClient()
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
 
-        # Mock the context manager to raise an exception
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.side_effect = Exception("Network error")
-        mock_cm.__aexit__.return_value = None
+        # Create a proper async context manager mock that raises
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(side_effect=Exception("Network error"))
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
         mock_session.request.return_value = mock_cm
 
         # Mock get_session to return our mock session
-        with patch.object(client, 'get_session', return_value=mock_session):
+        with patch.object(client, "get_session", new_callable=AsyncMock, return_value=mock_session):
             with pytest.raises(Exception, match="Network error"):
                 async with client.request("GET", "http://example.com"):
                     pass
@@ -159,9 +162,9 @@ class TestSharedHTTPClient:
         """Test that session is created with proper configuration."""
         client = SharedHTTPClient()
 
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            with patch('aiohttp.TCPConnector') as mock_connector_class:
-                with patch('aiohttp.ClientTimeout') as mock_timeout_class:
+        with patch("aiohttp.ClientSession") as mock_session_class:
+            with patch("aiohttp.TCPConnector") as mock_connector_class:
+                with patch("aiohttp.ClientTimeout") as mock_timeout_class:
                     mock_session = AsyncMock()
                     mock_session_class.return_value = mock_session
 
@@ -170,19 +173,19 @@ class TestSharedHTTPClient:
                     # Check connector configuration
                     mock_connector_class.assert_called_once()
                     connector_call = mock_connector_class.call_args
-                    assert connector_call[1]['limit'] == 100
-                    assert connector_call[1]['limit_per_host'] == 20
+                    assert connector_call[1]["limit"] == 100
+                    assert connector_call[1]["limit_per_host"] == 20
 
                     # Check timeout configuration
                     mock_timeout_class.assert_called_once()
                     timeout_call = mock_timeout_class.call_args
-                    assert timeout_call[1]['total'] == 60
-                    assert timeout_call[1]['connect'] == 10
+                    assert timeout_call[1]["total"] == 60
+                    assert timeout_call[1]["connect"] == 10
 
                     # Check session configuration
                     mock_session_class.assert_called_once()
                     session_call = mock_session_class.call_args
-                    assert 'User-Agent' in session_call[1]['headers']
+                    assert "User-Agent" in session_call[1]["headers"]
 
 
 class TestGlobalHTTPClient:
@@ -193,6 +196,7 @@ class TestGlobalHTTPClient:
         """Test global HTTP client singleton pattern."""
         # Reset global state
         import sam.utils.http_client
+
         sam.utils.http_client._global_client = None
 
         client1 = await get_http_client()
@@ -204,6 +208,7 @@ class TestGlobalHTTPClient:
     async def test_cleanup_http_client(self):
         """Test cleanup of global HTTP client."""
         import sam.utils.http_client
+
         mock_client = AsyncMock()
         sam.utils.http_client._global_client = mock_client
 
@@ -216,6 +221,7 @@ class TestGlobalHTTPClient:
     async def test_get_session_global(self):
         """Test getting session from global client."""
         import sam.utils.http_client
+
         mock_client = AsyncMock()
         mock_session = AsyncMock()
         mock_client.get_session.return_value = mock_session
@@ -240,7 +246,7 @@ class TestGlobalHTTPClient:
         mock_client.request = mock_request
 
         # Mock the get_http_client function to return our mock client
-        with patch('sam.utils.http_client.get_http_client', return_value=mock_client):
+        with patch("sam.utils.http_client.get_http_client", return_value=mock_client):
             async with http_request("GET", "http://example.com") as response:
                 assert response == mock_response
 

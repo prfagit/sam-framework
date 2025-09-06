@@ -1,9 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import patch
-from sam.utils.decorators import (
-    rate_limit, retry_with_backoff, log_execution, validate_args
-)
+from sam.utils.decorators import rate_limit, retry_with_backoff, log_execution, validate_args
 from sam.config.settings import Settings
 
 
@@ -14,7 +12,7 @@ class TestRateLimitDecorator:
     async def test_rate_limit_disabled(self):
         """Test that decorator passes through when rate limiting is disabled."""
         # Mock Settings to disable rate limiting
-        with patch.object(Settings, 'RATE_LIMITING_ENABLED', False):
+        with patch.object(Settings, "RATE_LIMITING_ENABLED", False):
             call_count = 0
 
             @rate_limit("test")
@@ -33,14 +31,13 @@ class TestRateLimitDecorator:
     @pytest.mark.asyncio
     async def test_rate_limit_allowed(self):
         """Test successful rate limit check."""
-        with patch.object(Settings, 'RATE_LIMITING_ENABLED', True):
-            with patch('sam.utils.decorators.check_rate_limit') as mock_check_rate_limit:
+        with patch.object(Settings, "RATE_LIMITING_ENABLED", True):
+            with patch("sam.utils.decorators.check_rate_limit") as mock_check_rate_limit:
                 # Mock successful rate limit check
-                mock_check_rate_limit.return_value = (True, {
-                    "remaining": 9,
-                    "limit": 10,
-                    "reset_time": 1234567890
-                })
+                mock_check_rate_limit.return_value = (
+                    True,
+                    {"remaining": 9, "limit": 10, "reset_time": 1234567890},
+                )
 
                 call_count = 0
 
@@ -64,13 +61,10 @@ class TestRateLimitDecorator:
     @pytest.mark.asyncio
     async def test_rate_limit_exceeded(self):
         """Test rate limit exceeded response."""
-        with patch.object(Settings, 'RATE_LIMITING_ENABLED', True):
-            with patch('sam.utils.decorators.check_rate_limit') as mock_check_rate_limit:
+        with patch.object(Settings, "RATE_LIMITING_ENABLED", True):
+            with patch("sam.utils.decorators.check_rate_limit") as mock_check_rate_limit:
                 # Mock rate limit exceeded
-                mock_check_rate_limit.return_value = (False, {
-                    "retry_after": 60,
-                    "remaining": 0
-                })
+                mock_check_rate_limit.return_value = (False, {"retry_after": 60, "remaining": 0})
 
                 call_count = 0
 
@@ -90,8 +84,8 @@ class TestRateLimitDecorator:
     @pytest.mark.asyncio
     async def test_rate_limit_identifier_extraction(self):
         """Test identifier extraction from different argument patterns."""
-        with patch.object(Settings, 'RATE_LIMITING_ENABLED', True):
-            with patch('sam.utils.decorators.check_rate_limit') as mock_check_rate_limit:
+        with patch.object(Settings, "RATE_LIMITING_ENABLED", True):
+            with patch("sam.utils.decorators.check_rate_limit") as mock_check_rate_limit:
                 mock_check_rate_limit.return_value = (True, {"remaining": 5})
 
                 @rate_limit("test")
@@ -114,6 +108,7 @@ class TestRateLimitDecorator:
 
                 # Test with custom identifier key
                 mock_check_rate_limit.reset_mock()
+
                 @rate_limit("test", identifier_key="custom_id")
                 async def test_func2(args, **kwargs):
                     return {"success": True}
@@ -124,8 +119,8 @@ class TestRateLimitDecorator:
     @pytest.mark.asyncio
     async def test_rate_limit_default_identifier(self):
         """Test default identifier when none found."""
-        with patch.object(Settings, 'RATE_LIMITING_ENABLED', True):
-            with patch('sam.utils.decorators.check_rate_limit') as mock_check_rate_limit:
+        with patch.object(Settings, "RATE_LIMITING_ENABLED", True):
+            with patch("sam.utils.decorators.check_rate_limit") as mock_check_rate_limit:
                 mock_check_rate_limit.return_value = (True, {"remaining": 5})
 
                 @rate_limit("test")
@@ -139,8 +134,10 @@ class TestRateLimitDecorator:
     @pytest.mark.asyncio
     async def test_rate_limit_error_handling(self):
         """Test error handling in rate limiter."""
-        with patch.object(Settings, 'RATE_LIMITING_ENABLED', True):
-            with patch('sam.utils.decorators.check_rate_limit', side_effect=Exception("Rate limiter error")):
+        with patch.object(Settings, "RATE_LIMITING_ENABLED", True):
+            with patch(
+                "sam.utils.decorators.check_rate_limit", side_effect=Exception("Rate limiter error")
+            ):
                 call_count = 0
 
                 @rate_limit("test")
@@ -187,7 +184,7 @@ class TestRetryWithBackoffDecorator:
                 raise Exception(f"Attempt {call_count} failed")
             return {"success": True}
 
-        with patch('asyncio.sleep') as mock_sleep:
+        with patch("asyncio.sleep") as mock_sleep:
             result = await test_func()
 
             assert result == {"success": True}
@@ -206,7 +203,7 @@ class TestRetryWithBackoffDecorator:
             call_count += 1
             raise Exception(f"Attempt {call_count} failed")
 
-        with patch('asyncio.sleep') as mock_sleep:
+        with patch("asyncio.sleep") as mock_sleep:
             result = await test_func()
 
             assert "error" in result
@@ -229,7 +226,7 @@ class TestRetryWithBackoffDecorator:
                 raise Exception("First attempt failed")
             return {"success": True}
 
-        with patch('asyncio.sleep') as mock_sleep:
+        with patch("asyncio.sleep") as mock_sleep:
             result = await test_func()
 
             assert result == {"success": True}
@@ -244,7 +241,8 @@ class TestLogExecutionDecorator:
     @pytest.mark.asyncio
     async def test_log_execution_basic(self):
         """Test basic execution logging."""
-        with patch('sam.utils.decorators.logger') as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
+
             @log_execution()
             async def test_func():
                 return {"result": "success"}
@@ -262,7 +260,8 @@ class TestLogExecutionDecorator:
     @pytest.mark.asyncio
     async def test_log_execution_with_args(self):
         """Test execution logging with arguments included."""
-        with patch('sam.utils.decorators.logger') as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
+
             @log_execution(include_args=True)
             async def test_func(arg1, arg2=None):
                 return {"result": arg1}
@@ -280,12 +279,13 @@ class TestLogExecutionDecorator:
     @pytest.mark.asyncio
     async def test_log_execution_with_result(self):
         """Test execution logging with result included."""
-        with patch('sam.utils.decorators.logger') as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
+
             @log_execution(include_result=True)
             async def test_func():
                 return {"result": "success"}
 
-            result = await test_func()
+            await test_func()
 
             # Check that result was logged
             debug_calls = [call for call in mock_logger.debug.call_args_list]
@@ -295,7 +295,8 @@ class TestLogExecutionDecorator:
     @pytest.mark.asyncio
     async def test_log_execution_with_exception(self):
         """Test execution logging when exception occurs."""
-        with patch('sam.utils.decorators.logger') as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
+
             @log_execution()
             async def test_func():
                 raise ValueError("Test error")
@@ -312,13 +313,14 @@ class TestLogExecutionDecorator:
     @pytest.mark.asyncio
     async def test_log_execution_timing(self):
         """Test that execution timing is logged."""
-        with patch('sam.utils.decorators.logger') as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
+
             @log_execution()
             async def test_func():
                 await asyncio.sleep(0.01)  # Small delay
                 return {"result": "success"}
 
-            result = await test_func()
+            await test_func()
 
             # Check that timing was logged
             debug_calls = [call for call in mock_logger.debug.call_args_list]
@@ -332,6 +334,7 @@ class TestValidateArgsDecorator:
     @pytest.mark.asyncio
     async def test_validate_args_success(self):
         """Test successful argument validation."""
+
         def validator(value):
             if not isinstance(value, str):
                 raise ValueError("Must be string")
@@ -350,6 +353,7 @@ class TestValidateArgsDecorator:
     @pytest.mark.asyncio
     async def test_validate_args_failure(self):
         """Test argument validation failure."""
+
         def validator(value):
             if len(value) < 3:
                 raise ValueError("Must be at least 3 characters")
@@ -367,6 +371,7 @@ class TestValidateArgsDecorator:
     @pytest.mark.asyncio
     async def test_validate_args_dict_first_arg(self):
         """Test validation when first argument is a dict."""
+
         def validator(value):
             if not isinstance(value, int) or value <= 0:
                 raise ValueError("Must be positive integer")
@@ -387,6 +392,7 @@ class TestValidateArgsDecorator:
     @pytest.mark.asyncio
     async def test_validate_args_multiple_validators(self):
         """Test multiple validators on different arguments."""
+
         def name_validator(value):
             if not value:
                 raise ValueError("Name cannot be empty")
@@ -416,6 +422,7 @@ class TestValidateArgsDecorator:
     @pytest.mark.asyncio
     async def test_validate_args_validator_exception(self):
         """Test handling of exceptions in validators."""
+
         def failing_validator(value):
             raise RuntimeError("Unexpected validator error")
 

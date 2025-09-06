@@ -5,9 +5,15 @@ import os
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime
 from sam.utils.error_handling import (
-    ErrorSeverity, ErrorRecord, ErrorTracker, CircuitBreaker,
-    HealthChecker, get_error_tracker, get_health_checker,
-    log_error, handle_errors
+    ErrorSeverity,
+    ErrorRecord,
+    ErrorTracker,
+    CircuitBreaker,
+    HealthChecker,
+    get_error_tracker,
+    get_health_checker,
+    log_error,
+    handle_errors,
 )
 
 
@@ -24,7 +30,12 @@ class TestErrorSeverity:
     def test_error_severity_ordering(self):
         """Test error severity ordering."""
         # Test that enum values are properly ordered by severity level
-        severities = [ErrorSeverity.LOW, ErrorSeverity.MEDIUM, ErrorSeverity.HIGH, ErrorSeverity.CRITICAL]
+        severities = [
+            ErrorSeverity.LOW,
+            ErrorSeverity.MEDIUM,
+            ErrorSeverity.HIGH,
+            ErrorSeverity.CRITICAL,
+        ]
         for i in range(len(severities) - 1):
             assert severities[i] != severities[i + 1]  # Different values
             assert severities[i].value != severities[i + 1].value  # Different string values
@@ -45,7 +56,7 @@ class TestErrorRecord:
             session_id="session123",
             user_id="user123",
             context={"key": "value"},
-            stack_trace="traceback here"
+            stack_trace="traceback here",
         )
 
         assert record.timestamp == timestamp
@@ -66,7 +77,7 @@ class TestErrorRecord:
             error_type="ValueError",
             error_message="Test error",
             severity=ErrorSeverity.LOW,
-            component="test_component"
+            component="test_component",
         )
 
         assert record.session_id is None
@@ -99,9 +110,7 @@ class TestErrorTracker:
         """Test basic error logging."""
         error = ValueError("Test error")
         await error_tracker.log_error(
-            error=error,
-            component="test_component",
-            severity=ErrorSeverity.MEDIUM
+            error=error, component="test_component", severity=ErrorSeverity.MEDIUM
         )
 
         # Check in-memory counts
@@ -117,7 +126,7 @@ class TestErrorTracker:
             severity=ErrorSeverity.HIGH,
             session_id="session123",
             user_id="user123",
-            context={"operation": "test"}
+            context={"operation": "test"},
         )
 
         # Verify error was stored in database
@@ -128,15 +137,9 @@ class TestErrorTracker:
     async def test_get_error_stats(self, error_tracker):
         """Test error statistics retrieval."""
         # Log some test errors
-        await error_tracker.log_error(
-            ValueError("Error 1"), "component1", ErrorSeverity.LOW
-        )
-        await error_tracker.log_error(
-            RuntimeError("Error 2"), "component1", ErrorSeverity.MEDIUM
-        )
-        await error_tracker.log_error(
-            ConnectionError("Error 3"), "component2", ErrorSeverity.HIGH
-        )
+        await error_tracker.log_error(ValueError("Error 1"), "component1", ErrorSeverity.LOW)
+        await error_tracker.log_error(RuntimeError("Error 2"), "component1", ErrorSeverity.MEDIUM)
+        await error_tracker.log_error(ConnectionError("Error 3"), "component2", ErrorSeverity.HIGH)
 
         stats = await error_tracker.get_error_stats(hours_back=1)
 
@@ -151,9 +154,7 @@ class TestErrorTracker:
     async def test_cleanup_old_errors(self, error_tracker):
         """Test cleanup of old error records."""
         # Log an error
-        await error_tracker.log_error(
-            ValueError("Old error"), "test_component", ErrorSeverity.LOW
-        )
+        await error_tracker.log_error(ValueError("Old error"), "test_component", ErrorSeverity.LOW)
 
         # Cleanup errors older than 0 days (should remove all)
         deleted = await error_tracker.cleanup_old_errors(days_old=0)
@@ -164,9 +165,10 @@ class TestErrorTracker:
         """Test global error tracker instance."""
         # Reset the global instance
         import sam.utils.error_handling
+
         sam.utils.error_handling._error_tracker = None
 
-        with patch('sam.utils.error_handling.ErrorTracker') as mock_tracker_class:
+        with patch("sam.utils.error_handling.ErrorTracker") as mock_tracker_class:
             mock_tracker = AsyncMock()
             mock_tracker_class.return_value = mock_tracker
 
@@ -211,6 +213,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker("test_breaker", failure_threshold=2, recovery_timeout=1)
 
         call_count = 0
+
         async def failing_func():
             nonlocal call_count
             call_count += 1
@@ -309,7 +312,7 @@ class TestHealthChecker:
 
     def test_get_health_checker_global_instance(self):
         """Test global health checker instance."""
-        with patch('sam.utils.error_handling.HealthChecker') as mock_hc_class:
+        with patch("sam.utils.error_handling.HealthChecker") as mock_hc_class:
             mock_hc = MagicMock()
             mock_hc_class.return_value = mock_hc
 
@@ -327,7 +330,7 @@ class TestUtilityFunctions:
     @pytest.mark.asyncio
     async def test_log_error_convenience_function(self):
         """Test convenience log_error function."""
-        with patch('sam.utils.error_handling.get_error_tracker') as mock_get_tracker:
+        with patch("sam.utils.error_handling.get_error_tracker") as mock_get_tracker:
             mock_tracker = AsyncMock()
             mock_get_tracker.return_value = mock_tracker
 
@@ -342,7 +345,8 @@ class TestUtilityFunctions:
 
     def test_handle_errors_decorator_async(self):
         """Test handle_errors decorator with async function."""
-        with patch('sam.utils.error_handling.log_error') as mock_log_error:
+        with patch("sam.utils.error_handling.log_error"):
+
             @handle_errors("test_component", ErrorSeverity.MEDIUM)
             async def test_func():
                 raise ValueError("Test error")
@@ -355,7 +359,8 @@ class TestUtilityFunctions:
 
     def test_handle_errors_decorator_sync(self):
         """Test handle_errors decorator with sync function."""
-        with patch('sam.utils.error_handling.logger') as mock_logger:
+        with patch("sam.utils.error_handling.logger") as mock_logger:
+
             @handle_errors("test_component", ErrorSeverity.MEDIUM)
             def test_func():
                 raise ValueError("Test error")

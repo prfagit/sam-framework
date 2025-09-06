@@ -3,16 +3,21 @@ import asyncio
 import time
 from unittest.mock import patch, MagicMock, AsyncMock
 from sam.utils.monitoring import (
-    MetricsCollector, SystemMetrics, ComponentMetric,
-    get_metrics_collector, monitor_performance
+    MetricsCollector,
+    SystemMetrics,
+    ComponentMetric,
+    get_metrics_collector,
+    monitor_performance,
 )
-from sam.utils.price_service import (
-    PriceService, PriceData, get_price_service
-)
+from sam.utils.price_service import PriceService, PriceData, get_price_service
 from sam.utils.security import (
-    SecurityConfig, InputValidator, SecurityScanner,
-    SecureLogger, SecurityMiddleware, get_security_middleware,
-    security_check
+    SecurityConfig,
+    InputValidator,
+    SecurityScanner,
+    SecureLogger,
+    SecurityMiddleware,
+    get_security_middleware,
+    security_check,
 )
 
 
@@ -31,7 +36,7 @@ class TestMonitoring:
             process_memory_mb=89.3,
             process_cpu_percent=12.4,
             open_files=45,
-            thread_count=8
+            thread_count=8,
         )
 
         assert metrics.timestamp == 1234567890.0
@@ -53,7 +58,7 @@ class TestMonitoring:
             duration=2.5,
             timestamp=1234567890.0,
             success=True,
-            error_type=None
+            error_type=None,
         )
 
         assert metric.component == "test_comp"
@@ -82,10 +87,7 @@ class TestMonitoring:
         collector = MetricsCollector()
 
         collector.record_operation(
-            component="test_comp",
-            operation="test_op",
-            duration=1.5,
-            success=True
+            component="test_comp", operation="test_op", duration=1.5, success=True
         )
 
         assert len(collector.component_metrics) == 1
@@ -108,7 +110,7 @@ class TestMonitoring:
             operation="test_op",
             duration=2.0,
             success=False,
-            error_type="ValueError"
+            error_type="ValueError",
         )
 
         assert len(collector.component_metrics) == 1
@@ -145,7 +147,7 @@ class TestMonitoring:
         assert stats["successful_operations"] == 2
         assert stats["failed_operations"] == 1
         assert abs(stats["performance"]["avg_duration"] - 1.5) < 0.01
-        assert abs(stats["success_rate"] - (200/3)) < 0.01  # 2/3 * 100 ≈ 66.67
+        assert abs(stats["success_rate"] - (200 / 3)) < 0.01  # 2/3 * 100 ≈ 66.67
 
     @pytest.mark.asyncio
     async def test_get_slow_operations(self):
@@ -167,14 +169,14 @@ class TestMonitoring:
     @pytest.mark.asyncio
     async def test_monitor_performance_decorator_async(self):
         """Test performance monitoring decorator for async functions."""
-        collector = MetricsCollector()
+        MetricsCollector()
 
         @monitor_performance("test_comp", "test_op")
         async def test_func():
             await asyncio.sleep(0.01)
             return "result"
 
-        with patch('sam.utils.monitoring.record_operation_metric') as mock_record:
+        with patch("sam.utils.monitoring.record_operation_metric") as mock_record:
             result = await test_func()
 
             assert result == "result"
@@ -187,14 +189,14 @@ class TestMonitoring:
 
     def test_monitor_performance_decorator_sync(self):
         """Test performance monitoring decorator for sync functions."""
-        collector = MetricsCollector()
+        MetricsCollector()
 
         @monitor_performance("test_comp", "test_op")
         def test_func():
             time.sleep(0.01)
             return "result"
 
-        with patch('sam.utils.monitoring.record_operation_metric') as mock_record:
+        with patch("sam.utils.monitoring.record_operation_metric") as mock_record:
             result = test_func()
 
             assert result == "result"
@@ -205,6 +207,7 @@ class TestMonitoring:
         """Test global metrics collector singleton."""
         # Reset global state
         import sam.utils.monitoring
+
         sam.utils.monitoring._global_metrics_collector = None
 
         collector1 = await get_metrics_collector()
@@ -220,11 +223,7 @@ class TestPriceService:
     @pytest.mark.asyncio
     async def test_price_data_creation(self):
         """Test PriceData dataclass."""
-        price_data = PriceData(
-            price_usd=150.75,
-            timestamp=1234567890.0,
-            source="jupiter"
-        )
+        price_data = PriceData(price_usd=150.75, timestamp=1234567890.0, source="jupiter")
 
         assert price_data.price_usd == 150.75
         assert price_data.timestamp == 1234567890.0
@@ -259,9 +258,7 @@ class TestPriceService:
 
         # Manually add cached price
         service._price_cache["SOL"] = PriceData(
-            price_usd=150.0,
-            timestamp=time.time(),
-            source="jupiter"
+            price_usd=150.0, timestamp=time.time(), source="jupiter"
         )
 
         price = await service.get_sol_price_usd()
@@ -275,9 +272,7 @@ class TestPriceService:
 
         # Mock the price
         service._price_cache["SOL"] = PriceData(
-            price_usd=200.0,
-            timestamp=time.time(),
-            source="jupiter"
+            price_usd=200.0, timestamp=time.time(), source="jupiter"
         )
 
         usd_value = await service.sol_to_usd(2.5)
@@ -291,9 +286,7 @@ class TestPriceService:
 
         # Mock the price
         service._price_cache["SOL"] = PriceData(
-            price_usd=150.25,
-            timestamp=time.time(),
-            source="jupiter"
+            price_usd=150.25, timestamp=time.time(), source="jupiter"
         )
 
         formatted = await service.format_sol_with_usd(1.23456)
@@ -308,9 +301,7 @@ class TestPriceService:
 
         # Mock the price
         service._price_cache["SOL"] = PriceData(
-            price_usd=100.0,
-            timestamp=time.time(),
-            source="jupiter"
+            price_usd=100.0, timestamp=time.time(), source="jupiter"
         )
 
         portfolio = await service.format_portfolio_value(2.5)
@@ -327,9 +318,7 @@ class TestPriceService:
 
         # Add some cached data
         service._price_cache["SOL"] = PriceData(
-            price_usd=150.0,
-            timestamp=time.time() - 10,
-            source="jupiter"
+            price_usd=150.0, timestamp=time.time() - 10, source="jupiter"
         )
 
         # Test cache stats without calling get_cache_stats due to is_stale bug
@@ -345,9 +334,7 @@ class TestPriceService:
 
         # Add cached data
         service._price_cache["SOL"] = PriceData(
-            price_usd=150.0,
-            timestamp=time.time(),
-            source="jupiter"
+            price_usd=150.0, timestamp=time.time(), source="jupiter"
         )
 
         assert len(service._price_cache) == 1
@@ -361,6 +348,7 @@ class TestPriceService:
         """Test global price service singleton."""
         # Reset global state
         import sam.utils.price_service
+
         sam.utils.price_service._global_price_service = None
 
         service1 = await get_price_service()
@@ -378,7 +366,7 @@ class TestSecurity:
         config = SecurityConfig(
             max_request_size=5 * 1024 * 1024,  # 5MB
             blocked_domains=["malicious.com"],
-            rate_limit_bypass_tokens=["token123"]
+            rate_limit_bypass_tokens=["token123"],
         )
 
         assert config.max_request_size == 5 * 1024 * 1024
@@ -470,15 +458,15 @@ class TestSecurity:
         logger = SecureLogger("test")
 
         # Test private key redaction
-        message = 'private_key: abc123def456789abcdefghijklmnopqrstuvwxyz0123456789'
+        message = "private_key: abc123def456789abcdefghijklmnopqrstuvwxyz0123456789"
         redacted = logger.redact_sensitive_data(message)
-        assert 'abc123def456789abcdefghijklmnopqrstuvwxyz0123456789' not in redacted
-        assert '***REDACTED***' in redacted
+        assert "abc123def456789abcdefghijklmnopqrstuvwxyz0123456789" not in redacted
+        assert "***REDACTED***" in redacted
 
         # Test wallet address partial redaction
-        message = 'Wallet: 11111111111111111111111111111112'
+        message = "Wallet: 11111111111111111111111111111112"
         redacted = logger.redact_sensitive_data(message)
-        assert '11111111...1112' in redacted
+        assert "11111111...1112" in redacted
 
     def test_security_middleware_request_validation(self):
         """Test security middleware request validation."""
@@ -524,10 +512,9 @@ class TestSecurity:
         # Generate signature
         import hmac
         import hashlib
+
         signature = hmac.new(
-            secret.encode('utf-8'),
-            data.encode('utf-8'),
-            hashlib.sha256
+            secret.encode("utf-8"), data.encode("utf-8"), hashlib.sha256
         ).hexdigest()
 
         # Verify
@@ -543,6 +530,7 @@ class TestSecurity:
         """Test global security middleware singleton."""
         # Reset global state
         import sam.utils.security
+
         sam.utils.security._security_middleware = None
 
         middleware1 = get_security_middleware()
@@ -554,11 +542,12 @@ class TestSecurity:
     @pytest.mark.asyncio
     async def test_security_check_decorator(self):
         """Test security check decorator."""
+
         @security_check(validate_input=True, log_access=True)
         async def test_func(name: str = "World"):
             return f"Hello {name}"
 
-        with patch('sam.utils.security.get_security_middleware') as mock_get_middleware:
+        with patch("sam.utils.security.get_security_middleware") as mock_get_middleware:
             mock_middleware = MagicMock()
             mock_middleware.validate_request = AsyncMock(return_value=(True, []))
             mock_get_middleware.return_value = mock_middleware

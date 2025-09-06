@@ -180,7 +180,7 @@ class SolanaTools:
             # Create and sign transaction
             from solders.transaction import VersionedTransaction
             from solders.message import MessageV0
-            
+
             # Create a simple versioned transaction
             message = MessageV0.try_compile(
                 payer=self.keypair.pubkey(),
@@ -188,7 +188,7 @@ class SolanaTools:
                 address_lookup_table_accounts=[],
                 recent_blockhash=recent_blockhash.value.blockhash,
             )
-            
+
             # Create versioned transaction and sign
             versioned_tx = VersionedTransaction(message, [self.keypair])
 
@@ -236,11 +236,13 @@ class SolanaTools:
             from solana.rpc.commitment import Commitment
 
             from solana.rpc.types import TokenAccountOpts
-            
+
             response = await self.client.get_token_accounts_by_owner(
                 pubkey,
-                TokenAccountOpts(program_id=Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")),
-                commitment=Commitment("confirmed")
+                TokenAccountOpts(
+                    program_id=Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+                ),
+                commitment=Commitment("confirmed"),
             )
 
             accounts = []
@@ -249,7 +251,7 @@ class SolanaTools:
                     try:
                         # Use jsonParsed data instead of manual byte parsing
                         account_data = account_info.account.data
-                        if hasattr(account_data, 'parsed'):
+                        if hasattr(account_data, "parsed"):
                             parsed_data = account_data.parsed
                         else:
                             # Handle raw data case

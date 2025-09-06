@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 import json
+import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 import logging
@@ -57,55 +58,64 @@ class MemoryManager:
 
     async def _init_database(self):
         """Initialize database tables using connection pool."""
-        async with get_db_connection(self.db_path) as conn:
+        max_retries = 3
+        retry_delay = 0.5
+        
+        for attempt in range(max_retries):
             try:
-                # Create sessions table
-                await conn.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
-                    messages TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """)
-
-                # Create preferences table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS preferences (
-                        user_id TEXT NOT NULL,
-                        key TEXT NOT NULL,
-                        value TEXT NOT NULL,
+                async with get_db_connection(self.db_path) as conn:
+                    # Create sessions table
+                    await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        session_id TEXT PRIMARY KEY,
+                        messages TEXT NOT NULL,
                         created_at TEXT NOT NULL,
-                        PRIMARY KEY (user_id, key)
+                        updated_at TEXT NOT NULL
                     )
-                """)
+                    """)
 
-                # Create trades table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS trades (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id TEXT NOT NULL,
-                        token_address TEXT NOT NULL,
-                        action TEXT NOT NULL,
-                        amount REAL NOT NULL,
-                        timestamp TEXT NOT NULL
-                    )
-                """)
+                    # Create preferences table
+                    await conn.execute("""
+                        CREATE TABLE IF NOT EXISTS preferences (
+                            user_id TEXT NOT NULL,
+                            key TEXT NOT NULL,
+                            value TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            PRIMARY KEY (user_id, key)
+                        )
+                    """)
 
-                # Create secure_data table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS secure_data (
-                        user_id TEXT PRIMARY KEY,
-                        encrypted_private_key TEXT NOT NULL,
-                        wallet_address TEXT NOT NULL,
-                        created_at TEXT NOT NULL
-                    )
-                """)
+                    # Create trades table
+                    await conn.execute("""
+                        CREATE TABLE IF NOT EXISTS trades (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id TEXT NOT NULL,
+                            token_address TEXT NOT NULL,
+                            action TEXT NOT NULL,
+                            amount REAL NOT NULL,
+                            timestamp TEXT NOT NULL
+                        )
+                    """)
 
-                await conn.commit()
+                    # Create secure_data table
+                    await conn.execute("""
+                        CREATE TABLE IF NOT EXISTS secure_data (
+                            user_id TEXT PRIMARY KEY,
+                            encrypted_private_key TEXT NOT NULL,
+                            wallet_address TEXT NOT NULL,
+                            created_at TEXT NOT NULL
+                        )
+                    """)
+
+                    await conn.commit()
+                    return  # Success, exit retry loop
+                    
             except Exception as e:
-                logger.error(f"Failed to initialize database: {e}")
-                raise
+                logger.warning(f"Database initialization attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to initialize database after {max_retries} attempts: {e}")
+                    raise
+                await asyncio.sleep(retry_delay * (2 ** attempt))
 
     async def save_session(self, session_id: str, messages: List[Dict]):
         """Save session messages to database."""

@@ -171,7 +171,11 @@ class PriceService:
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics for debugging."""
-        stats: Dict[str, Any] = {"cached_tokens": len(self._price_cache), "cache_ttl": self.cache_ttl, "tokens": {}}
+        stats: Dict[str, Any] = {
+            "cached_tokens": len(self._price_cache),
+            "cache_ttl": self.cache_ttl,
+            "tokens": {},
+        }
 
         for token, price_data in self._price_cache.items():
             stats["tokens"][token] = {

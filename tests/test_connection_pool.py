@@ -4,8 +4,10 @@ import tempfile
 import os
 from unittest.mock import AsyncMock
 from sam.utils.connection_pool import (
-    DatabasePool, get_database_pool, cleanup_database_pool,
-    get_db_connection
+    DatabasePool,
+    get_database_pool,
+    cleanup_database_pool,
+    get_db_connection,
 )
 
 
@@ -37,15 +39,15 @@ class TestDatabasePool:
         """Test connection creation."""
         conn_info = await db_pool._create_connection()
 
-        assert 'connection' in conn_info
-        assert 'created_at' in conn_info
-        assert 'last_used' in conn_info
-        assert 'usage_count' in conn_info
-        assert conn_info['usage_count'] == 0
-        assert isinstance(conn_info['created_at'], float)
+        assert "connection" in conn_info
+        assert "created_at" in conn_info
+        assert "last_used" in conn_info
+        assert "usage_count" in conn_info
+        assert conn_info["usage_count"] == 0
+        assert isinstance(conn_info["created_at"], float)
 
         # Cleanup
-        await conn_info['connection'].close()
+        await conn_info["connection"].close()
 
     @pytest.mark.asyncio
     async def test_connection_validation_valid(self, db_pool):
@@ -57,7 +59,7 @@ class TestDatabasePool:
         assert is_valid is True
 
         # Cleanup
-        await conn_info['connection'].close()
+        await conn_info["connection"].close()
 
     @pytest.mark.asyncio
     async def test_connection_validation_expired(self, db_pool):
@@ -65,7 +67,7 @@ class TestDatabasePool:
         conn_info = await db_pool._create_connection()
 
         # Make connection appear expired
-        conn_info['created_at'] = 0  # Very old timestamp
+        conn_info["created_at"] = 0  # Very old timestamp
 
         is_valid = await db_pool._is_connection_valid(conn_info)
 
@@ -150,13 +152,13 @@ class TestDatabasePool:
         """Test getting pool statistics."""
         stats = await db_pool.get_stats()
 
-        expected_keys = ['pool_size', 'max_pool_size', 'total_created', 'closed', 'db_path']
+        expected_keys = ["pool_size", "max_pool_size", "total_created", "closed", "db_path"]
         for key in expected_keys:
             assert key in stats
 
-        assert stats['max_pool_size'] == 3
-        assert stats['db_path'] == db_pool.db_path
-        assert stats['closed'] is False
+        assert stats["max_pool_size"] == 3
+        assert stats["db_path"] == db_pool.db_path
+        assert stats["closed"] is False
 
 
 class TestGlobalConnectionPool:
@@ -170,6 +172,7 @@ class TestGlobalConnectionPool:
 
             # Reset global state
             import sam.utils.connection_pool
+
             sam.utils.connection_pool._global_pool = None
 
             pool1 = await get_database_pool(db_path)
@@ -190,6 +193,7 @@ class TestGlobalConnectionPool:
 
             # Reset global state
             import sam.utils.connection_pool
+
             sam.utils.connection_pool._global_pool = None
 
             pool1 = await get_database_pool(db_path1)
@@ -211,6 +215,7 @@ class TestGlobalConnectionPool:
     async def test_cleanup_database_pool(self):
         """Test cleanup of global database pool."""
         import sam.utils.connection_pool
+
         mock_pool = AsyncMock()
         sam.utils.connection_pool._global_pool = mock_pool
 
@@ -227,6 +232,7 @@ class TestGlobalConnectionPool:
 
             # Reset global state
             import sam.utils.connection_pool
+
             sam.utils.connection_pool._global_pool = None
 
             async with get_db_connection(db_path) as conn:
@@ -248,7 +254,7 @@ class TestConnectionPoolIntegration:
             pool = DatabasePool(db_path, pool_size=5)
 
             async def use_connection(task_id):
-                async with pool.get_connection() as conn:
+                async with pool.get_connection():
                     # Simulate some work
                     await asyncio.sleep(0.01)
                     return f"task_{task_id}_done"

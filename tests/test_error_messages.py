@@ -1,7 +1,10 @@
 import pytest
 from sam.utils.error_messages import (
-    ErrorCategory, UserFriendlyError, ErrorMessageGenerator,
-    handle_error_gracefully, format_error_for_cli
+    ErrorCategory,
+    UserFriendlyError,
+    ErrorMessageGenerator,
+    handle_error_gracefully,
+    format_error_for_cli,
 )
 
 
@@ -28,7 +31,7 @@ class TestUserFriendlyError:
             title="Test Error",
             message="Something went wrong",
             solutions=["Try again", "Check balance"],
-            original_error="Original error details"
+            original_error="Original error details",
         )
 
         assert error.category == ErrorCategory.WALLET
@@ -44,7 +47,7 @@ class TestUserFriendlyError:
             title="Connection Error",
             message="Network issue",
             solutions=["Check connection"],
-            original_error="Connection timeout"
+            original_error="Connection timeout",
         )
 
         result = error.to_dict()
@@ -55,7 +58,7 @@ class TestUserFriendlyError:
             "title": "Connection Error",
             "message": "Network issue",
             "solutions": ["Check connection"],
-            "original_error": "Connection timeout"
+            "original_error": "Connection timeout",
         }
 
         assert result == expected
@@ -67,7 +70,7 @@ class TestUserFriendlyError:
             title="Trade Failed",
             message="Insufficient balance",
             solutions=["Add more funds", "Try smaller amount"],
-            original_error="Insufficient funds"
+            original_error="Insufficient funds",
         )
 
         result = error.format_for_user()
@@ -85,7 +88,7 @@ class TestUserFriendlyError:
             title="System Error",
             message="Unexpected error",
             solutions=[],
-            original_error="System crash"
+            original_error="System crash",
         )
 
         result = error.format_for_user()
@@ -341,7 +344,7 @@ class TestUtilityFunctions:
             "error": True,
             "title": "Test Error",
             "message": "Something went wrong",
-            "solutions": ["Try again", "Check connection"]
+            "solutions": ["Try again", "Check connection"],
         }
 
         result = format_error_for_cli(error_dict)
@@ -358,7 +361,7 @@ class TestUtilityFunctions:
             "error": True,
             "title": "Simple Error",
             "message": "Basic error",
-            "solutions": []
+            "solutions": [],
         }
 
         result = format_error_for_cli(error_dict)

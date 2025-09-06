@@ -2,11 +2,19 @@ import pytest
 import os
 from unittest.mock import patch, MagicMock
 from sam.cli import (
-    CLIFormatter, check_setup_status, show_setup_status,
-    show_onboarding_guide, supports_ansi, colorize, term_width
+    CLIFormatter,
+    check_setup_status,
+    show_setup_status,
+    show_onboarding_guide,
+    supports_ansi,
+    colorize,
+    term_width,
 )
 from sam.utils.cli_helpers import (
-    format_balance_display, format_error_for_cli, is_first_run, _llm_api_configured
+    format_balance_display,
+    format_error_for_cli,
+    is_first_run,
+    _llm_api_configured,
 )
 from sam.config.settings import Settings
 
@@ -16,41 +24,41 @@ class TestCLIFormatter:
 
     def test_colorize_with_ansi(self):
         """Test colorize function with ANSI support."""
-        with patch('sam.cli.supports_ansi', return_value=True):
+        with patch("sam.cli.supports_ansi", return_value=True):
             result = colorize("test", "\033[31m")
             assert result == "\033[31mtest\033[0m"
 
     def test_colorize_without_ansi(self):
         """Test colorize function without ANSI support."""
-        with patch('sam.cli.supports_ansi', return_value=False):
+        with patch("sam.cli.supports_ansi", return_value=False):
             result = colorize("test", "\033[31m")
             assert result == "test"
 
     def test_supports_ansi_tty(self):
         """Test ANSI support detection for TTY."""
-        with patch('sys.stdout.isatty', return_value=True):
+        with patch("sys.stdout.isatty", return_value=True):
             with patch.dict(os.environ, {}, clear=True):
                 assert supports_ansi() is True
 
     def test_supports_ansi_no_color(self):
         """Test ANSI support with NO_COLOR environment variable."""
-        with patch('sys.stdout.isatty', return_value=True):
-            with patch.dict(os.environ, {'NO_COLOR': '1'}):
+        with patch("sys.stdout.isatty", return_value=True):
+            with patch.dict(os.environ, {"NO_COLOR": "1"}):
                 assert supports_ansi() is False
 
     def test_term_width_with_shutil(self):
         """Test terminal width detection."""
-        with patch('shutil.get_terminal_size', return_value=MagicMock(columns=120)):
+        with patch("shutil.get_terminal_size", return_value=MagicMock(columns=120)):
             assert term_width() == 120
 
     def test_term_width_fallback(self):
         """Test terminal width fallback."""
-        with patch('shutil.get_terminal_size', side_effect=OSError):
+        with patch("shutil.get_terminal_size", side_effect=OSError):
             assert term_width() == 80
 
     def test_term_width_custom_default(self):
         """Test terminal width with custom default."""
-        with patch('shutil.get_terminal_size', side_effect=OSError):
+        with patch("shutil.get_terminal_size", side_effect=OSError):
             assert term_width(100) == 100
 
     def test_cli_formatter_success(self):
@@ -97,88 +105,92 @@ class TestSetupStatus:
 
     def test_llm_api_configured_openai(self):
         """Test LLM API configuration check for OpenAI."""
-        with patch.object(Settings, 'LLM_PROVIDER', 'openai'):
-            with patch.object(Settings, 'OPENAI_API_KEY', 'test_key'):
+        with patch.object(Settings, "LLM_PROVIDER", "openai"):
+            with patch.object(Settings, "OPENAI_API_KEY", "test_key"):
                 assert _llm_api_configured() is True
 
     def test_llm_api_configured_anthropic(self):
         """Test LLM API configuration check for Anthropic."""
-        with patch.object(Settings, 'LLM_PROVIDER', 'anthropic'):
-            with patch.object(Settings, 'ANTHROPIC_API_KEY', 'test_key'):
+        with patch.object(Settings, "LLM_PROVIDER", "anthropic"):
+            with patch.object(Settings, "ANTHROPIC_API_KEY", "test_key"):
                 assert _llm_api_configured() is True
 
     def test_llm_api_configured_xai(self):
         """Test LLM API configuration check for xAI."""
-        with patch.object(Settings, 'LLM_PROVIDER', 'xai'):
-            with patch.object(Settings, 'XAI_API_KEY', 'test_key'):
+        with patch.object(Settings, "LLM_PROVIDER", "xai"):
+            with patch.object(Settings, "XAI_API_KEY", "test_key"):
                 assert _llm_api_configured() is True
 
     def test_llm_api_configured_local(self):
         """Test LLM API configuration check for local provider."""
-        with patch.object(Settings, 'LLM_PROVIDER', 'local'):
-            with patch.object(Settings, 'LOCAL_LLM_BASE_URL', 'http://localhost:11434/v1'):
+        with patch.object(Settings, "LLM_PROVIDER", "local"):
+            with patch.object(Settings, "LOCAL_LLM_BASE_URL", "http://localhost:11434/v1"):
                 assert _llm_api_configured() is True
 
     def test_llm_api_configured_openai_compat(self):
         """Test LLM API configuration check for OpenAI compatible."""
-        with patch.object(Settings, 'LLM_PROVIDER', 'openai_compat'):
-            with patch.object(Settings, 'OPENAI_BASE_URL', 'http://localhost:8080/v1'):
+        with patch.object(Settings, "LLM_PROVIDER", "openai_compat"):
+            with patch.object(Settings, "OPENAI_BASE_URL", "http://localhost:8080/v1"):
                 assert _llm_api_configured() is True
 
     def test_llm_api_not_configured(self):
         """Test LLM API configuration check when not configured."""
-        with patch.object(Settings, 'LLM_PROVIDER', 'openai'):
-            with patch.object(Settings, 'OPENAI_API_KEY', ''):
+        with patch.object(Settings, "LLM_PROVIDER", "openai"):
+            with patch.object(Settings, "OPENAI_API_KEY", ""):
                 assert _llm_api_configured() is False
 
-    @patch('sam.utils.cli_helpers._llm_api_configured')
+    @patch("sam.utils.cli_helpers._llm_api_configured")
     def test_check_setup_status_complete(self, mock_llm_configured):
         """Test setup status check with all components configured."""
         mock_llm_configured.return_value = True
 
-        with patch.object(Settings, 'SAM_DB_PATH', '/tmp/test.db'):
-            with patch.object(Settings, 'SAM_SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'):
-                with patch('os.path.exists', return_value=True):
-                    with patch('sam.utils.cli_helpers.get_secure_storage') as mock_get_storage:
+        with patch.object(Settings, "SAM_DB_PATH", "/tmp/test.db"):
+            with patch.object(
+                Settings, "SAM_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"
+            ):
+                with patch("os.path.exists", return_value=True):
+                    with patch("sam.utils.cli_helpers.get_secure_storage") as mock_get_storage:
                         mock_storage = MagicMock()
-                        mock_storage.get_private_key.return_value = 'test_key'
+                        mock_storage.get_private_key.return_value = "test_key"
                         mock_get_storage.return_value = mock_storage
 
                         status = check_setup_status()
 
-                        assert status['openai_api_key'] is True
-                        assert status['wallet_configured'] is True
-                        assert status['database_path'] == '/tmp/test.db'
-                        assert status['rpc_url'] == 'https://api.mainnet-beta.solana.com'
-                        assert len(status['issues']) == 0
+                        assert status["openai_api_key"] is True
+                        assert status["wallet_configured"] is True
+                        assert status["database_path"] == "/tmp/test.db"
+                        assert status["rpc_url"] == "https://api.mainnet-beta.solana.com"
+                        assert len(status["issues"]) == 0
 
-    @patch('sam.utils.cli_helpers._llm_api_configured')
+    @patch("sam.utils.cli_helpers._llm_api_configured")
     def test_check_setup_status_incomplete(self, mock_llm_configured):
         """Test setup status check with missing components."""
         mock_llm_configured.return_value = False
 
-        with patch.object(Settings, 'SAM_DB_PATH', '/tmp/test.db'):
-            with patch.object(Settings, 'SAM_SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'):
-                with patch('os.path.exists', return_value=False):
-                    with patch('sam.utils.cli_helpers.get_secure_storage') as mock_get_storage:
+        with patch.object(Settings, "SAM_DB_PATH", "/tmp/test.db"):
+            with patch.object(
+                Settings, "SAM_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"
+            ):
+                with patch("os.path.exists", return_value=False):
+                    with patch("sam.utils.cli_helpers.get_secure_storage") as mock_get_storage:
                         mock_storage = MagicMock()
                         mock_storage.get_private_key.return_value = None
                         mock_get_storage.return_value = mock_storage
 
                         status = check_setup_status()
 
-                        assert status['openai_api_key'] is False
-                        assert status['wallet_configured'] is False
-                        assert len(status['issues']) >= 2  # Should have multiple issues
+                        assert status["openai_api_key"] is False
+                        assert status["wallet_configured"] is False
+                        assert len(status["issues"]) >= 2  # Should have multiple issues
 
     def test_is_first_run(self):
         """Test first run detection."""
-        with patch.object(Settings, 'SAM_DB_PATH', '/tmp/nonexistent.db'):
-            with patch('os.path.exists', return_value=False):
+        with patch.object(Settings, "SAM_DB_PATH", "/tmp/nonexistent.db"):
+            with patch("os.path.exists", return_value=False):
                 assert is_first_run() is True
 
-        with patch.object(Settings, 'SAM_DB_PATH', '/tmp/existing.db'):
-            with patch('os.path.exists', return_value=True):
+        with patch.object(Settings, "SAM_DB_PATH", "/tmp/existing.db"):
+            with patch("os.path.exists", return_value=True):
                 assert is_first_run() is False
 
 
@@ -194,9 +206,9 @@ class TestFormatters:
             "total_portfolio_usd": 150.75,
             "tokens": [
                 {"mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "uiAmount": 100.0},
-                {"mint": "So11111111111111111111111111111111111111112", "uiAmount": 0.5}
+                {"mint": "So11111111111111111111111111111111111111112", "uiAmount": 0.5},
             ],
-            "token_count": 2
+            "token_count": 2,
         }
 
         result = format_balance_display(balance_data)
@@ -208,10 +220,7 @@ class TestFormatters:
 
     def test_format_balance_display_error(self):
         """Test balance data formatting for error response."""
-        balance_data = {
-            "error": True,
-            "title": "Connection Error"
-        }
+        balance_data = {"error": True, "title": "Connection Error"}
 
         result = format_balance_display(balance_data)
 
@@ -225,7 +234,7 @@ class TestFormatters:
             "title": "Test Error",
             "message": "Something went wrong",
             "solutions": ["Try again", "Check your connection"],
-            "category": "network"
+            "category": "network",
         }
 
         result = format_error_for_cli(error_data)
@@ -242,7 +251,7 @@ class TestFormatters:
             "error": True,
             "title": "Wallet Error",
             "message": "Invalid key",
-            "category": "wallet"
+            "category": "wallet",
         }
 
         result = format_error_for_cli(error_data)
@@ -251,11 +260,7 @@ class TestFormatters:
 
     def test_format_error_for_cli_no_solutions(self):
         """Test error formatting without solutions."""
-        error_data = {
-            "error": True,
-            "title": "Simple Error",
-            "message": "Basic error"
-        }
+        error_data = {"error": True, "title": "Simple Error", "message": "Basic error"}
 
         result = format_error_for_cli(error_data)
 
@@ -266,15 +271,15 @@ class TestFormatters:
 class TestOnboarding:
     """Test onboarding and setup guide functions."""
 
-    @patch('builtins.print')
+    @patch("builtins.print")
     def test_show_setup_status(self, mock_print):
         """Test setup status display."""
-        with patch('sam.cli.check_setup_status') as mock_check:
+        with patch("sam.cli.check_setup_status") as mock_check:
             mock_check.return_value = {
-                'openai_api_key': True,
-                'wallet_configured': True,
-                'issues': [],
-                'recommendations': []
+                "openai_api_key": True,
+                "wallet_configured": True,
+                "issues": [],
+                "recommendations": [],
             }
 
             show_setup_status()
@@ -282,7 +287,7 @@ class TestOnboarding:
             # Verify print was called multiple times
             assert mock_print.call_count > 0
 
-    @patch('builtins.print')
+    @patch("builtins.print")
     def test_show_onboarding_guide(self, mock_print):
         """Test onboarding guide display."""
         show_onboarding_guide()
@@ -294,7 +299,7 @@ class TestOnboarding:
 class TestAdditionalCLIHelpers:
     """Test additional CLI helper functions."""
 
-    @patch('builtins.print')
+    @patch("builtins.print")
     def test_show_welcome_banner(self, mock_print):
         """Test welcome banner display."""
         from sam.utils.cli_helpers import show_welcome_banner
@@ -307,7 +312,7 @@ class TestAdditionalCLIHelpers:
         assert "🤖 SAM" in banner_text
         assert "Solana Agent Middleware" in banner_text
 
-    @patch('builtins.print')
+    @patch("builtins.print")
     def test_show_quick_help(self, mock_print):
         """Test quick help display."""
         from sam.utils.cli_helpers import show_quick_help
@@ -317,9 +322,9 @@ class TestAdditionalCLIHelpers:
         # Should print help information
         assert mock_print.call_count > 0
 
-    @patch('builtins.print')
-    @patch('sam.utils.cli_helpers.show_welcome_banner')
-    @patch('sam.utils.cli_helpers.show_onboarding_guide')
+    @patch("builtins.print")
+    @patch("sam.utils.cli_helpers.show_welcome_banner")
+    @patch("sam.utils.cli_helpers.show_onboarding_guide")
     def test_show_first_run_experience(self, mock_onboarding, mock_banner, mock_print):
         """Test first run experience display."""
         from sam.utils.cli_helpers import show_first_run_experience
@@ -333,15 +338,15 @@ class TestAdditionalCLIHelpers:
         # Should print additional messages
         assert mock_print.call_count >= 2
 
-    @patch('builtins.print')
-    @patch('sam.utils.cli_helpers.check_setup_status')
+    @patch("builtins.print")
+    @patch("sam.utils.cli_helpers.check_setup_status")
     def test_show_startup_summary_with_issues(self, mock_check_status, mock_print):
         """Test startup summary with issues."""
         from sam.utils.cli_helpers import show_startup_summary
 
         mock_check_status.return_value = {
             "issues": ["Missing API key"],
-            "recommendations": ["Set OPENAI_API_KEY"]
+            "recommendations": ["Set OPENAI_API_KEY"],
         }
 
         show_startup_summary()
@@ -349,16 +354,13 @@ class TestAdditionalCLIHelpers:
         # Should print warning and issues
         assert mock_print.call_count > 0
 
-    @patch('builtins.print')
-    @patch('sam.utils.cli_helpers.check_setup_status')
+    @patch("builtins.print")
+    @patch("sam.utils.cli_helpers.check_setup_status")
     def test_show_startup_summary_no_issues(self, mock_check_status, mock_print):
         """Test startup summary without issues."""
         from sam.utils.cli_helpers import show_startup_summary
 
-        mock_check_status.return_value = {
-            "issues": [],
-            "recommendations": []
-        }
+        mock_check_status.return_value = {"issues": [], "recommendations": []}
 
         show_startup_summary()
 

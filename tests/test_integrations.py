@@ -69,9 +69,7 @@ class TestPumpFunTools:
     async def test_create_sell_transaction_structure(self, pump_tools):
         """Test sell transaction creation basic structure."""
         try:
-            result = await pump_tools.create_sell_transaction(
-                "mint123", 50, 10, "wallet123", 10
-            )
+            result = await pump_tools.create_sell_transaction("mint123", 50, 10, "wallet123", 10)
             assert isinstance(result, dict)
         except Exception:
             # Expected to fail without proper setup
@@ -107,7 +105,7 @@ class TestJupiterTools:
                 "So11111111111111111111111111111111111111112",  # SOL
                 "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
                 1000000000,  # 1 SOL
-                50
+                50,
             )
             assert isinstance(result, dict)
         except Exception:
@@ -127,7 +125,7 @@ class TestDexScreenerTools:
     @pytest.mark.asyncio
     async def test_dex_tools_initialization(self, dex_tools):
         """Test DexScreenerTools initialization."""
-        assert hasattr(dex_tools, 'client')
+        assert hasattr(dex_tools, "client")
 
     @pytest.mark.asyncio
     async def test_search_pairs_structure(self, dex_tools):

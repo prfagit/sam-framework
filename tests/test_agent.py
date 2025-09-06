@@ -37,7 +37,9 @@ def mock_tools():
 async def agent(mock_llm, mock_tools, mock_memory):
     """Create a test agent."""
     system_prompt = "You are a test agent."
-    agent = SAMAgent(llm=mock_llm, tools=mock_tools, memory=mock_memory, system_prompt=system_prompt)
+    agent = SAMAgent(
+        llm=mock_llm, tools=mock_tools, memory=mock_memory, system_prompt=system_prompt
+    )
     return agent
 
 
@@ -62,7 +64,7 @@ class TestSAMAgent:
         mock_response = ChatResponse(
             content="Hello! I can help you with Solana operations.",
             tool_calls=[],
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         )
         mock_llm.chat_completion = AsyncMock(return_value=mock_response)
         mock_memory.load_session = AsyncMock(return_value=[])
@@ -93,6 +95,7 @@ class TestSAMAgent:
     @pytest.mark.asyncio
     async def test_agent_run_with_tools(self, agent, mock_llm, mock_memory):
         """Test agent run with tool calls."""
+
         # Create a test tool
         async def test_handler(args):
             return {"result": f"processed {args.get('input', 'nothing')}"}
@@ -103,34 +106,34 @@ class TestSAMAgent:
             input_schema={
                 "type": "object",
                 "properties": {"input": {"type": "string"}},
-                "required": ["input"]
-            }
+                "required": ["input"],
+            },
         )
 
         from sam.core.tools import Tool
+
         test_tool = Tool(spec=tool_spec, handler=test_handler)
         agent.tools.register(test_tool)
 
         # Setup mocks
-        tool_calls = [{
-            "id": "call_123",
-            "type": "function",
-            "function": {
-                "name": "test_tool",
-                "arguments": '{"input": "test_data"}'
+        tool_calls = [
+            {
+                "id": "call_123",
+                "type": "function",
+                "function": {"name": "test_tool", "arguments": '{"input": "test_data"}'},
             }
-        }]
+        ]
 
         mock_response1 = ChatResponse(
             content="Let me process that for you.",
             tool_calls=tool_calls,
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         )
 
         mock_response2 = ChatResponse(
             content="Processing complete!",
             tool_calls=[],
-            usage={"prompt_tokens": 15, "completion_tokens": 8, "total_tokens": 23}
+            usage={"prompt_tokens": 15, "completion_tokens": 8, "total_tokens": 23},
         )
 
         mock_llm.chat_completion = AsyncMock(side_effect=[mock_response1, mock_response2])
@@ -154,11 +157,7 @@ class TestSAMAgent:
     async def test_agent_clear_context(self, agent, mock_memory):
         """Test clearing conversation context."""
         # Setup initial stats
-        agent.session_stats = {
-            "total_tokens": 100,
-            "requests": 5,
-            "context_length": 10
-        }
+        agent.session_stats = {"total_tokens": 100, "requests": 5, "context_length": 10}
 
         mock_memory.clear_session = AsyncMock()
 
@@ -191,7 +190,7 @@ class TestSAMAgent:
             {"role": "user", "content": "Fourth message"},
             {"role": "assistant", "content": "Fourth response"},
             {"role": "user", "content": "Fifth message"},
-            {"role": "assistant", "content": "Fifth response"}
+            {"role": "assistant", "content": "Fifth response"},
         ]
 
         mock_memory.load_session = AsyncMock(return_value=old_messages)
@@ -201,7 +200,7 @@ class TestSAMAgent:
         summary_response = ChatResponse(
             content="User asked questions about Solana operations.",
             tool_calls=[],
-            usage={"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60}
+            usage={"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
         )
         mock_llm.chat_completion = AsyncMock(return_value=summary_response)
 
@@ -225,7 +224,7 @@ class TestSAMAgent:
         # Setup short conversation
         short_messages = [
             {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi there"}
+            {"role": "assistant", "content": "Hi there"},
         ]
 
         mock_memory.load_session = AsyncMock(return_value=short_messages)
@@ -313,7 +312,7 @@ class TestSAMAgent:
         messages = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there"},
-            {"role": "tool", "name": "get_balance", "content": "balance data"}
+            {"role": "tool", "name": "get_balance", "content": "balance data"},
         ]
 
         result = agent._format_messages_for_summary(messages)

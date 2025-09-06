@@ -3,7 +3,11 @@ import asyncio
 import time
 from unittest.mock import patch, AsyncMock
 from sam.utils.enhanced_decorators import (
-    safe_async_operation, performance_monitor, _should_retry, _sanitize_args, _sanitize_result
+    safe_async_operation,
+    performance_monitor,
+    _should_retry,
+    _sanitize_args,
+    _sanitize_result,
 )
 from sam.utils.error_handling import ErrorSeverity
 
@@ -14,7 +18,8 @@ class TestSafeAsyncOperation:
     @pytest.mark.asyncio
     async def test_safe_operation_success(self):
         """Test successful operation with logging."""
-        with patch('sam.utils.enhanced_decorators.logger') as mock_logger:
+        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+
             @safe_async_operation("test_component", log_args=True, log_result=True)
             async def test_func(x, y):
                 return x + y
@@ -40,7 +45,7 @@ class TestSafeAsyncOperation:
                 raise ConnectionError("Network error")
             return {"success": True}
 
-        with patch('asyncio.sleep') as mock_sleep:
+        with patch("asyncio.sleep") as mock_sleep:
             result = await test_func()
 
             assert result == {"success": True}
@@ -50,6 +55,7 @@ class TestSafeAsyncOperation:
     @pytest.mark.asyncio
     async def test_safe_operation_fallback_value(self):
         """Test operation with fallback value on error."""
+
         @safe_async_operation("test_component", fallback_value="default")
         async def test_func():
             raise Exception("Test error")
@@ -61,7 +67,7 @@ class TestSafeAsyncOperation:
     @pytest.mark.asyncio
     async def test_safe_operation_error_tracking(self):
         """Test error tracking integration."""
-        with patch('sam.utils.enhanced_decorators.get_error_tracker') as mock_get_tracker:
+        with patch("sam.utils.enhanced_decorators.get_error_tracker") as mock_get_tracker:
             mock_tracker = AsyncMock()
             mock_get_tracker.return_value = mock_tracker
 
@@ -75,8 +81,8 @@ class TestSafeAsyncOperation:
             # Verify error was tracked
             mock_tracker.log_error.assert_called_once()
             call_args = mock_tracker.log_error.call_args
-            assert call_args[1]['severity'] == ErrorSeverity.HIGH
-            assert call_args[1]['component'] == "test_component"
+            assert call_args[1]["severity"] == ErrorSeverity.HIGH
+            assert call_args[1]["component"] == "test_component"
 
     @pytest.mark.asyncio
     async def test_safe_operation_no_retry_errors(self):
@@ -97,6 +103,7 @@ class TestSafeAsyncOperation:
     @pytest.mark.asyncio
     async def test_safe_operation_sync_function(self):
         """Test decorator works with synchronous functions."""
+
         @safe_async_operation("test_component")
         def test_func(x):
             return x * 2
@@ -112,7 +119,8 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_normal_operation(self):
         """Test normal performance logging."""
-        with patch('sam.utils.enhanced_decorators.logger') as mock_logger:
+        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+
             @performance_monitor("test_component", warn_threshold=1.0)
             async def test_func():
                 await asyncio.sleep(0.01)
@@ -130,7 +138,8 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_warning_threshold(self):
         """Test warning threshold logging."""
-        with patch('sam.utils.enhanced_decorators.logger') as mock_logger:
+        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+
             @performance_monitor("test_component", warn_threshold=0.01, critical_threshold=1.0)
             async def test_func():
                 await asyncio.sleep(0.1)  # Exceed warning threshold
@@ -148,7 +157,8 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_critical_threshold(self):
         """Test critical threshold logging."""
-        with patch('sam.utils.enhanced_decorators.logger') as mock_logger:
+        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+
             @performance_monitor("test_component", warn_threshold=0.01, critical_threshold=0.01)
             async def test_func():
                 await asyncio.sleep(0.1)  # Exceed critical threshold
@@ -166,7 +176,8 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_sync_function(self):
         """Test performance monitoring with synchronous functions."""
-        with patch('sam.utils.enhanced_decorators.logger') as mock_logger:
+        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+
             @performance_monitor("test_component")
             def test_func():
                 time.sleep(0.01)
@@ -180,7 +191,8 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_error_logging(self):
         """Test error logging in performance monitor."""
-        with patch('sam.utils.enhanced_decorators.logger') as mock_logger:
+        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+
             @performance_monitor("test_component")
             async def test_func():
                 await asyncio.sleep(0.01)
@@ -278,7 +290,7 @@ class TestHelperFunctions:
             "private_key": "private",
             "token": "token123",
             "auth": "auth_data",
-            "wallet": "wallet_data"
+            "wallet": "wallet_data",
         }
 
         result = _sanitize_args((), kwargs)
