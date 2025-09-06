@@ -334,13 +334,18 @@ class AnthropicProvider(LLMProvider):
             if blocks:
                 anth_messages.append({"role": role, "content": blocks})
 
-        # Iterate and convert
+        # Iterate and convert with better grouping
         pending_tool_results: List[Dict[str, Any]] = []
-        for msg in messages:
+        i = 0
+        
+        while i < len(messages):
+            msg = messages[i]
             role = msg.get("role")
+            
             if role == "system":
                 content = msg.get("content") or ""
                 system_parts.append(str(content))
+                i += 1
                 continue
 
             if role == "assistant":
@@ -348,6 +353,7 @@ class AnthropicProvider(LLMProvider):
                 content = msg.get("content")
                 if content:
                     blocks.append({"type": "text", "text": str(content)})
+                
                 # Convert OpenAI-style tool_calls to Anthropic tool_use blocks
                 for call in msg.get("tool_calls") or []:
                     fn = call.get("function", {})
@@ -362,10 +368,26 @@ class AnthropicProvider(LLMProvider):
                         }
                     )
                 add_msg("assistant", blocks)
+                
+                # Immediately collect all following tool results
+                i += 1
+                tool_results = []
+                while i < len(messages) and messages[i].get("role") == "tool":
+                    tool_msg = messages[i]
+                    tool_results.append({
+                        "type": "tool_result", 
+                        "tool_use_id": tool_msg.get("tool_call_id"),
+                        "content": tool_msg.get("content", ""),
+                    })
+                    i += 1
+                
+                # Add tool results as a user message if we found any
+                if tool_results:
+                    add_msg("user", tool_results)
                 continue
 
             if role == "tool":
-                # Collect as tool_result blocks under a subsequent user message
+                # This should be handled in the assistant block above, but handle orphans
                 pending_tool_results.append(
                     {
                         "type": "tool_result",
@@ -373,16 +395,21 @@ class AnthropicProvider(LLMProvider):
                         "content": msg.get("content", ""),
                     }
                 )
+                i += 1
                 continue
 
-            if role in ("user",):
-                # Flush any pending tool results before new user message
+            if role == "user":
+                # Flush any pending orphaned tool results first
                 if pending_tool_results:
                     add_msg("user", pending_tool_results)
                     pending_tool_results = []
                 content = msg.get("content") or ""
                 add_msg("user", [{"type": "text", "text": str(content)}])
+                i += 1
                 continue
+            
+            # Skip unknown roles
+            i += 1
 
         # Flush any remaining tool results at end
         if pending_tool_results:
