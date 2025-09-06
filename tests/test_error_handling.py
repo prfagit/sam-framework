@@ -3,7 +3,7 @@ import asyncio
 import tempfile
 import os
 from unittest.mock import patch, MagicMock, AsyncMock
-from datetime import datetime, timedelta
+from datetime import datetime
 from sam.utils.error_handling import (
     ErrorSeverity, ErrorRecord, ErrorTracker, CircuitBreaker,
     HealthChecker, get_error_tracker, get_health_checker,

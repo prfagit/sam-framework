@@ -1,7 +1,5 @@
 import pytest
-import tempfile
 import os
-import sys
 from unittest.mock import patch, MagicMock
 from sam.cli import (
     CLIFormatter, check_setup_status, show_setup_status,

@@ -20,13 +20,13 @@ class Tool:
 class ToolRegistry:
     def __init__(self):
         self._tools: Dict[str, Tool] = {}
-    
+
     def register(self, tool: Tool):
         self._tools[tool.spec.name] = tool
-    
+
     def list_specs(self) -> List[Dict[str, Any]]:
         return [t.spec.model_dump() for t in self._tools.values()]
-    
+
     async def call(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if name not in self._tools:
             return {"error": f"Tool '{name}' not found"}

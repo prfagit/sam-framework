@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import tempfile
 import os
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock
 from sam.utils.connection_pool import (
     DatabasePool, get_database_pool, cleanup_database_pool,
     get_db_connection

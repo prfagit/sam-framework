@@ -4,12 +4,10 @@ import time
 from unittest.mock import patch, MagicMock, AsyncMock
 from sam.utils.monitoring import (
     MetricsCollector, SystemMetrics, ComponentMetric,
-    get_metrics_collector, cleanup_metrics_collector,
-    record_operation_metric, monitor_performance
+    get_metrics_collector, monitor_performance
 )
 from sam.utils.price_service import (
-    PriceService, PriceData, get_price_service,
-    cleanup_price_service, get_sol_price, format_sol_usd, sol_to_usd
+    PriceService, PriceData, get_price_service
 )
 from sam.utils.security import (
     SecurityConfig, InputValidator, SecurityScanner,

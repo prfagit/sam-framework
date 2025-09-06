@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 from sam.utils.transaction_validator import (
     TransactionValidator, ValidationResult, get_transaction_validator,
     validate_pump_buy, validate_pump_sell, validate_sol_transfer

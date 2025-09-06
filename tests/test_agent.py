@@ -1,7 +1,7 @@
 import pytest
 import tempfile
 import os
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock
 from sam.core.agent import SAMAgent
 from sam.core.tools import ToolRegistry, ToolSpec
 from sam.core.memory import MemoryManager

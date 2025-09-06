@@ -1,6 +1,5 @@
 import pytest
-import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 from sam.utils.http_client import (
     SharedHTTPClient, get_http_client, cleanup_http_client,
     get_session, http_request

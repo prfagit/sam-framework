@@ -10,7 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 class ChatResponse:
-    def __init__(self, content: str, tool_calls: Optional[List[Dict[str, Any]]] = None, usage: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        content: str,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        usage: Optional[Dict[str, Any]] = None,
+    ):
         self.content = content
         self.tool_calls = tool_calls or []
         self.usage = usage or {}
@@ -28,7 +33,9 @@ class LLMProvider:
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
 
-    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
+    async def chat_completion(
+        self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
+    ) -> ChatResponse:
         raise NotImplementedError
 
 
@@ -38,27 +45,27 @@ class OpenAICompatibleProvider(LLMProvider):
     def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
         super().__init__(api_key, model, base_url or "https://api.openai.com/v1")
 
-    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
+    async def chat_completion(
+        self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
+    ) -> ChatResponse:
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
-        payload: Dict[str, Any] = {
-            "model": self.model,
-            "messages": messages
-        }
+        payload: Dict[str, Any] = {"model": self.model, "messages": messages}
 
         # Add tools if provided, converting to OpenAI function format
         if tools:
             formatted_tools = []
             for tool in tools:
                 input_schema = tool["input_schema"]
-                parameters = input_schema.get("parameters") if isinstance(input_schema, dict) else input_schema
+                parameters = (
+                    input_schema.get("parameters")
+                    if isinstance(input_schema, dict)
+                    else input_schema
+                )
                 function_def = {
                     "name": tool["name"],
                     "description": tool["description"],
-                    "parameters": parameters
+                    "parameters": parameters,
                 }
                 formatted_tools.append({"type": "function", "function": function_def})
 
@@ -75,9 +82,7 @@ class OpenAICompatibleProvider(LLMProvider):
             try:
                 session = await get_session()
                 async with session.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload
+                    f"{self.base_url}/chat/completions", headers=headers, json=payload
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -92,15 +97,19 @@ class OpenAICompatibleProvider(LLMProvider):
                         usage = data.get("usage", {})
 
                         content_len = len(content) if isinstance(content, str) else 0
-                        logger.debug(f"LLM response: content_length={content_len}, tool_calls={len(tool_calls)}")
+                        logger.debug(
+                            f"LLM response: content_length={content_len}, tool_calls={len(tool_calls)}"
+                        )
 
                         return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
 
                     elif response.status >= 500:
                         error_text = await response.text()
                         if attempt < max_retries:
-                            delay = base_delay * (2 ** attempt)
-                            logger.warning(f"LLM API server error {response.status}, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1})")
+                            delay = base_delay * (2**attempt)
+                            logger.warning(
+                                f"LLM API server error {response.status}, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1})"
+                            )
                             await asyncio.sleep(delay)
                             continue
                         else:
@@ -113,8 +122,10 @@ class OpenAICompatibleProvider(LLMProvider):
 
             except aiohttp.ClientError as e:
                 if attempt < max_retries:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"Network error in LLM request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Network error in LLM request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                    )
                     await asyncio.sleep(delay)
                     continue
                 else:
@@ -131,8 +142,10 @@ class OpenAICompatibleProvider(LLMProvider):
                     raise
 
                 if attempt < max_retries:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"Unexpected error in LLM request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Unexpected error in LLM request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                    )
                     await asyncio.sleep(delay)
                     continue
                 else:
@@ -144,37 +157,35 @@ class OpenAICompatibleProvider(LLMProvider):
 
 class XAIProvider(OpenAICompatibleProvider):
     """Provider specifically for xAI Grok API with its own tool calling format."""
-    
-    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
 
-        payload: Dict[str, Any] = {
-            "model": self.model,
-            "messages": messages
-        }
+    async def chat_completion(
+        self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
+    ) -> ChatResponse:
+        payload: Dict[str, Any] = {"model": self.model, "messages": messages}
 
         # Format tools for xAI - they may have stricter requirements
         if tools:
             formatted_tools = []
             for tool in tools:
                 input_schema = tool["input_schema"]
-                parameters = input_schema.get("parameters") if isinstance(input_schema, dict) else input_schema
-                
+                parameters = (
+                    input_schema.get("parameters")
+                    if isinstance(input_schema, dict)
+                    else input_schema
+                )
+
                 # Clean up parameters to ensure xAI compatibility
                 if isinstance(parameters, dict):
                     # Remove any null references or complex schemas that might cause issues
                     cleaned_params = self._clean_parameters(parameters)
-                    
+
                     function_def = {
                         "name": tool["name"],
                         "description": tool["description"],
-                        "parameters": cleaned_params
+                        "parameters": cleaned_params,
                     }
                     formatted_tools.append({"type": "function", "function": function_def})
-            
+
             if formatted_tools:
                 payload["tools"] = formatted_tools
                 payload["tool_choice"] = "auto"
@@ -183,12 +194,12 @@ class XAIProvider(OpenAICompatibleProvider):
 
         # Use the parent's retry logic but with our custom payload
         return await self._make_request(payload)
-    
+
     def _clean_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Clean parameter schema for xAI compatibility."""
         if not isinstance(parameters, dict):
             return parameters
-            
+
         cleaned = {}
         for key, value in parameters.items():
             if key == "$defs":
@@ -199,13 +210,16 @@ class XAIProvider(OpenAICompatibleProvider):
                     continue  # Skip complex references
                 cleaned[key] = value
             elif isinstance(value, dict):
-                cleaned[key] = self._clean_parameters(value)
+                cleaned[key] = self._clean_parameters(value)  # type: ignore
             elif isinstance(value, list):
-                cleaned[key] = [self._clean_parameters(item) if isinstance(item, dict) else item for item in value]
+                cleaned[key] = [
+                    self._clean_parameters(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
             else:
                 cleaned[key] = value
         return cleaned
-    
+
     async def _make_request(self, payload: Dict[str, Any]) -> ChatResponse:
         """Make the actual HTTP request with retry logic."""
         max_retries = 3
@@ -216,8 +230,11 @@ class XAIProvider(OpenAICompatibleProvider):
                 session = await get_session()
                 async with session.post(
                     f"{self.base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                    json=payload
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -232,16 +249,18 @@ class XAIProvider(OpenAICompatibleProvider):
                         usage = data.get("usage", {})
 
                         content_len = len(content) if isinstance(content, str) else 0
-                        logger.debug(f"xAI response: content_length={content_len}, tool_calls={len(tool_calls)}")
+                        logger.debug(
+                            f"xAI response: content_length={content_len}, tool_calls={len(tool_calls)}"
+                        )
 
                         return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
 
                     else:
                         error_text = await response.text()
                         logger.error(f"xAI API error {response.status}: {error_text}")
-                        
+
                         if attempt < max_retries and response.status >= 500:
-                            delay = base_delay * (2 ** attempt)
+                            delay = base_delay * (2**attempt)
                             logger.warning(f"xAI server error, retrying in {delay}s...")
                             await asyncio.sleep(delay)
                             continue
@@ -250,7 +269,7 @@ class XAIProvider(OpenAICompatibleProvider):
 
             except Exception as e:
                 if attempt < max_retries:
-                    delay = base_delay * (2 ** attempt)
+                    delay = base_delay * (2**attempt)
                     logger.warning(f"xAI request error, retrying in {delay}s...: {e}")
                     await asyncio.sleep(delay)
                     continue
@@ -269,18 +288,22 @@ class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
         super().__init__(api_key, model, base_url or "https://api.anthropic.com")
 
-    def _format_tools(self, tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+    def _format_tools(
+        self, tools: Optional[List[Dict[str, Any]]]
+    ) -> Optional[List[Dict[str, Any]]]:
         if not tools:
             return None
         formatted = []
         for tool in tools:
             # Anthropic expects input_schema at top-level of the tool specification
             input_schema = tool.get("input_schema")
-            formatted.append({
-                "name": tool.get("name"),
-                "description": tool.get("description"),
-                "input_schema": input_schema,
-            })
+            formatted.append(
+                {
+                    "name": tool.get("name"),
+                    "description": tool.get("description"),
+                    "input_schema": input_schema,
+                }
+            )
         return formatted
 
     def _convert_messages(self, messages: List[Dict[str, Any]]):
@@ -307,25 +330,31 @@ class AnthropicProvider(LLMProvider):
                 if content:
                     blocks.append({"type": "text", "text": str(content)})
                 # Convert OpenAI-style tool_calls to Anthropic tool_use blocks
-                for call in (msg.get("tool_calls") or []):
+                for call in msg.get("tool_calls") or []:
                     fn = call.get("function", {})
-                    blocks.append({
-                        "type": "tool_use",
-                        "id": call.get("id") or fn.get("name"),
-                        "name": fn.get("name"),
-                        "input": json.loads(fn.get("arguments") or "{}") if isinstance(fn.get("arguments"), str) else fn.get("arguments") or {},
-                    })
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": call.get("id") or fn.get("name"),
+                            "name": fn.get("name"),
+                            "input": json.loads(fn.get("arguments") or "{}")
+                            if isinstance(fn.get("arguments"), str)
+                            else fn.get("arguments") or {},
+                        }
+                    )
                 add_msg("assistant", blocks)
                 continue
 
             if role == "tool":
                 # Collect as tool_result blocks under a subsequent user message
-                pending_tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": msg.get("tool_call_id"),
-                    "content": msg.get("content", ""),
-                    "name": msg.get("name"),
-                })
+                pending_tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": msg.get("tool_call_id"),
+                        "content": msg.get("content", ""),
+                        "name": msg.get("name"),
+                    }
+                )
                 continue
 
             if role in ("user",):
@@ -344,7 +373,9 @@ class AnthropicProvider(LLMProvider):
         system_text = "\n".join([p for p in system_parts if p]) or None
         return system_text, anth_messages
 
-    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
+    async def chat_completion(
+        self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
+    ) -> ChatResponse:
         system_text, anth_messages = self._convert_messages(messages)
         headers = {
             "x-api-key": self.api_key,
@@ -361,7 +392,8 @@ class AnthropicProvider(LLMProvider):
         if formatted_tools:
             payload["tools"] = formatted_tools
 
-        url = f"{self.base_url}/v1/messages" if not self.base_url.endswith("/v1") else f"{self.base_url}/messages"
+        base_url = self.base_url or "https://api.anthropic.com"
+        url = f"{base_url}/v1/messages" if not base_url.endswith("/v1") else f"{base_url}/messages"
         logger.debug(f"Sending Anthropic messages request to {url}")
 
         # Retry with backoff
@@ -382,14 +414,16 @@ class AnthropicProvider(LLMProvider):
                                 text_parts.append(b.get("text", ""))
                             elif b.get("type") == "tool_use":
                                 # Convert back to OpenAI-style tool_calls for agent
-                                tool_calls.append({
-                                    "id": b.get("id"),
-                                    "type": "function",
-                                    "function": {
-                                        "name": b.get("name"),
-                                        "arguments": json.dumps(b.get("input") or {}),
-                                    },
-                                })
+                                tool_calls.append(
+                                    {
+                                        "id": b.get("id"),
+                                        "type": "function",
+                                        "function": {
+                                            "name": b.get("name"),
+                                            "arguments": json.dumps(b.get("input") or {}),
+                                        },
+                                    }
+                                )
 
                         content = "\n".join([p for p in text_parts if p])
                         usage = data.get("usage", {})
@@ -398,12 +432,16 @@ class AnthropicProvider(LLMProvider):
                     elif response.status >= 500:
                         error_text = await response.text()
                         if attempt < max_retries:
-                            delay = base_delay * (2 ** attempt)
-                            logger.warning(f"Anthropic server error {response.status}, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1})")
+                            delay = base_delay * (2**attempt)
+                            logger.warning(
+                                f"Anthropic server error {response.status}, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1})"
+                            )
                             await asyncio.sleep(delay)
                             continue
                         else:
-                            raise Exception(f"Anthropic server error {response.status}: {error_text}")
+                            raise Exception(
+                                f"Anthropic server error {response.status}: {error_text}"
+                            )
 
                     else:
                         error_text = await response.text()
@@ -412,8 +450,10 @@ class AnthropicProvider(LLMProvider):
 
             except aiohttp.ClientError as e:
                 if attempt < max_retries:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"Network error in Anthropic request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Network error in Anthropic request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                    )
                     await asyncio.sleep(delay)
                     continue
                 else:
@@ -424,8 +464,10 @@ class AnthropicProvider(LLMProvider):
                 raise Exception(f"Invalid JSON response: {str(e)}")
             except Exception as e:
                 if attempt < max_retries:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"Unexpected error in Anthropic request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Unexpected error in Anthropic request, retrying in {delay}s... (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                    )
                     await asyncio.sleep(delay)
                     continue
                 else:
@@ -456,8 +498,14 @@ def create_llm_provider() -> LLMProvider:
 
     if provider in ("openai_compat", "local"):
         # Generic OpenAI-compatible server (e.g., Ollama/LM Studio/vLLM)
-        base_url = Settings.OPENAI_BASE_URL if provider == "openai_compat" else Settings.LOCAL_LLM_BASE_URL
-        api_key = Settings.OPENAI_API_KEY if provider == "openai_compat" else (Settings.LOCAL_LLM_API_KEY or "")
+        base_url = (
+            Settings.OPENAI_BASE_URL if provider == "openai_compat" else Settings.LOCAL_LLM_BASE_URL
+        )
+        api_key = (
+            Settings.OPENAI_API_KEY
+            if provider == "openai_compat"
+            else (Settings.LOCAL_LLM_API_KEY or "")
+        )
         model = Settings.OPENAI_MODEL if provider == "openai_compat" else Settings.LOCAL_LLM_MODEL
         return OpenAICompatibleProvider(api_key=api_key, model=model, base_url=base_url)
 
@@ -469,7 +517,9 @@ def create_llm_provider() -> LLMProvider:
         )
 
     # Fallback
-    logger.warning(f"Unknown LLM_PROVIDER '{provider}', defaulting to OpenAI-compatible with OPENAI settings")
+    logger.warning(
+        f"Unknown LLM_PROVIDER '{provider}', defaulting to OpenAI-compatible with OPENAI settings"
+    )
     return OpenAICompatibleProvider(
         api_key=Settings.OPENAI_API_KEY,
         model=Settings.OPENAI_MODEL,

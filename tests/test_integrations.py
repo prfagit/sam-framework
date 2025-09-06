@@ -1,6 +1,4 @@
 import pytest
-import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock
 from sam.integrations.pump_fun import PumpFunTools
 from sam.integrations.jupiter import JupiterTools
 from sam.integrations.dexscreener import DexScreenerTools

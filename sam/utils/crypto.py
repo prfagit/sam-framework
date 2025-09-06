@@ -9,13 +9,11 @@ def get_fernet() -> Fernet:
     """Get Fernet encryption instance from environment key."""
     key_str = os.environ.get("SAM_FERNET_KEY")
     if not key_str:
-        raise RuntimeError(
-            "SAM_FERNET_KEY not set. Generate one securely with: sam generate-key"
-        )
-    
+        raise RuntimeError("SAM_FERNET_KEY not set. Generate one securely with: sam generate-key")
+
     # Handle both raw bytes and string formats
     key = key_str.encode() if isinstance(key_str, str) else key_str
-    
+
     try:
         return Fernet(key)
     except ValueError as e:
@@ -26,7 +24,7 @@ def encrypt_private_key(private_key: str) -> str:
     """Encrypt a private key string."""
     if not private_key:
         raise ValueError("Private key cannot be empty")
-    
+
     try:
         fernet = get_fernet()
         encrypted = fernet.encrypt(private_key.encode())
@@ -41,7 +39,7 @@ def decrypt_private_key(encrypted_private_key: str) -> str:
     """Decrypt an encrypted private key."""
     if not encrypted_private_key:
         raise ValueError("Encrypted private key cannot be empty")
-    
+
     try:
         fernet = get_fernet()
         decrypted = fernet.decrypt(encrypted_private_key.encode())

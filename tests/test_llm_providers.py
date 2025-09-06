@@ -1,6 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from aiohttp import ClientResponse
+from unittest.mock import patch
 from sam.core.llm_provider import (
     ChatResponse, LLMProvider, OpenAICompatibleProvider,
     XAIProvider, AnthropicProvider, create_llm_provider

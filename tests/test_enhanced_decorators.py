@@ -1,10 +1,9 @@
 import pytest
 import asyncio
 import time
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 from sam.utils.enhanced_decorators import (
-    safe_async_operation, performance_monitor, circuit_breaker_enhanced,
-    _should_retry, _sanitize_args, _sanitize_result
+    safe_async_operation, performance_monitor, _should_retry, _sanitize_args, _sanitize_result
 )
 from sam.utils.error_handling import ErrorSeverity
 
