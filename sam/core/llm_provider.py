@@ -142,6 +142,125 @@ class OpenAICompatibleProvider(LLMProvider):
         raise Exception("Maximum retries exceeded for LLM request")
 
 
+class XAIProvider(OpenAICompatibleProvider):
+    """Provider specifically for xAI Grok API with its own tool calling format."""
+    
+    async def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> ChatResponse:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages
+        }
+
+        # Format tools for xAI - they may have stricter requirements
+        if tools:
+            formatted_tools = []
+            for tool in tools:
+                input_schema = tool["input_schema"]
+                parameters = input_schema.get("parameters") if isinstance(input_schema, dict) else input_schema
+                
+                # Clean up parameters to ensure xAI compatibility
+                if isinstance(parameters, dict):
+                    # Remove any null references or complex schemas that might cause issues
+                    cleaned_params = self._clean_parameters(parameters)
+                    
+                    function_def = {
+                        "name": tool["name"],
+                        "description": tool["description"],
+                        "parameters": cleaned_params
+                    }
+                    formatted_tools.append({"type": "function", "function": function_def})
+            
+            if formatted_tools:
+                payload["tools"] = formatted_tools
+                payload["tool_choice"] = "auto"
+
+        logger.debug(f"Sending xAI chat completion request to {self.base_url}/chat/completions")
+
+        # Use the parent's retry logic but with our custom payload
+        return await self._make_request(payload)
+    
+    def _clean_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Clean parameter schema for xAI compatibility."""
+        if not isinstance(parameters, dict):
+            return parameters
+            
+        cleaned = {}
+        for key, value in parameters.items():
+            if key == "$defs":
+                continue  # Skip $defs as they might cause issues
+            elif key == "anyOf" and isinstance(value, list):
+                # Simplify anyOf structures
+                if len(value) == 1 and "$ref" in value[0]:
+                    continue  # Skip complex references
+                cleaned[key] = value
+            elif isinstance(value, dict):
+                cleaned[key] = self._clean_parameters(value)
+            elif isinstance(value, list):
+                cleaned[key] = [self._clean_parameters(item) if isinstance(item, dict) else item for item in value]
+            else:
+                cleaned[key] = value
+        return cleaned
+    
+    async def _make_request(self, payload: Dict[str, Any]) -> ChatResponse:
+        """Make the actual HTTP request with retry logic."""
+        max_retries = 3
+        base_delay = 1.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                session = await get_session()
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                    json=payload
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+
+                        if "choices" not in data or not data["choices"]:
+                            raise Exception("No choices in xAI response")
+
+                        choice = data["choices"][0]["message"]
+                        raw_content = choice.get("content")
+                        content = raw_content if isinstance(raw_content, str) else ""
+                        tool_calls = choice.get("tool_calls") or []
+                        usage = data.get("usage", {})
+
+                        content_len = len(content) if isinstance(content, str) else 0
+                        logger.debug(f"xAI response: content_length={content_len}, tool_calls={len(tool_calls)}")
+
+                        return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
+
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"xAI API error {response.status}: {error_text}")
+                        
+                        if attempt < max_retries and response.status >= 500:
+                            delay = base_delay * (2 ** attempt)
+                            logger.warning(f"xAI server error, retrying in {delay}s...")
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            raise Exception(f"xAI API error {response.status}: {error_text}")
+
+            except Exception as e:
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"xAI request error, retrying in {delay}s...: {e}")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"xAI request failed after all retries: {e}")
+                    raise
+
+        raise Exception("Maximum retries exceeded for xAI request")
+
+
 class AnthropicProvider(LLMProvider):
     """Provider for Anthropic Messages API with tool use."""
 
@@ -328,8 +447,8 @@ def create_llm_provider() -> LLMProvider:
         )
 
     if provider == "xai":
-        # xAI Grok exposes OpenAI-compatible /v1/chat/completions
-        return OpenAICompatibleProvider(
+        # xAI Grok with custom handling for tool schemas
+        return XAIProvider(
             api_key=Settings.XAI_API_KEY or "",
             model=Settings.XAI_MODEL,
             base_url=Settings.XAI_BASE_URL,

@@ -404,6 +404,18 @@ async def run_interactive_session(session_id: str):
                 if user_input in ('/config',):
                     show_config()
                     continue
+                if user_input in ('/provider', '/providers'):
+                    list_providers()
+                    continue
+                if user_input.startswith('/switch '):
+                    provider = user_input.split(' ', 1)[1] if len(user_input.split(' ')) > 1 else ""
+                    if provider:
+                        result = switch_provider(provider)
+                        if result == 0:
+                            print(colorize("🔄 Restart SAM to use the new provider", Style.FG_YELLOW))
+                    else:
+                        print(colorize("Usage: /switch <provider>", Style.FG_YELLOW))
+                    continue
                 if user_input in ('/clear', '/cls'):
                     clear_screen()
                     continue
@@ -492,6 +504,9 @@ def print_help():
     print(colorize("🛠️  Quick Commands", Style.BOLD, Style.FG_CYAN))
     print(f"  {colorize('/help', Style.FG_GREEN)}          Show this help")
     print(f"  {colorize('/tools', Style.FG_GREEN)}         List available tools")
+    print(f"  {colorize('/provider', Style.FG_GREEN)}      List LLM providers")
+    print(f"  {colorize('/switch <name>', Style.FG_GREEN)}  Switch LLM provider")
+    print(f"  {colorize('/config', Style.FG_GREEN)}        Show configuration")
     print(f"  {colorize('/clear', Style.FG_GREEN)}         Clear screen")
     print(f"  {colorize('/clear-context', Style.FG_GREEN)} Clear conversation context")
     print(f"  {colorize('/compact', Style.FG_GREEN)}       Compact conversation history")
@@ -958,6 +973,174 @@ async def run_maintenance():
         return 1
 
 
+def list_providers():
+    """List available LLM providers."""
+    providers = {
+        "openai": {
+            "name": "OpenAI",
+            "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+            "description": "OpenAI GPT models"
+        },
+        "anthropic": {
+            "name": "Anthropic Claude",
+            "models": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
+            "description": "Anthropic Claude models"
+        },
+        "xai": {
+            "name": "xAI Grok",
+            "models": ["grok-2-latest", "grok-beta"],
+            "description": "xAI Grok models"
+        },
+        "local": {
+            "name": "Local/Ollama",
+            "models": ["llama3.1", "llama3.2", "mixtral", "custom"],
+            "description": "Local OpenAI-compatible server"
+        }
+    }
+    
+    print(colorize("🤖 Available LLM Providers", Style.BOLD, Style.FG_CYAN))
+    print()
+    
+    current = Settings.LLM_PROVIDER
+    for key, info in providers.items():
+        marker = "→" if key == current else " "
+        status = colorize("(current)", Style.FG_GREEN) if key == current else ""
+        print(f" {marker} {colorize(key, Style.BOLD)} - {info['name']} {status}")
+        print(f"   {colorize(info['description'], Style.DIM)}")
+        print(f"   Models: {', '.join(info['models'][:3])}{'...' if len(info['models']) > 3 else ''}")
+        print()
+
+
+def show_current_provider():
+    """Show current provider configuration."""
+    provider = Settings.LLM_PROVIDER
+    print(colorize("🔧 Current Provider Configuration", Style.BOLD, Style.FG_CYAN))
+    print()
+    print(f"Provider: {colorize(provider, Style.FG_GREEN)}")
+    
+    if provider == "openai":
+        print(f"Model: {Settings.OPENAI_MODEL}")
+        print(f"Base URL: {Settings.OPENAI_BASE_URL or 'default'}")
+        print(f"API Key: {'✓ configured' if Settings.OPENAI_API_KEY else '✗ missing'}")
+    elif provider == "anthropic":
+        print(f"Model: {Settings.ANTHROPIC_MODEL}")
+        print(f"Base URL: {Settings.ANTHROPIC_BASE_URL}")
+        print(f"API Key: {'✓ configured' if Settings.ANTHROPIC_API_KEY else '✗ missing'}")
+    elif provider == "xai":
+        print(f"Model: {Settings.XAI_MODEL}")
+        print(f"Base URL: {Settings.XAI_BASE_URL}")
+        print(f"API Key: {'✓ configured' if Settings.XAI_API_KEY else '✗ missing'}")
+    elif provider == "local":
+        print(f"Model: {Settings.LOCAL_LLM_MODEL}")
+        print(f"Base URL: {Settings.LOCAL_LLM_BASE_URL}")
+        print(f"API Key: {'✓ configured' if Settings.LOCAL_LLM_API_KEY else 'not required'}")
+    print()
+
+
+def switch_provider(provider_name: str):
+    """Switch to a different LLM provider."""
+    valid_providers = ["openai", "anthropic", "xai", "local", "openai_compat"]
+    
+    if provider_name not in valid_providers:
+        print(f"❌ Invalid provider. Choose from: {', '.join(valid_providers)}")
+        return 1
+    
+    # Find and update .env file
+    env_path = _find_env_path()
+    
+    try:
+        # Read existing .env
+        config_data = {}
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and '=' in line and not line.startswith('#'):
+                        key, value = line.split('=', 1)
+                        config_data[key] = value
+        
+        # Update provider
+        config_data["LLM_PROVIDER"] = provider_name
+        
+        # Write back to .env
+        _write_env_file(env_path, config_data)
+        
+        # Update current environment
+        os.environ["LLM_PROVIDER"] = provider_name
+        Settings.LLM_PROVIDER = provider_name
+        
+        print(f"✅ Switched to provider: {colorize(provider_name, Style.FG_GREEN)}")
+        
+        # Check if required API key is configured
+        key_configured = False
+        if provider_name == "openai":
+            key_configured = bool(Settings.OPENAI_API_KEY)
+        elif provider_name == "anthropic":
+            key_configured = bool(Settings.ANTHROPIC_API_KEY)
+        elif provider_name == "xai":
+            key_configured = bool(Settings.XAI_API_KEY)
+        elif provider_name == "local":
+            key_configured = True  # API key not required for local
+        
+        if not key_configured:
+            print(f"⚠️  {provider_name.upper()}_API_KEY not configured. Add it to your .env file.")
+            print("   Or run 'uv run sam onboard' to reconfigure.")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"❌ Failed to switch provider: {e}")
+        return 1
+
+
+async def test_provider(provider_name: str = None):
+    """Test connection to LLM provider."""
+    if not provider_name:
+        provider_name = Settings.LLM_PROVIDER
+    
+    print(f"🧪 Testing {provider_name} provider...")
+    
+    try:
+        # Temporarily switch provider for testing
+        original_provider = Settings.LLM_PROVIDER
+        Settings.LLM_PROVIDER = provider_name
+        
+        # Create provider instance
+        llm = create_llm_provider()
+        
+        # Test with a simple message
+        test_messages = [
+            {"role": "user", "content": "Say 'Hello from SAM!' and nothing else."}
+        ]
+        
+        async with Spinner(f"Testing {provider_name} connection"):
+            response = await llm.chat_completion(test_messages)
+        
+        # Restore original provider
+        Settings.LLM_PROVIDER = original_provider
+        
+        if response and response.content:
+            print(f"✅ {provider_name} test successful!")
+            print(f"   Response: {response.content.strip()}")
+            if response.usage:
+                tokens = response.usage.get('total_tokens', 0)
+                if tokens > 0:
+                    print(f"   Tokens used: {tokens}")
+            return 0
+        else:
+            print(f"❌ {provider_name} test failed: Empty response")
+            return 1
+            
+    except Exception as e:
+        # Restore original provider
+        Settings.LLM_PROVIDER = original_provider
+        print(f"❌ {provider_name} test failed: {e}")
+        return 1
+    finally:
+        if 'llm' in locals():
+            await llm.close()
+
+
 async def run_health_check():
     """Run health checks on SAM framework components."""
     print("🏥 SAM Framework Health Check")
@@ -1073,6 +1256,16 @@ async def main():
     key_subparsers.add_parser("import", help="Import private key securely")
     key_subparsers.add_parser("generate", help="Generate new encryption key")
     
+    # Provider management
+    provider_parser = subparsers.add_parser("provider", help="LLM provider management")
+    provider_subparsers = provider_parser.add_subparsers(dest="provider_action")
+    provider_subparsers.add_parser("list", help="List available providers")
+    provider_subparsers.add_parser("current", help="Show current provider")
+    switch_parser = provider_subparsers.add_parser("switch", help="Switch to different provider")
+    switch_parser.add_argument("name", help="Provider name (openai, anthropic, xai, local)")
+    test_parser = provider_subparsers.add_parser("test", help="Test provider connection")
+    test_parser.add_argument("--provider", help="Provider to test (defaults to current)")
+    
     # Other commands
     subparsers.add_parser("setup", help="Check setup status and configuration")
     subparsers.add_parser("tools", help="List available tools")
@@ -1104,6 +1297,22 @@ async def main():
                 return generate_key()
         else:
             print("Usage: sam key {import|generate}")
+            return 1
+    
+    if args.command == "provider":
+        if hasattr(args, 'provider_action') and args.provider_action:
+            if args.provider_action == "list":
+                list_providers()
+                return 0
+            elif args.provider_action == "current":
+                show_current_provider()
+                return 0
+            elif args.provider_action == "switch":
+                return switch_provider(args.name)
+            elif args.provider_action == "test":
+                return await test_provider(getattr(args, 'provider', None))
+        else:
+            print("Usage: sam provider {list|current|switch|test}")
             return 1
     
     if args.command == "setup":
