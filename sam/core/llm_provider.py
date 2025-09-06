@@ -388,6 +388,28 @@ class AnthropicProvider(LLMProvider):
         if pending_tool_results:
             add_msg("user", pending_tool_results)
 
+        # Ensure message sequence ends properly for Anthropic
+        # Anthropic requires that if the last assistant message has tool_use blocks,
+        # there must be a following user message with tool_result blocks
+        if anth_messages:
+            last_msg = anth_messages[-1]
+            if last_msg["role"] == "assistant":
+                # Check if the last assistant message has tool_use blocks
+                tool_use_blocks = [block for block in last_msg["content"] if block.get("type") == "tool_use"]
+                if tool_use_blocks:
+                    logger.warning(f"Last assistant message has {len(tool_use_blocks)} tool_use blocks without following tool_results")
+                    # Add synthetic tool_result for all tool_use blocks
+                    synthetic_results = []
+                    for block in tool_use_blocks:
+                        synthetic_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.get("id"),
+                            "content": '{"error": "Tool execution in progress", "status": "pending"}'
+                        })
+                    if synthetic_results:
+                        add_msg("user", synthetic_results)
+                        logger.info(f"Added {len(synthetic_results)} synthetic tool_result blocks to satisfy Anthropic requirements")
+
         system_text = "\n".join([p for p in system_parts if p]) or None
         return system_text, anth_messages
 
