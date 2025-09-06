@@ -297,7 +297,7 @@ class AnthropicProvider(LLMProvider):
         for tool in tools:
             # Anthropic expects input_schema at top-level of the tool specification
             input_schema = tool.get("input_schema")
-            
+
             # Handle different input_schema formats:
             # 1. Direct schema: {"type": "object", "properties": {...}}
             # 2. Nested schema: {"parameters": {"type": "object", ...}}
@@ -308,14 +308,14 @@ class AnthropicProvider(LLMProvider):
                 else:
                     # Format 1: Use directly, but ensure it has required fields
                     schema = input_schema
-                
+
                 # Ensure the schema has a type field (required by Anthropic)
                 if "type" not in schema:
                     schema = {"type": "object", **schema}
             else:
                 # Fallback for unexpected formats
                 schema = {"type": "object", "properties": {}}
-            
+
             formatted.append(
                 {
                     "name": tool.get("name"),
@@ -337,11 +337,11 @@ class AnthropicProvider(LLMProvider):
         # Iterate and convert with better grouping
         pending_tool_results: List[Dict[str, Any]] = []
         i = 0
-        
+
         while i < len(messages):
             msg = messages[i]
             role = msg.get("role")
-            
+
             if role == "system":
                 content = msg.get("content") or ""
                 system_parts.append(str(content))
@@ -353,7 +353,7 @@ class AnthropicProvider(LLMProvider):
                 content = msg.get("content")
                 if content:
                     blocks.append({"type": "text", "text": str(content)})
-                
+
                 # Convert OpenAI-style tool_calls to Anthropic tool_use blocks
                 for call in msg.get("tool_calls") or []:
                     fn = call.get("function", {})
@@ -368,19 +368,21 @@ class AnthropicProvider(LLMProvider):
                         }
                     )
                 add_msg("assistant", blocks)
-                
+
                 # Immediately collect all following tool results
                 i += 1
                 tool_results = []
                 while i < len(messages) and messages[i].get("role") == "tool":
                     tool_msg = messages[i]
-                    tool_results.append({
-                        "type": "tool_result", 
-                        "tool_use_id": tool_msg.get("tool_call_id"),
-                        "content": tool_msg.get("content", ""),
-                    })
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_msg.get("tool_call_id"),
+                            "content": tool_msg.get("content", ""),
+                        }
+                    )
                     i += 1
-                
+
                 # Add tool results as a user message if we found any
                 if tool_results:
                     add_msg("user", tool_results)
@@ -407,7 +409,7 @@ class AnthropicProvider(LLMProvider):
                 add_msg("user", [{"type": "text", "text": str(content)}])
                 i += 1
                 continue
-            
+
             # Skip unknown roles
             i += 1
 
@@ -422,20 +424,28 @@ class AnthropicProvider(LLMProvider):
             last_msg = anth_messages[-1]
             if last_msg["role"] == "assistant":
                 # Check if the last assistant message has tool_use blocks
-                tool_use_blocks = [block for block in last_msg["content"] if block.get("type") == "tool_use"]
+                tool_use_blocks = [
+                    block for block in last_msg["content"] if block.get("type") == "tool_use"
+                ]
                 if tool_use_blocks:
-                    logger.warning(f"Last assistant message has {len(tool_use_blocks)} tool_use blocks without following tool_results")
+                    logger.warning(
+                        f"Last assistant message has {len(tool_use_blocks)} tool_use blocks without following tool_results"
+                    )
                     # Add synthetic tool_result for all tool_use blocks
                     synthetic_results = []
                     for block in tool_use_blocks:
-                        synthetic_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.get("id"),
-                            "content": '{"error": "Tool execution in progress", "status": "pending"}'
-                        })
+                        synthetic_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.get("id"),
+                                "content": '{"error": "Tool execution in progress", "status": "pending"}',
+                            }
+                        )
                     if synthetic_results:
                         add_msg("user", synthetic_results)
-                        logger.info(f"Added {len(synthetic_results)} synthetic tool_result blocks to satisfy Anthropic requirements")
+                        logger.info(
+                            f"Added {len(synthetic_results)} synthetic tool_result blocks to satisfy Anthropic requirements"
+                        )
 
         system_text = "\n".join([p for p in system_parts if p]) or None
         return system_text, anth_messages

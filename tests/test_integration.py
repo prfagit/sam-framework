@@ -2,7 +2,6 @@ import pytest
 import asyncio
 import os
 import tempfile
-from sam.cli import setup_agent
 from sam.core.agent import SAMAgent
 from sam.core.llm_provider import LLMProvider
 from sam.core.memory import MemoryManager
@@ -16,44 +15,39 @@ async def test_agent_initialization():
     """Test that the agent initializes properly with all components."""
     # Clean up any existing connection pools
     await cleanup_database_pool()
-    
+
     try:
         # Use a temporary database for this test
         with tempfile.TemporaryDirectory() as tmpdir:
             test_db_path = os.path.join(tmpdir, "test_agent.db")
-            
+
             # Create components manually with test database
             from sam.core.llm_provider import create_llm_provider
-            from sam.utils.secure_storage import get_secure_storage
-            from sam.config.settings import Settings
-            
+
             llm = create_llm_provider()
             memory = MemoryManager(test_db_path)
             await memory.initialize()
             tools = ToolRegistry()
-            
+
             # Create agent with test components (needed for tool registration)
-            agent = SAMAgent(
-                llm=llm,
-                memory=memory,
-                tools=tools,
-                system_prompt=SOLANA_AGENT_PROMPT
-            )
-            
+            agent = SAMAgent(llm=llm, memory=memory, tools=tools, system_prompt=SOLANA_AGENT_PROMPT)
+
             # Register tools like in CLI setup
             from sam.integrations.solana.solana_tools import SolanaTools, create_solana_tools
             from sam.integrations.pump_fun import PumpFunTools, create_pump_fun_tools
             from sam.integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
             from sam.integrations.jupiter import JupiterTools, create_jupiter_tools
             from sam.integrations.search import SearchTools, create_search_tools
-            
+
             # Initialize tools (minimal setup for test)
-            solana_tools = SolanaTools(rpc_url="https://api.mainnet-beta.solana.com")  # No private key needed for test
+            solana_tools = SolanaTools(
+                rpc_url="https://api.mainnet-beta.solana.com"
+            )  # No private key needed for test
             pump_tools = PumpFunTools(solana_tools)
             dex_tools = DexScreenerTools()
             jupiter_tools = JupiterTools(solana_tools)
             search_tools = SearchTools()  # No API key needed for test
-            
+
             # Register all tools
             for tool in create_solana_tools(solana_tools, agent=agent):
                 tools.register(tool)
@@ -92,7 +86,7 @@ async def test_agent_initialization():
 
             for expected_tool in expected_tools:
                 assert expected_tool in tool_names, f"Missing tool: {expected_tool}"
-                
+
             # Clean up after test
             await cleanup_database_pool()
 
@@ -109,7 +103,7 @@ async def test_memory_integration():
     """Test memory system integration."""
     # Clean up any existing connection pools
     await cleanup_database_pool()
-    
+
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test_integration.db")
         memory = MemoryManager(db_path)
@@ -143,7 +137,7 @@ async def test_memory_integration():
         assert stats["sessions"] >= 1
         assert stats["preferences"] >= 1
         assert stats["trades"] >= 1
-        
+
         # Clean up after test
         await cleanup_database_pool()
 
@@ -298,7 +292,7 @@ async def test_agent_session_workflow():
     """Test a complete agent session workflow with mock LLM."""
     # Clean up any existing connection pools
     await cleanup_database_pool()
-    
+
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test_session.db")
 
@@ -343,7 +337,7 @@ async def test_agent_session_workflow():
         assert len(loaded_session) >= 1  # Should have user message at least
         assert loaded_session[0]["role"] == "user"
         assert "Hello, what can you help me with?" in loaded_session[0]["content"]
-        
+
         # Clean up after test
         await cleanup_database_pool()
 

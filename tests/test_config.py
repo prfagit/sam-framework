@@ -299,8 +299,6 @@ class TestSetupLogging:
         mock_urllib3_logger.setLevel.assert_called()
 
 
-# Import logging here to avoid circular imports in the test
-import logging
-
 if __name__ == "__main__":
+    import logging  # Import logging here to avoid circular imports in the test
     pytest.main([__file__])

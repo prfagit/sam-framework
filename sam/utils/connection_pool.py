@@ -41,38 +41,37 @@ class DatabasePool:
         """Create a new database connection with metadata."""
         max_retries = 3
         retry_delay = 0.1
-        
+
         for attempt in range(max_retries):
             try:
-                conn = await aiosqlite.connect(
-                    self.db_path, 
-                    timeout=30.0, 
-                    check_same_thread=False
-                )
+                conn = await aiosqlite.connect(self.db_path, timeout=30.0, check_same_thread=False)
 
                 # Optimize performance with error handling
                 try:
                     await conn.execute("PRAGMA journal_mode=WAL")
-                    await conn.execute("PRAGMA synchronous=NORMAL") 
+                    await conn.execute("PRAGMA synchronous=NORMAL")
                     await conn.execute("PRAGMA cache_size=10000")
                     await conn.execute("PRAGMA temp_store=memory")
                     await conn.execute("PRAGMA busy_timeout=30000")
                     await conn.execute("PRAGMA wal_autocheckpoint=1000")
                     # Skip mmap for better compatibility with temp files
-                    if not self.db_path.startswith('/tmp') and '/TemporaryItems/' not in self.db_path:
+                    if (
+                        not self.db_path.startswith("/tmp")
+                        and "/TemporaryItems/" not in self.db_path
+                    ):
                         await conn.execute("PRAGMA mmap_size=268435456")  # 256MB
                     await conn.commit()
                 except Exception as e:
                     logger.warning(f"Failed to set PRAGMA options: {e}")
                     # Continue with connection even if PRAGMA fails
-                
+
                 break
-                
+
             except Exception as e:
                 logger.warning(f"Database connection attempt {attempt + 1} failed: {e}")
                 if attempt == max_retries - 1:
                     raise
-                await asyncio.sleep(retry_delay * (2 ** attempt))
+                await asyncio.sleep(retry_delay * (2**attempt))
 
         connection_info = {
             "connection": conn,
@@ -101,9 +100,9 @@ class DatabasePool:
 
         # Check if connection is still alive with retry
         try:
-            if hasattr(conn, '_closed') and conn._closed:
+            if hasattr(conn, "_closed") and conn._closed:
                 return False
-            
+
             # Simple validation with timeout
             await asyncio.wait_for(conn.execute("SELECT 1"), timeout=5.0)
             await conn.commit()

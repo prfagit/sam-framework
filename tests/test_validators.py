@@ -215,7 +215,7 @@ async def test_memory_path_edge_case():
 
             # Database file should exist
             assert os.path.exists("test.db")
-            
+
             # Clean up after test
             await cleanup_database_pool()
         finally:

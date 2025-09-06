@@ -66,51 +66,56 @@ class SearchTools:
         self, query: str, count: int, search_type: str, freshness: Optional[str] = None
     ) -> Dict[str, Any]:
         """Search using Brave Search API."""
-        session = await get_session()
+        try:
+            session = await get_session()
 
-        url = "https://api.search.brave.com/res/v1/web/search"
-        if search_type == "news":
-            url = "https://api.search.brave.com/res/v1/news/search"
+            url = "https://api.search.brave.com/res/v1/web/search"
+            if search_type == "news":
+                url = "https://api.search.brave.com/res/v1/news/search"
 
-        headers = {"Accept": "application/json", "X-Subscription-Token": self.api_key or ""}
+            headers = {"Accept": "application/json", "X-Subscription-Token": self.api_key or ""}
 
-        params: Dict[str, Union[str, int]] = {"q": query, "count": min(count, 20)}
+            params: Dict[str, Union[str, int]] = {"q": query, "count": min(count, 20)}
 
-        if freshness:
-            params["freshness"] = freshness
+            if freshness:
+                params["freshness"] = freshness
 
-        async with session.get(url, headers=headers, params=params) as response:
-            if response.status == 200:
-                data = await response.json()
+            async with session.get(url, headers=headers, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
 
-                results = []
-                web_results = (
-                    data.get("web", {}).get("results", [])
-                    if search_type == "web"
-                    else data.get("results", [])
-                )
-
-                for result in web_results:
-                    results.append(
-                        {
-                            "title": result.get("title", ""),
-                            "url": result.get("url", ""),
-                            "description": result.get("description", ""),
-                            "published": result.get("age", ""),
-                        }
+                    results = []
+                    web_results = (
+                        data.get("web", {}).get("results", [])
+                        if search_type == "web"
+                        else data.get("results", [])
                     )
 
-                logger.info(f"Brave API {search_type} search completed for: {query}")
-                return {
-                    "query": query,
-                    "type": search_type,
-                    "results": results,
-                    "count": len(results),
-                }
-            else:
-                error_text = await response.text()
-                logger.error(f"Brave API error {response.status}: {error_text}")
-                return {"error": f"Brave Search API error {response.status}: {error_text}"}
+                    for result in web_results:
+                        results.append(
+                            {
+                                "title": result.get("title", ""),
+                                "url": result.get("url", ""),
+                                "description": result.get("description", ""),
+                                "published": result.get("age", ""),
+                            }
+                        )
+
+                    logger.info(f"Brave API {search_type} search completed for: {query}")
+                    return {
+                        "query": query,
+                        "type": search_type,
+                        "results": results,
+                        "count": len(results),
+                    }
+                else:
+                    error_text = await response.text()
+                    logger.error(f"Brave API error {response.status}: {error_text}")
+                    return {"error": f"Brave Search API error {response.status}: {error_text}"}
+
+        except Exception as e:
+            logger.error(f"Network or unexpected error in {search_type} search: {e}")
+            return {"error": f"Search failed: {str(e)}"}
 
 
 def create_search_tools(search_tools: SearchTools) -> List[Tool]:

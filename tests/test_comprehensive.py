@@ -202,16 +202,16 @@ class TestMemoryManagerWithPooling:
         """Test memory manager statistics."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "stats_test.db")
-            
+
             # Ensure clean state
             await cleanup_database_pool()
-            
+
             manager = MemoryManager(db_path)
             await manager.initialize()
 
             # Verify clean state - should be 0 sessions
             initial_stats = await manager.get_session_stats()
-            
+
             # Add some test data
             await manager.save_session("session1", [{"role": "user", "content": "test1"}])
             await manager.save_session("session2", [{"role": "user", "content": "test2"}])

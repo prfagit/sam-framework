@@ -77,6 +77,7 @@ dev = [
     "pytest-xprocess>=1.0.2",
     "ruff>=0.5.0",
     "sam-framework",
+    "types-psutil>=7.0.0.20250822",
 ]
 
 [tool.pytest.ini_options]
@@ -88,6 +89,13 @@ markers = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.mypy]
+mypy_path = ["stubs"]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
 
 [tool.uv.workspace]
 members = [

@@ -32,7 +32,7 @@ async def test_memory_empty_session():
     """Test loading non-existent session."""
     # Clean up any existing connection pools
     await cleanup_database_pool()
-    
+
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test.db")
         memory = MemoryManager(db_path)
@@ -40,7 +40,7 @@ async def test_memory_empty_session():
 
         loaded_messages = await memory.load_session("non_existent")
         assert loaded_messages == []
-        
+
         # Clean up after test
         await cleanup_database_pool()
 
@@ -50,7 +50,7 @@ async def test_user_preferences():
     """Test saving and loading user preferences."""
     # Clean up any existing connection pools
     await cleanup_database_pool()
-    
+
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test.db")
         memory = MemoryManager(db_path)
@@ -66,7 +66,7 @@ async def test_user_preferences():
         # Load non-existent preference
         value = await memory.get_user_preference("user1", "non_existent")
         assert value is None
-        
+
         # Clean up after test
         await cleanup_database_pool()
 
@@ -76,7 +76,7 @@ async def test_trade_history():
     """Test saving and loading trade history."""
     # Clean up any existing connection pools
     await cleanup_database_pool()
-    
+
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test.db")
         memory = MemoryManager(db_path)
@@ -90,7 +90,7 @@ async def test_trade_history():
         assert len(trades) == 1
         assert trades[0]["action"] == "buy"
         assert trades[0]["amount"] == 0.5
-        
+
         # Clean up after test
         await cleanup_database_pool()
 
@@ -100,7 +100,7 @@ async def test_secure_data_storage():
     """Test secure data storage and retrieval."""
     # Clean up any existing connection pools
     await cleanup_database_pool()
-    
+
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "test.db")
         memory = MemoryManager(db_path)
@@ -118,6 +118,6 @@ async def test_secure_data_storage():
         # Non-existent user
         data = await memory.get_secure_data("non_existent")
         assert data is None
-        
+
         # Clean up after test
         await cleanup_database_pool()

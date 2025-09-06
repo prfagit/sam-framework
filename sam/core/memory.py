@@ -60,7 +60,7 @@ class MemoryManager:
         """Initialize database tables using connection pool."""
         max_retries = 3
         retry_delay = 0.5
-        
+
         for attempt in range(max_retries):
             try:
                 async with get_db_connection(self.db_path) as conn:
@@ -109,13 +109,13 @@ class MemoryManager:
 
                     await conn.commit()
                     return  # Success, exit retry loop
-                    
+
             except Exception as e:
                 logger.warning(f"Database initialization attempt {attempt + 1} failed: {e}")
                 if attempt == max_retries - 1:
                     logger.error(f"Failed to initialize database after {max_retries} attempts: {e}")
                     raise
-                await asyncio.sleep(retry_delay * (2 ** attempt))
+                await asyncio.sleep(retry_delay * (2**attempt))
 
     async def save_session(self, session_id: str, messages: List[Dict]):
         """Save session messages to database."""

@@ -155,31 +155,39 @@ class SAMAgent:
                                     }
                                 )
                                 continue
-                        
+
                         # Prevent balance checks after transaction errors
                         elif tool_name == "get_balance" and error_count > 0:
                             # Check if recent errors were balance-related
                             recent_balance_errors = any(
-                                "insufficient" in str(msg.get("content", "")).lower() 
-                                for msg in messages[-5:] 
+                                "insufficient" in str(msg.get("content", "")).lower()
+                                for msg in messages[-5:]
                                 if msg.get("role") == "tool"
                             )
                             if recent_balance_errors:
-                                logger.warning("Preventing balance check after balance-related error")
-                                messages.append({
-                                    "role": "system",
-                                    "content": "BALANCE ERROR DETECTED: Do not check balance again. The previous error already indicates insufficient balance. Explain the balance issue to the user and suggest adding funds."
-                                })
-                                messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": tool_call_id,
-                                    "name": tool_name,
-                                    "content": json.dumps({
-                                        "error": "BALANCE_CHECK_AFTER_ERROR",
-                                        "message": "Balance check skipped - previous transaction failed due to insufficient funds",
-                                        "instructions": "Explain the balance issue and suggest solutions without checking balance again"
-                                    })
-                                })
+                                logger.warning(
+                                    "Preventing balance check after balance-related error"
+                                )
+                                messages.append(
+                                    {
+                                        "role": "system",
+                                        "content": "BALANCE ERROR DETECTED: Do not check balance again. The previous error already indicates insufficient balance. Explain the balance issue to the user and suggest adding funds.",
+                                    }
+                                )
+                                messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": tool_call_id,
+                                        "name": tool_name,
+                                        "content": json.dumps(
+                                            {
+                                                "error": "BALANCE_CHECK_AFTER_ERROR",
+                                                "message": "Balance check skipped - previous transaction failed due to insufficient funds",
+                                                "instructions": "Explain the balance issue and suggest solutions without checking balance again",
+                                            }
+                                        ),
+                                    }
+                                )
                                 continue
 
                         # Track this tool call
@@ -195,16 +203,14 @@ class SAMAgent:
                             self.tool_callback(tool_name, tool_args)
 
                         result = await self.tools.call(tool_name, tool_args)
-                        
+
                         # Check if tool returned an error and categorize it
-                        is_error = False
                         error_type = "unknown"
                         error_details = {}
-                        
+
                         if isinstance(result, dict) and "error" in result:
-                            is_error = True
                             error_count += 1
-                            
+
                             # Detect structured error format
                             if isinstance(result.get("error"), bool) and result.get("error"):
                                 # This is a UserFriendlyError structure
@@ -213,32 +219,44 @@ class SAMAgent:
                                     "title": result.get("title", "Error"),
                                     "message": result.get("message", "Unknown error"),
                                     "solutions": result.get("solutions", []),
-                                    "category": result.get("category", "unknown")
+                                    "category": result.get("category", "unknown"),
                                 }
-                                logger.warning(f"Tool {tool_name} error [{error_type}]: {error_details['title']} - {error_details['message']}")
+                                logger.warning(
+                                    f"Tool {tool_name} error [{error_type}]: {error_details['title']} - {error_details['message']}"
+                                )
                             else:
                                 # Simple error string
                                 error_msg = str(result.get("error", "Unknown error"))
                                 logger.warning(f"Tool {tool_name} returned error: {error_msg}")
-                                
+
                                 # Categorize based on error content
                                 error_msg_lower = error_msg.lower()
-                                if "insufficient" in error_msg_lower and ("balance" in error_msg_lower or "funds" in error_msg_lower):
+                                if "insufficient" in error_msg_lower and (
+                                    "balance" in error_msg_lower or "funds" in error_msg_lower
+                                ):
                                     error_type = "insufficient_balance"
                                     error_details = {"message": error_msg, "type": "balance"}
-                                elif "validation" in error_msg_lower or "invalid" in error_msg_lower:
+                                elif (
+                                    "validation" in error_msg_lower or "invalid" in error_msg_lower
+                                ):
                                     error_type = "validation"
                                     error_details = {"message": error_msg, "type": "validation"}
-                                elif "network" in error_msg_lower or "connection" in error_msg_lower or "timeout" in error_msg_lower:
+                                elif (
+                                    "network" in error_msg_lower
+                                    or "connection" in error_msg_lower
+                                    or "timeout" in error_msg_lower
+                                ):
                                     error_type = "network"
                                     error_details = {"message": error_msg, "type": "network"}
                                 else:
                                     error_details = {"message": error_msg, "type": "general"}
-                            
+
                             # Provide specific guidance based on error type
                             if error_count >= 3:
-                                logger.warning(f"Too many consecutive tool errors ({error_count}), stopping tool calls")
-                                
+                                logger.warning(
+                                    f"Too many consecutive tool errors ({error_count}), stopping tool calls"
+                                )
+
                                 # Create specific guidance based on error type
                                 if error_type == "insufficient_balance" or error_type == "wallet":
                                     guidance = f"BALANCE ERROR: The user doesn't have enough SOL for transactions. Current error: {error_details.get('message', 'Insufficient balance')}. INSTRUCTIONS: 1) Explain the balance issue clearly, 2) Tell them exactly how much they need vs what they have, 3) Suggest checking balance or adding funds, 4) DO NOT attempt any more transactions or balance checks."
@@ -248,11 +266,8 @@ class SAMAgent:
                                     guidance = f"NETWORK ERROR: Connection or service issue. Error: {error_details.get('message', 'Network error')}. INSTRUCTIONS: 1) Explain the network/service issue, 2) Suggest trying again later, 3) DO NOT immediately retry the same operation."
                                 else:
                                     guidance = f"MULTIPLE ERRORS: Several tool operations failed. Last error: {error_details.get('message', 'Unknown error')}. INSTRUCTIONS: 1) Explain what went wrong, 2) Provide alternative suggestions, 3) DO NOT make any more tool calls."
-                                
-                                messages.append({
-                                    "role": "system",
-                                    "content": guidance
-                                })
+
+                                messages.append({"role": "system", "content": guidance})
                         else:
                             error_count = 0  # Reset error count on successful tool call
 

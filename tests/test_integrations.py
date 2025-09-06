@@ -40,25 +40,25 @@ class TestPumpFunTools:
         mock_response_data = {
             "trades": [
                 {"mint": "mint123", "amount": 1000000, "type": "buy"},
-                {"mint": "mint123", "amount": 500000, "type": "sell"}
+                {"mint": "mint123", "amount": 500000, "type": "sell"},
             ]
         }
-        
+
         # Mock the HTTP session
-        with patch('sam.integrations.pump_fun.get_session') as mock_get_session:
+        with patch("sam.integrations.pump_fun.get_session") as mock_get_session:
             mock_session = MagicMock()
             mock_response = MagicMock()
             mock_response.status = 200
             mock_response.json = AsyncMock(return_value=mock_response_data)
-            
+
             # Create proper async context manager mock
             mock_cm = MagicMock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
             mock_cm.__aexit__ = AsyncMock(return_value=False)
             mock_session.get.return_value = mock_cm
-            
+
             mock_get_session.return_value = mock_session
-            
+
             result = await pump_tools.get_token_trades("mint123", 5)
 
             # Should return a dict with trades data
@@ -69,20 +69,20 @@ class TestPumpFunTools:
     async def test_get_token_trades_error(self, pump_tools):
         """Test token trades retrieval with API error."""
         # Mock HTTP session to return error
-        with patch('sam.integrations.pump_fun.get_session') as mock_get_session:
+        with patch("sam.integrations.pump_fun.get_session") as mock_get_session:
             mock_session = MagicMock()
             mock_response = MagicMock()
             mock_response.status = 404
             mock_response.text = AsyncMock(return_value="Token not found")
-            
+
             # Create proper async context manager mock
             mock_cm = MagicMock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
             mock_cm.__aexit__ = AsyncMock(return_value=False)
             mock_session.get.return_value = mock_cm
-            
+
             mock_get_session.return_value = mock_session
-            
+
             result = await pump_tools.get_token_trades("invalid_mint")
 
             # Should return a dict with error
@@ -121,24 +121,24 @@ class TestPumpFunTools:
             "name": "Test Token",
             "symbol": "TEST",
             "description": "A test token",
-            "market_cap": 1000000
+            "market_cap": 1000000,
         }
-        
+
         # Mock the HTTP session
-        with patch('sam.integrations.pump_fun.get_session') as mock_get_session:
+        with patch("sam.integrations.pump_fun.get_session") as mock_get_session:
             mock_session = MagicMock()
             mock_response = MagicMock()
             mock_response.status = 200
             mock_response.json = AsyncMock(return_value=mock_token_data)
-            
+
             # Create proper async context manager mock
             mock_cm = MagicMock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
             mock_cm.__aexit__ = AsyncMock(return_value=False)
             mock_session.get.return_value = mock_cm
-            
+
             mock_get_session.return_value = mock_session
-            
+
             result = await pump_tools.get_token_info("mint123")
             assert isinstance(result, dict)
 
@@ -169,24 +169,24 @@ class TestJupiterTools:
             "otherAmountThreshold": "190000000",
             "swapMode": "ExactIn",
             "slippageBps": 50,
-            "priceImpactPct": "0.1"
+            "priceImpactPct": "0.1",
         }
-        
+
         # Mock the HTTP session
-        with patch('sam.integrations.jupiter.get_session') as mock_get_session:
+        with patch("sam.integrations.jupiter.get_session") as mock_get_session:
             mock_session = MagicMock()
             mock_response = MagicMock()
             mock_response.status = 200
             mock_response.json = AsyncMock(return_value=mock_quote_data)
-            
+
             # Create proper async context manager mock
             mock_cm = MagicMock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
             mock_cm.__aexit__ = AsyncMock(return_value=False)
             mock_session.get.return_value = mock_cm
-            
+
             mock_get_session.return_value = mock_session
-            
+
             result = await jupiter_tools.get_quote(
                 "So11111111111111111111111111111111111111112",  # SOL
                 "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
@@ -264,32 +264,32 @@ class TestSearchTools:
                     {
                         "title": "Test Result 1",
                         "url": "https://example.com/1",
-                        "description": "Test description 1"
+                        "description": "Test description 1",
                     },
                     {
-                        "title": "Test Result 2", 
+                        "title": "Test Result 2",
                         "url": "https://example.com/2",
-                        "description": "Test description 2"
-                    }
+                        "description": "Test description 2",
+                    },
                 ]
             }
         }
-        
+
         # Mock the HTTP session
-        with patch('sam.integrations.search.get_session') as mock_get_session:
+        with patch("sam.integrations.search.get_session") as mock_get_session:
             mock_session = MagicMock()
             mock_response = MagicMock()
             mock_response.status = 200
             mock_response.json = AsyncMock(return_value=mock_search_data)
-            
+
             # Create proper async context manager mock
             mock_cm = MagicMock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
             mock_cm.__aexit__ = AsyncMock(return_value=False)
             mock_session.get.return_value = mock_cm
-            
+
             mock_get_session.return_value = mock_session
-            
+
             result = await search_tools.search_web("test query", 5)
             assert isinstance(result, dict)
 
@@ -303,33 +303,33 @@ class TestSearchTools:
                         "title": "Crypto News 1",
                         "url": "https://news.example.com/1",
                         "description": "Latest crypto developments",
-                        "age": "2 hours ago"
+                        "age": "2 hours ago",
                     },
                     {
                         "title": "Crypto News 2",
-                        "url": "https://news.example.com/2", 
+                        "url": "https://news.example.com/2",
                         "description": "Market analysis",
-                        "age": "4 hours ago"
-                    }
+                        "age": "4 hours ago",
+                    },
                 ]
             }
         }
-        
+
         # Mock the HTTP session
-        with patch('sam.integrations.search.get_session') as mock_get_session:
+        with patch("sam.integrations.search.get_session") as mock_get_session:
             mock_session = MagicMock()
             mock_response = MagicMock()
             mock_response.status = 200
             mock_response.json = AsyncMock(return_value=mock_news_data)
-            
+
             # Create proper async context manager mock
             mock_cm = MagicMock()
             mock_cm.__aenter__ = AsyncMock(return_value=mock_response)
             mock_cm.__aexit__ = AsyncMock(return_value=False)
             mock_session.get.return_value = mock_cm
-            
+
             mock_get_session.return_value = mock_session
-            
+
             result = await search_tools.search_news("crypto news", 3)
             assert isinstance(result, dict)
 
