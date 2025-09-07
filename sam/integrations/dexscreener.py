@@ -4,6 +4,7 @@ import asyncio
 from typing import Dict, Any, List
 
 from ..core.tools import Tool, ToolSpec
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class DexScreenerTools:
                         "price_change_24h": pair.price_change.h24 if pair.price_change else None,
                         "volume_24h": pair.volume.h24 if pair.volume else None,
                         "liquidity": pair.liquidity.usd if pair.liquidity else None,
-                        "fdv": pair.fdv,
+                        "fdv": getattr(pair, "fdv", None),
                         "market_cap": getattr(pair, "market_cap", None),
                     }
                 )
@@ -105,7 +106,7 @@ class DexScreenerTools:
         """Get detailed information for a specific Solana pair."""
         try:
             # Run synchronous client in thread to avoid blocking event loop
-            results = await asyncio.to_thread(self.client.get_token_pair, "solana", pair_address)
+            results = await asyncio.to_thread(self.client.get_token_pairs, f"solana:{pair_address}")
 
             if not results:
                 return {"error": "Pair not found"}
@@ -258,6 +259,18 @@ class DexScreenerTools:
 def create_dexscreener_tools(dex_tools: DexScreenerTools) -> List[Tool]:
     """Create DexScreener tool instances."""
 
+    class SearchPairsInput(BaseModel):
+        query: str = Field(..., description="Search query (token name/symbol/address)")
+
+    class GetTokenPairsInput(BaseModel):
+        token_address: str = Field(..., description="Token address")
+
+    class GetSolanaPairInput(BaseModel):
+        pair_address: str = Field(..., description="Pair address")
+
+    class GetTrendingPairsInput(BaseModel):
+        chain: str = Field("solana", description="Blockchain to list trending pairs")
+
     async def handle_search_pairs(args: Dict[str, Any]) -> Dict[str, Any]:
         query = args.get("query", "")
         return await dex_tools.search_pairs(query)
@@ -295,6 +308,7 @@ def create_dexscreener_tools(dex_tools: DexScreenerTools) -> List[Tool]:
                 },
             ),
             handler=handle_search_pairs,
+            input_model=SearchPairsInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -316,6 +330,7 @@ def create_dexscreener_tools(dex_tools: DexScreenerTools) -> List[Tool]:
                 },
             ),
             handler=handle_get_token_pairs,
+            input_model=GetTokenPairsInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -337,6 +352,7 @@ def create_dexscreener_tools(dex_tools: DexScreenerTools) -> List[Tool]:
                 },
             ),
             handler=handle_get_solana_pair,
+            input_model=GetSolanaPairInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -359,6 +375,7 @@ def create_dexscreener_tools(dex_tools: DexScreenerTools) -> List[Tool]:
                 },
             ),
             handler=handle_get_trending_pairs,
+            input_model=GetTrendingPairsInput,
         ),
     ]
 

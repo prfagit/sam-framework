@@ -60,7 +60,7 @@ class ConfigValidator:
                 self.errors.append(f"Error validating '{spec.name}': {e}")
                 return
 
-        # Store validated value  
+        # Store validated value
         if value is not None:
             self.validated_vars[spec.name] = value
 

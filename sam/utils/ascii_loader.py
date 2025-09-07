@@ -277,19 +277,19 @@ class ASCIILoader:
         width = self.get_terminal_width()
 
         glitch_chars = "▓▒░█⣿⢸⡇⠀⢀01"
-        
+
         try:
             frames = int(duration * 30)  # 30 FPS for smooth glitch
-            
+
             for frame in range(frames):
                 self.clear_screen()
-                
+
                 # Glitchy title
                 if frame % 8 < 6:  # Show most of the time
                     title = colorize("SAM", Style.BOLD, Style.FG_BRIGHT_CYAN)
                 else:  # Glitch occasionally
                     title = colorize("S▓M", Style.BOLD, Style.FG_BRIGHT_GREEN)
-                
+
                 print()
                 print(self.center_text(title, width))
                 print()
@@ -297,13 +297,13 @@ class ASCIILoader:
                 # Glitchy ASCII reveal
                 progress = frame / frames
                 lines_revealed = int(progress * len(SAM_ASCII_ART))
-                
+
                 for i, line in enumerate(SAM_ASCII_ART):
                     if i < lines_revealed:
                         # Revealed line with occasional glitch
                         if random.random() < 0.08:  # 8% glitch chance
                             glitched = "".join(
-                                random.choice(glitch_chars) if random.random() < 0.3 else c 
+                                random.choice(glitch_chars) if random.random() < 0.3 else c
                                 for c in line
                             )
                             colored_line = colorize(glitched, Style.FG_GREEN)
@@ -312,26 +312,30 @@ class ASCIILoader:
                     elif i == lines_revealed and progress < 0.95:  # Current line being decoded
                         chars_shown = int((frame % 8) / 8 * len(line))
                         partial = line[:chars_shown]
-                        noise = "".join(random.choice(glitch_chars) for _ in range(len(line) - chars_shown))
-                        colored_line = colorize(partial, Style.FG_BRIGHT_CYAN) + colorize(noise, Style.FG_GREEN)
+                        noise = "".join(
+                            random.choice(glitch_chars) for _ in range(len(line) - chars_shown)
+                        )
+                        colored_line = colorize(partial, Style.FG_BRIGHT_CYAN) + colorize(
+                            noise, Style.FG_GREEN
+                        )
                     else:
                         # Not revealed yet
                         colored_line = ""
 
                     if colored_line:
                         print(self.center_text(colored_line, width))
-                
-                await asyncio.sleep(1/30)  # 30 FPS
-            
+
+                await asyncio.sleep(1 / 30)  # 30 FPS
+
             # Quick final flash
             self.clear_screen()
             print()
             print(self.center_text(colorize("SAM", Style.BOLD, Style.FG_BRIGHT_CYAN), width))
             print()
-            
+
             for line in SAM_ASCII_ART:
                 print(self.center_text(colorize(line, Style.FG_CYAN), width))
-            
+
             await asyncio.sleep(0.3)
 
         finally:

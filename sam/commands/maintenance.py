@@ -61,4 +61,3 @@ async def run_maintenance() -> int:
     except Exception as e:
         print(f"❌ Maintenance failed: {e}")
         return 1
-

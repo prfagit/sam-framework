@@ -9,8 +9,7 @@ from solders.pubkey import Pubkey
 from solders.system_program import transfer, TransferParams
 
 from ...core.tools import Tool, ToolSpec
-from ...utils.validators import validate_tool_input
-from ...utils.decorators import rate_limit, retry_with_backoff, log_execution
+from pydantic import BaseModel, Field, field_validator
 from ...utils.http_client import get_session
 from ...utils.error_messages import handle_error_gracefully
 from ...utils.price_service import get_price_service
@@ -44,9 +43,6 @@ class SolanaTools:
             await self.client.close()
             logger.info("Closed Solana client connection")
 
-    @rate_limit("solana_rpc")
-    @retry_with_backoff(max_retries=2)
-    @log_execution()
     async def get_balance(self, address: Optional[str] = None) -> Dict[str, Any]:
         """Get SOL balance and all SPL token balances for an address or the configured wallet."""
         try:
@@ -148,9 +144,6 @@ class SolanaTools:
                 e, {"operation": "get_balance", "address": target_address}
             )
 
-    @rate_limit("transfer_sol", identifier_key="to_address")
-    @retry_with_backoff(max_retries=1)  # Be careful with transaction retries
-    @log_execution()
     async def transfer_sol(self, to_address: str, amount: float) -> Dict[str, Any]:
         """Transfer SOL to another address."""
         if not self.keypair or not self.wallet_address:
@@ -219,9 +212,6 @@ class SolanaTools:
                 e, {"operation": "transfer_sol", "to_address": to_address, "amount": amount}
             )
 
-    @rate_limit("solana_rpc")
-    @retry_with_backoff(max_retries=2)
-    @log_execution()
     async def get_token_accounts(self, address: Optional[str] = None) -> Dict[str, Any]:
         """Get token accounts for an address."""
         try:
@@ -281,9 +271,6 @@ class SolanaTools:
             logger.error(f"Failed to get token accounts: {e}")
             return {"error": str(e)}
 
-    @rate_limit("solana_rpc")
-    @retry_with_backoff(max_retries=2)
-    @log_execution()
     async def get_token_metadata(self, mint_address: str) -> Dict[str, Any]:
         """Get comprehensive token metadata using Helius getAsset method."""
         try:
@@ -337,9 +324,55 @@ class SolanaTools:
 def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
     """Create Solana tool instances."""
 
+    # Input models for per-tool validation
+    class GetBalanceInput(BaseModel):
+        address: Optional[str] = Field(None, description="Optional: specific address to check")
+
+        @field_validator("address")
+        @classmethod
+        def _validate_addr(cls, v: Optional[str]) -> Optional[str]:
+            if v is None or v == "":
+                return None
+            # Basic Solana address validation: base58 and length
+            try:
+                _ = base58.b58decode(v)
+            except Exception:
+                raise ValueError("Invalid Solana address format")
+            if not (32 <= len(v) <= 44):
+                raise ValueError("Invalid Solana address length")
+            return v
+
+    class TransferSolInput(BaseModel):
+        to_address: str = Field(..., description="Destination address")
+        amount: float = Field(..., gt=0, le=1000, description="Amount of SOL to transfer")
+
+        @field_validator("to_address")
+        @classmethod
+        def _validate_to_addr(cls, v: str) -> str:
+            try:
+                _ = base58.b58decode(v)
+            except Exception:
+                raise ValueError("Invalid Solana address format")
+            if not (32 <= len(v) <= 44):
+                raise ValueError("Invalid Solana address length")
+            return v
+
+    class GetTokenDataInput(BaseModel):
+        address: str = Field(..., description="Token mint address")
+
+        @field_validator("address")
+        @classmethod
+        def _validate_mint(cls, v: str) -> str:
+            try:
+                _ = base58.b58decode(v)
+            except Exception:
+                raise ValueError("Invalid Solana address format")
+            if not (32 <= len(v) <= 44):
+                raise ValueError("Invalid Solana address length")
+            return v
+
     async def handle_get_balance(args: Dict[str, Any]) -> Dict[str, Any]:
-        validated_args = validate_tool_input("get_balance", args)
-        address = validated_args.get("address")
+        address = args.get("address")
 
         # Use agent cache if available and no specific address requested
         if agent and not address:
@@ -357,10 +390,7 @@ def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
         return result
 
     async def handle_transfer_sol(args: Dict[str, Any]) -> Dict[str, Any]:
-        validated_args = validate_tool_input("transfer_sol", args)
-        result = await solana_tools.transfer_sol(
-            validated_args["to_address"], validated_args["amount"]
-        )
+        result = await solana_tools.transfer_sol(args["to_address"], args["amount"])
 
         # Invalidate balance cache after transfer
         if agent and "success" in result:
@@ -369,8 +399,7 @@ def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
         return result
 
     async def handle_get_token_data(args: Dict[str, Any]) -> Dict[str, Any]:
-        validated_args = validate_tool_input("get_token_data", args)
-        mint = validated_args["address"]
+        mint = args["address"]
 
         # Check agent cache first
         if agent:
@@ -408,6 +437,7 @@ def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
                 },
             ),
             handler=handle_get_balance,
+            input_model=GetBalanceInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -432,6 +462,7 @@ def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
                 },
             ),
             handler=handle_transfer_sol,
+            input_model=TransferSolInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -450,6 +481,7 @@ def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
                 },
             ),
             handler=handle_get_token_data,
+            input_model=GetTokenDataInput,
         ),
     ]
 

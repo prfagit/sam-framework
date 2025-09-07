@@ -1,11 +1,14 @@
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
 from pydantic import BaseModel, ValidationError
+from .middleware import Middleware, ToolContext, ToolCall
 
 
 class ToolSpec(BaseModel):
     name: str
     description: str
     input_schema: Dict[str, Any]  # JSON schema compatible
+    namespace: Optional[str] = None  # Optional logical grouping
+    version: Optional[str] = None  # Optional tool version for discovery
 
 
 Handler = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
@@ -31,21 +34,65 @@ class Tool:
 
 
 class ToolRegistry:
-    def __init__(self):
+    def __init__(self, middlewares: Optional[List[Middleware]] = None):
         self._tools: Dict[str, Tool] = {}
+        self._middlewares: List[Middleware] = list(middlewares or [])
 
     def register(self, tool: Tool):
         self._tools[tool.spec.name] = tool
 
-    def list_specs(self) -> List[Dict[str, Any]]:
-        # For now, always emit the provided spec as-is to avoid surprises.
-        # Future: if input_model is provided and spec lacks parameters,
-        # we could derive JSON schema from the model.
-        return [t.spec.model_dump() for t in self._tools.values()]
+    def add_middleware(self, mw: Middleware) -> None:
+        self._middlewares.append(mw)
 
-    async def call(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    def _derive_parameters_from_model(self, model_cls: Type[BaseModel]) -> Dict[str, Any]:
+        """Derive JSON schema parameters for OpenAI tool format from a Pydantic model."""
+        try:
+            schema = model_cls.model_json_schema()
+            props = schema.get("properties", {}) or {}
+            required = schema.get("required", []) or []
+            return {"type": "object", "properties": props, "required": required}
+        except Exception:
+            # Fallback minimal object shape
+            return {"type": "object", "properties": {}, "required": []}
+
+    def list_specs(self) -> List[Dict[str, Any]]:
+        # Emit tool specs; if input_model is provided and schema lacks parameters,
+        # derive parameters to reduce duplication and keep providers happy.
+        specs: List[Dict[str, Any]] = []
+        for t in self._tools.values():
+            spec = t.spec.model_dump()
+            try:
+                if t.input_model is not None:
+                    input_schema = spec.get("input_schema")
+                    derived = self._derive_parameters_from_model(t.input_model)
+
+                    if isinstance(input_schema, dict):
+                        if "parameters" in input_schema:
+                            params = input_schema.get("parameters")
+                            if not params:
+                                input_schema["parameters"] = derived
+                        elif not ("type" in input_schema and "properties" in input_schema):
+                            # Unknown shape: wrap derived under parameters to match OpenAI tool format
+                            spec["input_schema"] = {"parameters": derived}
+                        # else: already a root JSON schema with type/properties; leave as-is
+                    else:
+                        # Not a dict or missing: provide derived parameters wrapper
+                        spec["input_schema"] = {"parameters": derived}
+            except Exception:
+                pass
+            specs.append(spec)
+        return specs
+
+    async def call(
+        self, name: str, args: Dict[str, Any], context: Optional[ToolContext] = None
+    ) -> Dict[str, Any]:
         if name not in self._tools:
-            return {"error": f"Tool '{name}' not found"}
+            # Normalized error shape (non-breaking: keep top-level 'error')
+            return {
+                "success": False,
+                "error": f"Tool '{name}' not found",
+                "error_detail": {"code": "not_found", "message": f"Tool '{name}' not found"},
+            }
         tool = self._tools[name]
 
         # Validate using optional input model
@@ -59,7 +106,66 @@ class ToolRegistry:
                 # Keep error shape consistent and non-breaking
                 return {"error": f"Validation failed: {ve.errors()}"}
 
+        # Build middleware execution chain
+        async def base_call(
+            call_args: Dict[str, Any], _ctx: Optional[ToolContext]
+        ) -> Dict[str, Any]:
+            return await tool.handler(call_args)
+
+        call_chain: ToolCall = base_call
+        for mw in reversed(self._middlewares):
+            call_chain = mw.wrap(name, call_chain)
+
         try:
-            return await tool.handler(validated_args)
+            result = await call_chain(validated_args, context)
         except Exception as e:
-            return {"error": f"Tool execution failed: {str(e)}"}
+            # Execution error normalization
+            return {
+                "success": False,
+                "error": f"Tool execution failed: {str(e)}",
+                "error_detail": {
+                    "code": "execution_error",
+                    "message": f"Tool execution failed: {str(e)}",
+                },
+            }
+
+        # Normalize result shapes while preserving backward compatibility.
+        # - Always include 'success': bool
+        # - On failures, include 'error_detail': {code, message, details?}
+        # - Preserve existing fields (incl. 'error' or data keys) to avoid breaking callers/tests.
+        try:
+            if isinstance(result, dict):
+                # Determine if this is an error result
+                if "error" in result:
+                    # Two styles supported today: structured (error: True) and simple string error
+                    if isinstance(result.get("error"), bool) and result.get("error"):
+                        code = str(result.get("category", "error"))
+                        message = (
+                            str(result.get("message"))
+                            if result.get("message") is not None
+                            else str(result.get("title", "Error"))
+                        )
+                    else:
+                        code = "error"
+                        message = str(result.get("error", "Unknown error"))
+
+                    # Non-breaking: keep original result keys and add normalized flags
+                    normalized = dict(result)
+                    normalized["success"] = False
+                    normalized.setdefault("error_detail", {"code": code, "message": message})
+                    return normalized
+                else:
+                    # Success path: add success flag; keep everything else as-is.
+                    normalized = dict(result)
+                    normalized["success"] = True
+                    return normalized
+            else:
+                # Non-dict results: wrap minimally
+                return {"success": True, "result": result}
+        except Exception as e:
+            # Fallback if normalization itself fails
+            return {
+                "success": False,
+                "error": f"Normalization failed: {str(e)}",
+                "error_detail": {"code": "normalization_error", "message": str(e)},
+            }

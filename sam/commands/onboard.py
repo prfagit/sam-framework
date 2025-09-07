@@ -179,4 +179,3 @@ async def run_onboarding() -> int:
     except Exception as e:
         print(CLIFormatter.error(f"Setup failed: {e}"))
         return 1
-

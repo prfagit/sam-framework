@@ -49,9 +49,7 @@ class Settings:
     # Tool/Integration Toggles (enabled by default)
     ENABLE_SOLANA_TOOLS: bool = os.getenv("ENABLE_SOLANA_TOOLS", "true").lower() == "true"
     ENABLE_PUMP_FUN_TOOLS: bool = os.getenv("ENABLE_PUMP_FUN_TOOLS", "true").lower() == "true"
-    ENABLE_DEXSCREENER_TOOLS: bool = (
-        os.getenv("ENABLE_DEXSCREENER_TOOLS", "true").lower() == "true"
-    )
+    ENABLE_DEXSCREENER_TOOLS: bool = os.getenv("ENABLE_DEXSCREENER_TOOLS", "true").lower() == "true"
     ENABLE_JUPITER_TOOLS: bool = os.getenv("ENABLE_JUPITER_TOOLS", "true").lower() == "true"
     ENABLE_SEARCH_TOOLS: bool = os.getenv("ENABLE_SEARCH_TOOLS", "true").lower() == "true"
 
@@ -107,9 +105,7 @@ class Settings:
 
         # Tool/Integration Toggles
         cls.ENABLE_SOLANA_TOOLS = os.getenv("ENABLE_SOLANA_TOOLS", "true").lower() == "true"
-        cls.ENABLE_PUMP_FUN_TOOLS = (
-            os.getenv("ENABLE_PUMP_FUN_TOOLS", "true").lower() == "true"
-        )
+        cls.ENABLE_PUMP_FUN_TOOLS = os.getenv("ENABLE_PUMP_FUN_TOOLS", "true").lower() == "true"
         cls.ENABLE_DEXSCREENER_TOOLS = (
             os.getenv("ENABLE_DEXSCREENER_TOOLS", "true").lower() == "true"
         )

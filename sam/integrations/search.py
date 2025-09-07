@@ -5,7 +5,8 @@ import os
 from typing import Dict, Any, Union, List, Optional
 from pydantic import BaseModel, Field
 from ..core.tools import Tool, ToolSpec
-from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
+
+# Decorators replaced by registry middlewares for rate limit/retry/logging
 from ..utils.http_client import get_session
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,6 @@ class SearchTools:
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
 
-    @rate_limit("search")
-    @retry_with_backoff(max_retries=2)
-    @log_execution()
     async def search_web(
         self, query: str, count: int = 5, freshness: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -44,9 +42,6 @@ class SearchTools:
             logger.error(f"Web search failed: {e}")
             return {"error": str(e)}
 
-    @rate_limit("search")
-    @retry_with_backoff(max_retries=2)
-    @log_execution()
     async def search_news(
         self, query: str, count: int = 5, freshness: Optional[str] = "pw"
     ) -> Dict[str, Any]:

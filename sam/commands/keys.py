@@ -111,4 +111,3 @@ def generate_key() -> int:
         print(f"❌ Failed to generate key: {e}")
         print("Manual fallback: Add SAM_FERNET_KEY to your .env file")
         return 1
-

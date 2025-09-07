@@ -244,6 +244,119 @@ sam tools                    # List available tools
 - Safety: `RATE_LIMITING_ENABLED`, `MAX_TRANSACTION_SOL`, `DEFAULT_SLIPPAGE`.
 - Logging: `LOG_LEVEL` (use `NO` to suppress logs in TTY UI).
 
+## Middleware Configuration
+
+SAM uses a pluggable middleware pipeline for tool calls (logging, rate limiting, retries). You can control this at runtime with the `SAM_MIDDLEWARE_JSON` environment variable.
+
+- Env var: `SAM_MIDDLEWARE_JSON` — JSON object defining middlewares.
+- Behavior: When set and valid JSON, it fully defines the middleware stack. When missing or invalid, sensible defaults are applied.
+- Rate limiting: `rate_limit.enabled` can enable rate limiting even if `RATE_LIMITING_ENABLED=false` (and vice‑versa).
+
+Example configuration
+
+```json
+{
+  "logging": {
+    "include_args": false,
+    "include_result": false,
+    "only": [],
+    "exclude": []
+  },
+  "rate_limit": {
+    "enabled": true,
+    "default_type": null,
+    "only": [
+      "search_web", "search_news", "get_swap_quote", "jupiter_swap",
+      "transfer_sol", "get_balance", "get_token_data", "pump_fun_buy", "pump_fun_sell"
+    ],
+    "exclude": [],
+    "map": {
+      "search_web": {"type": "search", "identifier_field": "query"},
+      "search_news": {"type": "search", "identifier_field": "query"},
+      "get_swap_quote": {"type": "jupiter"},
+      "jupiter_swap": {"type": "jupiter"},
+      "transfer_sol": {"type": "transfer_sol"},
+      "get_balance": {"type": "solana_rpc"},
+      "get_token_data": {"type": "solana_rpc"},
+      "pump_fun_buy": {"type": "pump_fun_buy", "identifier_field": "mint"},
+      "pump_fun_sell": {"type": "pump_fun_sell", "identifier_field": "mint"}
+    }
+  },
+  "retry": [
+    {"only": ["search_web", "search_news", "get_balance", "get_token_data"], "max_retries": 2, "base_delay": 0.25},
+    {"only": ["get_swap_quote", "jupiter_swap"], "max_retries": 3, "base_delay": 0.25},
+    {"only": ["pump_fun_buy", "pump_fun_sell"], "max_retries": 2, "base_delay": 0.25}
+  ]
+}
+```
+
+Export tips (avoid shell escaping issues)
+
+```bash
+# macOS/Linux: keep JSON in a file and export via command substitution
+cat > /tmp/sam_mw.json <<'JSON'
+{
+  "logging": {"include_args": false, "include_result": false},
+  "rate_limit": {
+    "enabled": true,
+    "map": {
+      "search_web": {"type": "search", "identifier_field": "query"},
+      "search_news": {"type": "search", "identifier_field": "query"}
+    }
+  },
+  "retry": [{"only": ["search_web", "search_news"], "max_retries": 2, "base_delay": 0.25}]
+}
+JSON
+export SAM_MIDDLEWARE_JSON="$(cat /tmp/sam_mw.json)"
+
+# Or use single quotes if you inline small JSON
+export SAM_MIDDLEWARE_JSON='{"logging":{"include_args":false}}'
+```
+
+Troubleshooting
+
+- If the JSON is invalid, SAM logs a warning and falls back to defaults.
+- To inspect behavior, set `LOG_LEVEL=DEBUG` and optionally enable `logging.include_args/include_result`.
+- Rate limiting info is injected into successful tool results under `rate_limit_info`.
+
+## Plugin Discovery
+
+SAM can load external tools via plugins. Two mechanisms are supported:
+
+- Entry points: Python package entry points under the group `sam.plugins`.
+- Environment variable: `SAM_PLUGINS` with a comma‑separated list of modules to import.
+
+Entry point usage (recommended)
+
+1) In your plugin package:
+
+```python
+# my_pkg/plugin.py
+from typing import Optional
+
+def register(registry, agent: Optional[object] = None):
+    # Create and register Tool instances, or return an iterable of Tool
+    # Example: registry.register(Tool(...))
+    pass
+```
+
+2) In your plugin's `pyproject.toml`:
+
+```toml
+[project.entry-points."sam.plugins"]
+my_plugin = "my_pkg.plugin:register"
+```
+
+Environment variable usage
+
+- Set `SAM_PLUGINS` to module paths exposing `register` or `register_tools`:
+
+```bash
+export SAM_PLUGINS="vendor_a.sam_ext,acme.tools.plugin"
+```
+
+Each module should define either `register(registry[, agent])` or `register_tools(registry[, agent])`. The function can optionally return an iterable of `Tool` objects; if not, it should call `registry.register(tool)` internally.
+
 ## Examples
 
 ### Trading

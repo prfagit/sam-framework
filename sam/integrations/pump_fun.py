@@ -3,8 +3,7 @@ import logging
 from typing import Dict, Any, List
 
 from ..core.tools import Tool, ToolSpec
-from ..utils.validators import validate_tool_input
-from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
+from pydantic import BaseModel, Field, field_validator
 from ..utils.http_client import get_session
 from ..utils.error_messages import handle_error_gracefully
 from ..utils.transaction_validator import validate_pump_buy, validate_pump_sell
@@ -107,9 +106,6 @@ class PumpFunTools:
             logger.error(f"Unexpected error getting trades: {e}")
             return {"error": str(e)}
 
-    @rate_limit("pump_fun_buy", identifier_key="mint")
-    @retry_with_backoff(max_retries=2)
-    @log_execution()
     async def create_buy_transaction(
         self, public_key: str, mint: str, amount: float, slippage: int = 1
     ) -> Dict[str, Any]:
@@ -157,9 +153,6 @@ class PumpFunTools:
             logger.error(f"Unexpected error creating buy transaction: {e}")
             return handle_error_gracefully(e, {"operation": "pump_fun_buy"})
 
-    @rate_limit("pump_fun_sell", identifier_key="mint")
-    @retry_with_backoff(max_retries=2)
-    @log_execution()
     async def create_sell_transaction(
         self, public_key: str, mint: str, percentage: int = 100, slippage: int = 1
     ) -> Dict[str, Any]:
@@ -249,9 +242,52 @@ class PumpFunTools:
 def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool]:
     """Create Pump.fun tool instances."""
 
-    async def handle_pump_fun_buy(args: Dict[str, Any]) -> Dict[str, Any]:
-        validated_args = validate_tool_input("pump_fun_buy", args)
+    class PumpBuyInput(BaseModel):
+        mint: str = Field(..., description="Token mint address")
+        amount: float = Field(..., gt=0, le=1000, description="Amount of SOL to spend")
+        slippage: int = Field(5, ge=1, le=50, description="Slippage tolerance (1-50%)")
 
+        @field_validator("mint")
+        @classmethod
+        def _validate_mint(cls, v: str) -> str:
+            if not isinstance(v, str) or len(v) < 32 or len(v) > 44:
+                raise ValueError("Invalid token mint address")
+            return v
+
+    class PumpSellInput(BaseModel):
+        mint: str = Field(..., description="Token mint address")
+        percentage: int = Field(100, ge=1, le=100, description="Percentage to sell (1-100)")
+        slippage: int = Field(5, ge=1, le=50, description="Slippage tolerance (1-50%)")
+
+        @field_validator("mint")
+        @classmethod
+        def _validate_mint(cls, v: str) -> str:
+            if not isinstance(v, str) or len(v) < 32 or len(v) > 44:
+                raise ValueError("Invalid token mint address")
+            return v
+
+    class TokenTradesInput(BaseModel):
+        mint: str = Field(..., description="Token mint address")
+        limit: int = Field(10, ge=1, le=50, description="Number of trades to retrieve")
+
+        @field_validator("mint")
+        @classmethod
+        def _validate_mint(cls, v: str) -> str:
+            if not isinstance(v, str) or len(v) < 32 or len(v) > 44:
+                raise ValueError("Invalid token mint address")
+            return v
+
+    class PumpTokenInfoInput(BaseModel):
+        mint: str = Field(..., description="Token mint address")
+
+        @field_validator("mint")
+        @classmethod
+        def _validate_mint(cls, v: str) -> str:
+            if not isinstance(v, str) or len(v) < 32 or len(v) > 44:
+                raise ValueError("Invalid token mint address")
+            return v
+
+    async def handle_pump_fun_buy(args: Dict[str, Any]) -> Dict[str, Any]:
         # Use configured wallet automatically
         public_key = (
             pump_fun_tools.solana_tools.wallet_address if pump_fun_tools.solana_tools else None
@@ -274,9 +310,9 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
         # Pre-transaction validation
         validation_result = await validate_pump_buy(
             wallet_balance,
-            validated_args["amount"],
-            validated_args.get("slippage", 5),
-            validated_args["mint"],
+            args["amount"],
+            args.get("slippage", 5),
+            args["mint"],
         )
 
         # If validation fails, return error
@@ -300,9 +336,9 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
 
         result = await pump_fun_tools.create_buy_transaction(
             public_key,
-            validated_args["mint"],
-            validated_args["amount"],
-            validated_args.get("slippage", 5),  # Default to 5% for pump.fun
+            args["mint"],
+            args["amount"],
+            args.get("slippage", 5),  # Default to 5% for pump.fun
         )
 
         # Invalidate balance cache after successful transaction
@@ -312,8 +348,6 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
         return result
 
     async def handle_pump_fun_sell(args: Dict[str, Any]) -> Dict[str, Any]:
-        validated_args = validate_tool_input("pump_fun_sell", args)
-
         # Use configured wallet automatically
         public_key = (
             pump_fun_tools.solana_tools.wallet_address if pump_fun_tools.solana_tools else None
@@ -325,9 +359,9 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
 
         # Pre-transaction validation
         validation_result = await validate_pump_sell(
-            validated_args.get("percentage", 100),
-            validated_args.get("slippage", 5),
-            validated_args["mint"],
+            args.get("percentage", 100),
+            args.get("slippage", 5),
+            args["mint"],
         )
 
         # If validation fails, return error
@@ -351,9 +385,9 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
 
         result = await pump_fun_tools.create_sell_transaction(
             public_key,
-            validated_args["mint"],
-            validated_args.get("percentage", 100),
-            validated_args.get("slippage", 5),  # Default to 5% for pump.fun
+            args["mint"],
+            args.get("percentage", 100),
+            args.get("slippage", 5),  # Default to 5% for pump.fun
         )
 
         # Invalidate balance cache after successful transaction
@@ -402,6 +436,7 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
                 },
             ),
             handler=handle_pump_fun_buy,
+            input_model=PumpBuyInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -434,6 +469,7 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
                 },
             ),
             handler=handle_pump_fun_sell,
+            input_model=PumpSellInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -459,6 +495,7 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
                 },
             ),
             handler=handle_get_token_trades,
+            input_model=TokenTradesInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -477,6 +514,7 @@ def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool
                 },
             ),
             handler=handle_get_pump_token_info,
+            input_model=PumpTokenInfoInput,
         ),
     ]
 

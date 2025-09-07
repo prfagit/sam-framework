@@ -94,4 +94,3 @@ async def run_health_check() -> int:
     except Exception as e:
         print(f"❌ Health check failed: {e}")
         return 1
-

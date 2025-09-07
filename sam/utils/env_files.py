@@ -39,4 +39,3 @@ def write_env_file(path: str, values: Dict[str, str]) -> None:
         lines.append(f"{k}={v}")
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
-

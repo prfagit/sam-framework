@@ -4,8 +4,8 @@ from typing import Dict, Any, List
 import base64
 
 from ..core.tools import Tool, ToolSpec
-from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
 from ..utils.http_client import get_session
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,6 @@ class JupiterTools:
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
 
-    @rate_limit("jupiter")
-    @retry_with_backoff(max_retries=3)
-    @log_execution()
     async def get_quote(
         self, input_mint: str, output_mint: str, amount: int, slippage_bps: int = 50
     ) -> Dict[str, Any]:
@@ -205,6 +202,22 @@ class JupiterTools:
 def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
     """Create Jupiter tool instances."""
 
+    class SwapQuoteInput(BaseModel):
+        input_mint: str = Field(..., description="Input token mint address")
+        output_mint: str = Field(..., description="Output token mint address")
+        amount: int = Field(..., gt=0, description="Input amount in token's smallest unit")
+        slippage_bps: int = Field(50, ge=1, le=1000, description="Slippage in bps")
+
+        @field_validator("input_mint", "output_mint")
+        @classmethod
+        def _validate_mint(cls, v: str) -> str:
+            if not isinstance(v, str) or len(v) < 32 or len(v) > 44:
+                raise ValueError("Invalid token mint address")
+            return v
+
+    class JupiterSwapInput(SwapQuoteInput):
+        pass
+
     async def handle_get_swap_quote(args: Dict[str, Any]) -> Dict[str, Any]:
         input_mint = args.get("input_mint", "")
         output_mint = args.get("output_mint", "")
@@ -257,6 +270,7 @@ def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
                 },
             ),
             handler=handle_get_swap_quote,
+            input_model=SwapQuoteInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -293,6 +307,7 @@ def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
                 },
             ),
             handler=handle_jupiter_swap,
+            input_model=JupiterSwapInput,
         ),
     ]
 

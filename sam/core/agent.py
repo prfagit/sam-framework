@@ -3,6 +3,7 @@ import json
 import time
 from typing import Optional, Callable, List, Dict, Any
 from .tools import ToolRegistry
+from .middleware import ToolContext
 from .llm_provider import LLMProvider
 from .memory import MemoryManager
 
@@ -202,7 +203,9 @@ class SAMAgent:
                         if self.tool_callback:
                             self.tool_callback(tool_name, tool_args)
 
-                        result = await self.tools.call(tool_name, tool_args)
+                        result = await self.tools.call(
+                            tool_name, tool_args, context=ToolContext(session_id=session_id)
+                        )
 
                         # Check if tool returned an error and categorize it
                         error_type = "unknown"

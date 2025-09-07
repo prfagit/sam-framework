@@ -1,12 +1,14 @@
 import asyncio
 import logging
 import os
-from typing import Optional
+import json
+from typing import Optional, Dict, Any, List, Set
 
 from .agent import SAMAgent
 from .llm_provider import create_llm_provider
 from .memory import MemoryManager
 from .tools import ToolRegistry
+from .middleware import LoggingMiddleware, RateLimitMiddleware, RetryMiddleware
 from ..config.prompts import SOLANA_AGENT_PROMPT
 from ..config.settings import Settings
 from ..utils.crypto import decrypt_private_key
@@ -22,6 +24,7 @@ from ..integrations.pump_fun import PumpFunTools, create_pump_fun_tools
 from ..integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
 from ..integrations.jupiter import JupiterTools, create_jupiter_tools
 from ..integrations.search import SearchTools, create_search_tools
+from .plugins import load_plugins
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,200 @@ class AgentBuilder:
 
         # Tool registry
         tools = ToolRegistry()
+
+        # Config-driven middleware with safe defaults
+        mw_config_raw = os.getenv("SAM_MIDDLEWARE_JSON")
+
+        def _to_set(v: Any) -> Set[str]:
+            if isinstance(v, list):
+                return {str(x) for x in v}
+            return set()
+
+        def _build_middlewares_from_config(cfg: Dict[str, Any]) -> List[Any]:
+            middlewares: List[Any] = []
+
+            # logging
+            log_cfg = cfg.get("logging", {}) if isinstance(cfg, dict) else {}
+            if isinstance(log_cfg, dict):
+                middlewares.append(
+                    LoggingMiddleware(
+                        include_args=bool(log_cfg.get("include_args", False)),
+                        include_result=bool(log_cfg.get("include_result", False)),
+                        only=_to_set(log_cfg.get("only")) or None,
+                        exclude=_to_set(log_cfg.get("exclude")) or None,
+                    )
+                )
+
+            # rate limit
+            rl_cfg = cfg.get("rate_limit", {}) if isinstance(cfg, dict) else {}
+            if isinstance(rl_cfg, dict) and bool(
+                rl_cfg.get("enabled", Settings.RATE_LIMITING_ENABLED)
+            ):
+                type_map: Dict[str, Dict[str, Any]] = (
+                    rl_cfg.get("map", {}) if isinstance(rl_cfg.get("map"), dict) else {}
+                )
+                default_type = rl_cfg.get("default_type")
+                only = _to_set(rl_cfg.get("only")) or set(type_map.keys())
+                exclude = _to_set(rl_cfg.get("exclude"))
+
+                def limit_type_fn(name: str) -> str:
+                    if name in type_map and isinstance(type_map[name], dict):
+                        t = type_map[name].get("type")
+                        if isinstance(t, str) and t:
+                            return t
+                    return default_type or name
+
+                def identifier_fn(name: str, args: Dict[str, Any], ctx):
+                    if name in type_map and isinstance(type_map[name], dict):
+                        field = type_map[name].get("identifier_field")
+                        if isinstance(field, str) and field:
+                            return str(args.get(field, name))
+                    return name
+
+                middlewares.append(
+                    RateLimitMiddleware(
+                        limit_type_fn=limit_type_fn,
+                        identifier_fn=identifier_fn,
+                        only=only if only else None,
+                        exclude=exclude if exclude else None,
+                    )
+                )
+
+            # retry
+            retry_cfg = cfg.get("retry", []) if isinstance(cfg, dict) else []
+            if isinstance(retry_cfg, list):
+                for entry in retry_cfg:
+                    if not isinstance(entry, dict):
+                        continue
+                    middlewares.append(
+                        RetryMiddleware(
+                            max_retries=int(entry.get("max_retries", 2)),
+                            base_delay=float(entry.get("base_delay", 0.25)),
+                            only=_to_set(entry.get("only")) or None,
+                            exclude=_to_set(entry.get("exclude")) or None,
+                        )
+                    )
+
+            return middlewares
+
+        if mw_config_raw:
+            try:
+                cfg = json.loads(mw_config_raw)
+                for mw in _build_middlewares_from_config(cfg):
+                    tools.add_middleware(mw)
+                logger.info("Configured middlewares from SAM_MIDDLEWARE_JSON")
+            except Exception as e:
+                logger.warning(f"Invalid SAM_MIDDLEWARE_JSON, falling back to defaults: {e}")
+                tools.add_middleware(LoggingMiddleware(include_args=False, include_result=False))
+                if Settings.RATE_LIMITING_ENABLED:
+                    tools.add_middleware(
+                        RateLimitMiddleware(
+                            limit_type_fn=lambda n: "search"
+                            if n in {"search_web", "search_news"}
+                            else (
+                                "jupiter"
+                                if n in {"get_swap_quote", "jupiter_swap"}
+                                else (
+                                    "transfer_sol"
+                                    if n == "transfer_sol"
+                                    else (
+                                        "solana_rpc"
+                                        if n in {"get_balance", "get_token_data"}
+                                        else n
+                                    )
+                                )
+                            ),
+                            identifier_fn=lambda n, a, c: (
+                                a.get("query", n)
+                                if n in {"search_web", "search_news"}
+                                else (
+                                    a.get("mint", n)
+                                    if n in {"pump_fun_buy", "pump_fun_sell"}
+                                    else n
+                                )
+                            ),
+                            only={
+                                "search_web",
+                                "search_news",
+                                "get_swap_quote",
+                                "jupiter_swap",
+                                "pump_fun_buy",
+                                "pump_fun_sell",
+                                "get_balance",
+                                "get_token_data",
+                                "transfer_sol",
+                            },
+                        )
+                    )
+                tools.add_middleware(
+                    RetryMiddleware(
+                        max_retries=2,
+                        base_delay=0.25,
+                        only={"search_web", "search_news", "get_balance", "get_token_data"},
+                    )
+                )
+                tools.add_middleware(
+                    RetryMiddleware(
+                        max_retries=3, base_delay=0.25, only={"get_swap_quote", "jupiter_swap"}
+                    )
+                )
+                tools.add_middleware(
+                    RetryMiddleware(
+                        max_retries=2, base_delay=0.25, only={"pump_fun_buy", "pump_fun_sell"}
+                    )
+                )
+        else:
+            # Defaults when no JSON provided
+            tools.add_middleware(LoggingMiddleware(include_args=False, include_result=False))
+            if Settings.RATE_LIMITING_ENABLED:
+                tools.add_middleware(
+                    RateLimitMiddleware(
+                        limit_type_fn=lambda n: "search"
+                        if n in {"search_web", "search_news"}
+                        else (
+                            "jupiter"
+                            if n in {"get_swap_quote", "jupiter_swap"}
+                            else (
+                                "transfer_sol"
+                                if n == "transfer_sol"
+                                else ("solana_rpc" if n in {"get_balance", "get_token_data"} else n)
+                            )
+                        ),
+                        identifier_fn=lambda n, a, c: (
+                            a.get("query", n)
+                            if n in {"search_web", "search_news"}
+                            else (a.get("mint", n) if n in {"pump_fun_buy", "pump_fun_sell"} else n)
+                        ),
+                        only={
+                            "search_web",
+                            "search_news",
+                            "get_swap_quote",
+                            "jupiter_swap",
+                            "pump_fun_buy",
+                            "pump_fun_sell",
+                            "get_balance",
+                            "get_token_data",
+                            "transfer_sol",
+                        },
+                    )
+                )
+            tools.add_middleware(
+                RetryMiddleware(
+                    max_retries=2,
+                    base_delay=0.25,
+                    only={"search_web", "search_news", "get_balance", "get_token_data"},
+                )
+            )
+            tools.add_middleware(
+                RetryMiddleware(
+                    max_retries=3, base_delay=0.25, only={"get_swap_quote", "jupiter_swap"}
+                )
+            )
+            tools.add_middleware(
+                RetryMiddleware(
+                    max_retries=2, base_delay=0.25, only={"pump_fun_buy", "pump_fun_sell"}
+                )
+            )
 
         # Secure storage and wallet discovery/migration
         secure_storage = get_secure_storage()
@@ -103,6 +300,12 @@ class AgentBuilder:
             for tool in create_search_tools(search_tools):
                 tools.register(tool)
 
+        # Optional plugin discovery (entry points or env var SAM_PLUGINS)
+        try:
+            load_plugins(tools, agent=agent)
+        except Exception as e:
+            logger.warning(f"Plugin loading encountered an issue: {e}")
+
         # Keep references (mypy-friendly) as before
         setattr(agent, "_solana_tools", solana_tools)
         setattr(agent, "_pump_tools", pump_tools)
@@ -133,4 +336,3 @@ async def cleanup_agent_fast() -> None:
                     t.cancel()
     except Exception:
         pass
-

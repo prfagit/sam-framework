@@ -24,6 +24,7 @@ except ImportError:
 from .core.agent import SAMAgent
 from .core.builder import AgentBuilder, cleanup_agent_fast
 from .config.settings import Settings, setup_logging
+
 # crypto helpers are used in commands; CLI no longer needs them directly
 # secure storage used in subcommands; not needed at CLI top-level anymore
 from .utils.cli_helpers import (
@@ -189,24 +190,24 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
     # Show fast glitch intro (unless disabled)
     if not no_animation:
         await show_sam_intro("glitch")
-    
+
     agent = None
     # Initialize agent
     try:
         async with Spinner("Loading SAM"):
             agent = await setup_agent()
-            
+
     except Exception as e:
         print(f"{colorize('❌ Failed to initialize agent:', Style.FG_YELLOW)} {e}")
         return 1
 
     # Show a friendly ready message with clean banner
     tools_count = len(agent.tools.list_specs())
-    
+
     # Clear screen and show final ready state
     if supports_ansi():
-        print('\033[2J\033[H')  # Clear screen
-    
+        print("\033[2J\033[H")  # Clear screen
+
     print()
     print(banner("SAM"))
     print(
@@ -351,6 +352,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                     continue
                 if user_input in ("/settings",):
                     from .interactive_settings import run_interactive_settings
+
                     try:
                         if run_interactive_settings():
                             print("Settings saved! Please restart SAM for changes to take effect.")
@@ -494,24 +496,24 @@ def _onboarded_flag_path() -> str:
     return os.path.join(sam_dir, ".onboarded")
 
 
-
-
-
 def import_private_key():
     """Shim delegating to commands.keys.import_private_key."""
     from .commands.keys import import_private_key as _import
+
     return _import()
 
 
 def import_private_key_legacy():
     """Shim delegating to commands.keys.import_private_key_legacy."""
     from .commands.keys import import_private_key_legacy as _legacy
+
     return _legacy()
 
 
 def generate_key():
     """Shim delegating to commands.keys.generate_key."""
     from .commands.keys import generate_key as _gen
+
     return _gen()
 
 
@@ -524,6 +526,7 @@ def generate_key():
 async def test_provider(provider_name: Optional[str] = None):
     """Shim delegating to commands.providers.test_provider."""
     from .commands.providers import test_provider as _test
+
     return await _test(provider_name)
 
 
@@ -744,6 +747,7 @@ async def main():
 def app():
     """Entry point for the CLI application."""
     import os
+
     try:
         exit_code = asyncio.run(main())
         sys.exit(exit_code)
