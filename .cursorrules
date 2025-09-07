@@ -1,0 +1,371 @@
+# SAM Framework - Cursor Rules
+# AI-powered agent framework for Solana blockchain operations
+
+## Project Overview
+SAM (Solana Agent Middleware) is a production-ready AI agent framework for Solana blockchain operations. It provides 15+ tools for automated trading, portfolio management, market data analysis, and web intelligence.
+
+## Core Architecture Principles
+
+### Event-Driven Design
+- Use async pub/sub messaging system (`sam/core/events.py`)
+- All major operations should emit events for observability
+- Event names follow pattern: `component.action` (e.g., `llm.usage`, `tool.executed`)
+
+### Plugin Architecture
+- Tools registered via Python entry points
+- Follow plugin registration pattern in `examples/plugins/`
+- Use `ToolSpec` with JSON schema validation
+- Include namespace and version for tool organization
+
+### Security-First Approach
+- NEVER commit secrets or private keys
+- Use Fernet encryption for sensitive data storage
+- Implement OS keyring integration for credentials
+- Validate all inputs with dedicated validators
+- Rate limit all external API calls
+
+## Development Standards
+
+### Python Requirements
+- **Python 3.11+** minimum
+- **Async-first** architecture using `asyncio` and `uvloop`
+- **Type safety** enforced with mypy and Pydantic models
+- **100-character line length** (ruff configured)
+
+### Code Organization
+```
+sam/
+├── cli.py                 # Main CLI entry point
+├── core/                  # Agent orchestration, LLM, memory, tools
+├── integrations/          # Solana, Pump.fun, Jupiter, DexScreener
+├── config/               # Settings, prompts, configuration
+├── utils/                # Security, validation, utilities
+└── commands/             # CLI subcommands
+```
+
+### Naming Conventions
+- **snake_case**: functions, variables, methods
+- **PascalCase**: classes, exceptions
+- **SCREAMING_SNAKE_CASE**: constants, environment variables
+- **Tool names**: descriptive, action-oriented (e.g., `get_balance`, `pump_fun_buy`)
+
+### Import Organization
+```python
+# Grouped by: stdlib → third-party → local
+import os
+import asyncio
+from typing import Dict, Any
+
+import aiohttp
+from pydantic import BaseModel
+
+from sam.core.tools import Tool, ToolSpec
+from sam.utils.validators import validate_address
+```
+
+## Tool Development Guidelines
+
+### Tool Registration Pattern
+```python
+from sam.core.tools import Tool, ToolSpec
+from pydantic import BaseModel
+
+class ToolInput(BaseModel):
+    parameter: str = Field(..., description="Parameter description")
+
+async def tool_handler(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Tool implementation with error handling."""
+    return {"success": True, "data": result}
+
+def register(registry, agent=None):
+    registry.register(Tool(
+        spec=ToolSpec(
+            name="tool_name",
+            description="What this tool does",
+            input_schema={"type": "object", "properties": {...}},
+            namespace="integration_name",
+            version="1.0.0"
+        ),
+        handler=tool_handler,
+        input_model=ToolInput
+    ))
+```
+
+### Error Handling Standards
+```python
+from sam.utils.error_handling import handle_error_gracefully
+from sam.utils.error_messages import get_error_message
+
+@handle_error_gracefully
+async def tool_function(args: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        # Implementation
+        return {"success": True, "result": data}
+    except Exception as e:
+        return {
+            "success": False,
+            "error": get_error_message("operation_failed"),
+            "error_detail": {"code": "specific_error", "message": str(e)}
+        }
+```
+
+### Validation Requirements
+- Use Pydantic models for input validation
+- Implement address validation for Solana operations
+- Validate transaction amounts against safety limits
+- Check slippage parameters (1-50% range)
+
+## CLI Development
+
+### Command Structure
+```python
+# Add to sam/cli.py main() function
+if args.command == "new_command":
+    result = await handle_new_command(args)
+    return result
+```
+
+### Interactive Features
+- Use `inquirer` for menu selections when available
+- Provide fallback for non-interactive environments
+- Include helpful command examples in help text
+- Support ESC key interruption for long-running tasks
+
+### Status Display
+- Show real-time context usage percentage
+- Display wallet address (truncated for security)
+- Include session statistics and performance metrics
+- Use subtle ANSI colors for better UX
+
+## Testing Standards
+
+### Test Organization
+```python
+# tests/test_feature.py
+import pytest
+import pytest_asyncio
+from sam.core.feature import FeatureClass
+
+@pytest.mark.asyncio
+async def test_feature_functionality():
+    # Test implementation
+    pass
+
+@pytest.fixture
+async def mock_external_api():
+    # Mock external dependencies
+    pass
+```
+
+### Test Categories
+- **Unit tests**: Individual functions and classes
+- **Integration tests**: Tool interactions and API calls
+- **End-to-end tests**: Complete agent workflows
+- **Security tests**: Input validation and error handling
+
+### Coverage Requirements
+- Minimum 80% code coverage
+- Include edge cases and error conditions
+- Test async functions with `pytest-asyncio`
+- Mock external APIs for reliable testing
+
+## Configuration Management
+
+### Environment Variables
+```bash
+# Required
+SAM_FERNET_KEY=your_encryption_key
+LLM_PROVIDER=openai|anthropic|xai|local
+
+# Provider-specific
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+XAI_API_KEY=xai-...
+
+# Optional
+SAM_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+RATE_LIMITING_ENABLED=true
+MAX_TRANSACTION_SOL=1000
+DEFAULT_SLIPPAGE=2
+```
+
+### Settings Pattern
+```python
+# sam/config/settings.py
+class Settings:
+    @classmethod
+    def refresh_from_env(cls) -> None:
+        """Refresh from environment variables."""
+        cls.PROPERTY = os.getenv("ENV_VAR", "default")
+
+    @classmethod
+    def validate(cls) -> bool:
+        """Validate required settings are present."""
+        # Validation logic
+        pass
+```
+
+## Security Requirements
+
+### Key Management
+- Use OS keyring for credential storage
+- Fernet encryption for database storage
+- Never log sensitive information
+- Implement secure key generation utilities
+
+### Transaction Safety
+```python
+# Always validate before execution
+if amount > Settings.MAX_TRANSACTION_SOL:
+    raise ValueError(f"Transaction exceeds safety limit: {amount} > {Settings.MAX_TRANSACTION_SOL}")
+
+if not validate_solana_address(recipient):
+    raise ValueError("Invalid Solana address format")
+```
+
+### Rate Limiting
+```python
+# Apply to all external API calls
+@rate_limiter(type="api_call", identifier_field="endpoint")
+async def external_api_call(endpoint: str, **kwargs):
+    pass
+```
+
+## Development Workflow
+
+### Commands
+```bash
+# Setup and development
+uv sync                                    # Install dependencies
+uv run sam                                # Interactive agent
+uv run sam onboard                        # First-time setup
+uv run sam health                         # System diagnostics
+
+# Code quality
+uv run ruff format                        # Format code
+uv run ruff check --fix                   # Lint and fix
+uv run mypy sam/                          # Type checking
+
+# Testing
+uv run pytest tests/ -v                   # Run tests
+uv run pytest tests/ --cov=sam            # With coverage
+```
+
+### Commit Standards
+Use conventional commits:
+```bash
+feat(trading): add pump.fun integration
+fix(validation): correct address format checking
+docs(api): update tool registration guide
+test(tools): add integration test coverage
+refactor(core): simplify agent execution loop
+```
+
+## Integration Patterns
+
+### Solana Operations
+- Use official Solana Python libraries
+- Implement connection pooling for RPC calls
+- Handle network errors gracefully with retries
+- Cache frequently accessed data (balances, token info)
+
+### External APIs
+- Implement proper error handling for API failures
+- Use exponential backoff for rate limit handling
+- Validate API responses before processing
+- Include timeout configurations for all requests
+
+### Database Operations
+- Use SQLite for local storage (`.sam/sam_memory.db`)
+- Implement proper connection management
+- Use transactions for data consistency
+- Include database migration utilities
+
+## Documentation Standards
+
+### Docstring Format
+```python
+def function_name(param1: Type, param2: Type) -> ReturnType:
+    """One-line summary of what function does.
+
+    Detailed description of function behavior, parameters,
+    return values, and any important notes.
+
+    Args:
+        param1: Description of parameter
+        param2: Description of parameter
+
+    Returns:
+        Description of return value
+
+    Raises:
+        ExceptionType: When this exception occurs
+
+    Example:
+        >>> result = function_name(value1, value2)
+        expected_result
+    """
+```
+
+### Code Comments
+- Explain complex business logic
+- Document security-related decisions
+- Include TODO/FIXME for known issues
+- Reference external documentation when relevant
+
+## Performance Considerations
+
+### Async Best Practices
+- Use `asyncio.gather()` for concurrent operations
+- Implement proper cancellation handling
+- Avoid blocking operations in async functions
+- Use `uvloop` for performance optimization
+
+### Memory Management
+- Implement context compression when approaching limits
+- Clean up resources in exception handlers
+- Use streaming for large data processing
+- Monitor memory usage in long-running operations
+
+### Caching Strategy
+- Cache frequently accessed data (token metadata, balances)
+- Implement TTL-based cache expiration
+- Clear cache on wallet/address changes
+- Use session-based caching for user context
+
+## Deployment Considerations
+
+### Production Configuration
+- Use environment variables for all configuration
+- Implement proper logging levels
+- Configure rate limiting appropriately
+- Set reasonable transaction limits
+- Enable all security features
+
+### Monitoring and Observability
+- Log important events and errors
+- Track tool usage statistics
+- Monitor API rate limit usage
+- Include health check endpoints
+- Implement graceful shutdown handling
+
+---
+
+## Quick Reference
+
+### File Structure Checklist
+- [ ] Tool implementation in appropriate integration module
+- [ ] Tool registration in core/tools.py or plugin
+- [ ] CLI integration in cli.py
+- [ ] Tests in tests/ directory
+- [ ] Documentation updates
+- [ ] Security validation implemented
+
+### Code Review Checklist
+- [ ] Type hints on all public APIs
+- [ ] Error handling with proper messages
+- [ ] Input validation implemented
+- [ ] Security best practices followed
+- [ ] Tests written and passing
+- [ ] Documentation updated
+- [ ] Conventional commit message used

@@ -41,6 +41,9 @@ uv run pytest tests/ --cov=sam --cov-report=html
 
 # Watch mode for development
 uv run pytest-watch tests/
+
+# Run single test method
+uv run pytest tests/test_tools.py::test_specific_function -v
 ```
 
 ### Code Quality
@@ -149,3 +152,9 @@ SQLite database (`.sam/sam_memory.db`) stores:
 - **Conventional commits** format required
 - **100-character line length** for Python code
 - **Google-style docstrings** for all functions
+
+### Debug Information
+- Use `uv run sam debug` to show plugins and middleware configuration
+- Session data stored in `.sam/sam_memory.db` SQLite database
+- Logs are controlled by `LOG_LEVEL` environment variable (INFO, DEBUG, WARNING, ERROR)
+- Event system debugging: Events are published to `EventBus` for tool execution and agent state changes
