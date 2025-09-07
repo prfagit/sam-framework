@@ -40,6 +40,7 @@ from .utils.cli_helpers import (
     show_startup_summary,
     check_setup_status,
 )
+from .utils.ascii_loader import show_sam_intro
 from .utils.price_service import cleanup_price_service
 from .integrations.solana.solana_tools import SolanaTools, create_solana_tools
 from .integrations.pump_fun import PumpFunTools, create_pump_fun_tools
@@ -210,29 +211,34 @@ async def setup_agent() -> SAMAgent:
     agent = SAMAgent(llm=llm, tools=tools, memory=memory, system_prompt=SOLANA_AGENT_PROMPT)
 
     # Register Solana tools (with agent reference for caching)
-    for tool in create_solana_tools(solana_tools, agent=agent):
-        tools.register(tool)
+    if Settings.ENABLE_SOLANA_TOOLS:
+        for tool in create_solana_tools(solana_tools, agent=agent):
+            tools.register(tool)
 
     # Initialize and register Pump.fun tools (with solana_tools for signing)
     pump_tools = PumpFunTools(solana_tools)
-    for tool in create_pump_fun_tools(pump_tools, agent=agent):
-        tools.register(tool)
+    if Settings.ENABLE_PUMP_FUN_TOOLS:
+        for tool in create_pump_fun_tools(pump_tools, agent=agent):
+            tools.register(tool)
 
     # Initialize and register DexScreener tools
     dex_tools = DexScreenerTools()
-    for tool in create_dexscreener_tools(dex_tools):
-        tools.register(tool)
+    if Settings.ENABLE_DEXSCREENER_TOOLS:
+        for tool in create_dexscreener_tools(dex_tools):
+            tools.register(tool)
 
     # Initialize and register Jupiter tools
     jupiter_tools = JupiterTools(solana_tools)
-    for tool in create_jupiter_tools(jupiter_tools):
-        tools.register(tool)
+    if Settings.ENABLE_JUPITER_TOOLS:
+        for tool in create_jupiter_tools(jupiter_tools):
+            tools.register(tool)
 
     # Initialize and register Search tools
     brave_api_key = os.getenv("BRAVE_API_KEY")  # Optional
     search_tools = SearchTools(api_key=brave_api_key)
-    for tool in create_search_tools(search_tools):
-        tools.register(tool)
+    if Settings.ENABLE_SEARCH_TOOLS:
+        for tool in create_search_tools(search_tools):
+            tools.register(tool)
 
     # Store references to tools that need cleanup (for mypy)
     setattr(agent, "_solana_tools", solana_tools)
@@ -247,53 +253,54 @@ async def setup_agent() -> SAMAgent:
 
 
 async def cleanup_agent(agent):
-    """Clean up agent resources."""
+    """Clean up agent resources quickly."""
     try:
-        # Close network connections
-        if hasattr(agent, "_solana_tools") and hasattr(agent._solana_tools, "close"):
-            await agent._solana_tools.close()
-
-        if hasattr(agent, "_jupiter_tools") and hasattr(agent._jupiter_tools, "close"):
-            await agent._jupiter_tools.close()
-
-        if hasattr(agent, "_pump_tools") and hasattr(agent._pump_tools, "close"):
-            await agent._pump_tools.close()
-
-        if hasattr(agent, "_search_tools") and hasattr(agent._search_tools, "close"):
-            await agent._search_tools.close()
-
-        if hasattr(agent, "_llm") and hasattr(agent._llm, "close"):
-            await agent._llm.close()
-
-        # Cleanup shared resources
-        await cleanup_http_client()
-        await cleanup_database_pool()
-        await cleanup_rate_limiter()
-        await cleanup_price_service()
-
-        logger.info("Agent cleanup completed")
-    except Exception as e:
-        logger.error(f"Error during agent cleanup: {e}")
+        # Quick cleanup - don't wait for slow operations
+        cleanup_funcs = [
+            cleanup_http_client,
+            cleanup_database_pool,
+            cleanup_rate_limiter,
+            cleanup_price_service
+        ]
+        
+        # Run all cleanup in parallel with very short timeout
+        tasks = [asyncio.create_task(func()) for func in cleanup_funcs]
+        try:
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=0.5)
+        except asyncio.TimeoutError:
+            # Cancel any remaining tasks and continue
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+        
+    except Exception:
+        # Ignore all cleanup errors during shutdown
+        pass
 
 
-async def run_interactive_session(session_id: str):
+async def run_interactive_session(session_id: str, no_animation: bool = False):
     """Run interactive REPL session."""
-    # Banner
-    print(banner("SAM Framework — Solana Agent Middleware"))
-    print(colorize("Type /help for commands. Ctrl+C to exit.", Style.DIM))
-    print()
-
+    # Show fast glitch intro (unless disabled)
+    if not no_animation:
+        await show_sam_intro("glitch")
+    
     agent = None
-    # Initialize agent with a spinner
+    # Initialize agent
     try:
-        async with Spinner("Initializing agent"):
+        async with Spinner("Loading SAM"):
             agent = await setup_agent()
+            
     except Exception as e:
         print(f"{colorize('❌ Failed to initialize agent:', Style.FG_YELLOW)} {e}")
         return 1
 
-    # Show a friendly ready message
+    # Show a friendly ready message with clean banner
     tools_count = len(agent.tools.list_specs())
+    
+    # Clear screen and show final ready state
+    if supports_ansi():
+        print('\033[2J\033[H')  # Clear screen
+    
     print()
     print(banner("SAM"))
     print(
@@ -371,6 +378,14 @@ async def run_interactive_session(session_id: str):
         print(f" Solana RPC: {Settings.SAM_SOLANA_RPC_URL}")
         print(f" DB Path: {Settings.SAM_DB_PATH}")
         print(f" Rate Limiting: {'Enabled' if Settings.RATE_LIMITING_ENABLED else 'Disabled'}")
+        print(" Tools:")
+        print(
+            f"  - Solana:    {'On' if Settings.ENABLE_SOLANA_TOOLS else 'Off'}\n"
+            f"  - Pump.fun:  {'On' if Settings.ENABLE_PUMP_FUN_TOOLS else 'Off'}\n"
+            f"  - DexScreen: {'On' if Settings.ENABLE_DEXSCREENER_TOOLS else 'Off'}\n"
+            f"  - Jupiter:   {'On' if Settings.ENABLE_JUPITER_TOOLS else 'Off'}\n"
+            f"  - Search:    {'On' if Settings.ENABLE_SEARCH_TOOLS else 'Off'}"
+        )
         brave_set = "Yes" if os.environ.get("BRAVE_API_KEY") else "No"
         print(f" Brave API Key configured: {brave_set}")
         try:
@@ -427,6 +442,17 @@ async def run_interactive_session(session_id: str):
                     continue
                 if user_input in ("/config",):
                     show_config()
+                    continue
+                if user_input in ("/settings",):
+                    from .interactive_settings import run_interactive_settings
+                    try:
+                        if run_interactive_settings():
+                            print("Settings saved! Please restart SAM for changes to take effect.")
+                            print("Use: Ctrl+C to exit, then run 'uv run sam' again")
+                        else:
+                            print("No changes made.")
+                    except Exception as e:
+                        print(f"❌ Error with interactive settings: {e}")
                     continue
                 if user_input in ("/provider", "/providers"):
                     list_providers()
@@ -517,9 +543,16 @@ async def run_interactive_session(session_id: str):
                 logger.error(f"Error in session: {e}")
                 print(f"{colorize('😅 Oops:', Style.FG_YELLOW)} {e}")
     finally:
-        # Always cleanup resources
+        # Fast cleanup with timeout
         if agent:
-            await cleanup_agent(agent)
+            try:
+                await asyncio.wait_for(cleanup_agent(agent), timeout=2.0)
+            except asyncio.TimeoutError:
+                # Force exit if cleanup takes too long
+                pass
+            except Exception:
+                # Ignore all cleanup errors
+                pass
 
     return 0
 
@@ -533,6 +566,7 @@ def print_help():
     print(f"  {colorize('/provider', Style.FG_GREEN)}      List LLM providers")
     print(f"  {colorize('/switch <name>', Style.FG_GREEN)}  Switch LLM provider")
     print(f"  {colorize('/config', Style.FG_GREEN)}        Show configuration")
+    print(f"  {colorize('/settings', Style.FG_GREEN)}       Interactive settings editor")
     print(f"  {colorize('/clear', Style.FG_GREEN)}         Clear screen")
     print(f"  {colorize('/clear-context', Style.FG_GREEN)} Clear conversation context")
     print(f"  {colorize('/compact', Style.FG_GREEN)}       Compact conversation history")
@@ -591,6 +625,9 @@ def _write_env_file(path: str, values: dict) -> None:
 
 async def run_onboarding() -> int:
     """Streamlined onboarding with provider selection."""
+    # Show a quick intro for onboarding
+    await show_sam_intro("static")
+    
     print(banner("SAM Setup"))
     print()
 
@@ -1290,6 +1327,9 @@ async def main():
     run_parser.add_argument(
         "--session", "-s", default="default", help="Session ID for conversation context"
     )
+    run_parser.add_argument(
+        "--no-animation", action="store_true", help="Skip startup animation for faster loading"
+    )
 
     # Key management
     key_parser = subparsers.add_parser("key", help="Private key management")
@@ -1330,6 +1370,8 @@ async def main():
         # Create a simple namespace for session since it belongs to run subparser
         if not hasattr(args, "session"):
             args.session = "default"
+        if not hasattr(args, "no_animation"):
+            args.no_animation = False
 
     # Setup logging
     setup_logging(args.log_level)
@@ -1480,19 +1522,22 @@ async def main():
 
         Settings.log_config()
         session_id = getattr(args, "session", "default")
-        return await run_interactive_session(session_id)
+        no_animation = getattr(args, "no_animation", False)
+        return await run_interactive_session(session_id, no_animation)
 
     return 1
 
 
 def app():
     """Entry point for the CLI application."""
+    import os
     try:
         exit_code = asyncio.run(main())
         sys.exit(exit_code)
     except KeyboardInterrupt:
+        # Force immediate exit without cleanup
         print("\n👋 Goodbye!")
-        sys.exit(0)
+        os._exit(0)  # Force exit without cleanup
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         print(f"❌ Unexpected error: {e}")

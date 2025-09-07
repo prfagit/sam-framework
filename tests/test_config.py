@@ -1,5 +1,6 @@
 import pytest
 import os
+import logging
 from unittest.mock import patch, MagicMock
 from sam.config.prompts import (
     SOLANA_AGENT_PROMPT,
@@ -136,8 +137,18 @@ class TestSettings:
             assert Settings.SAM_DB_PATH == ".sam/sam_memory.db"
             assert Settings.RATE_LIMITING_ENABLED is False
             assert Settings.MAX_TRANSACTION_SOL == 1000.0
-            assert Settings.DEFAULT_SLIPPAGE == 1
-            assert Settings.LOG_LEVEL == "INFO"
+        assert Settings.DEFAULT_SLIPPAGE == 1
+        assert Settings.LOG_LEVEL == "INFO"
+
+    def test_tool_toggles_default_on(self):
+        """Tool toggles should default to enabled (true)."""
+        with patch.dict(os.environ, {}, clear=True):
+            Settings.refresh_from_env()
+            assert Settings.ENABLE_SOLANA_TOOLS is True
+            assert Settings.ENABLE_PUMP_FUN_TOOLS is True
+            assert Settings.ENABLE_DEXSCREENER_TOOLS is True
+            assert Settings.ENABLE_JUPITER_TOOLS is True
+            assert Settings.ENABLE_SEARCH_TOOLS is True
 
     @patch.dict(
         os.environ,
@@ -160,6 +171,26 @@ class TestSettings:
         assert Settings.RATE_LIMITING_ENABLED is True
         assert Settings.MAX_TRANSACTION_SOL == 500.0
         assert Settings.DEFAULT_SLIPPAGE == 5
+
+    def test_tool_toggles_env_overrides(self):
+        """Tool toggles should respect environment variable overrides."""
+        with patch.dict(
+            os.environ,
+            {
+                "ENABLE_SOLANA_TOOLS": "false",
+                "ENABLE_PUMP_FUN_TOOLS": "TRUE",
+                "ENABLE_DEXSCREENER_TOOLS": "False",
+                "ENABLE_JUPITER_TOOLS": "false",
+                "ENABLE_SEARCH_TOOLS": "true",
+            },
+            clear=False,
+        ):
+            Settings.refresh_from_env()
+            assert Settings.ENABLE_SOLANA_TOOLS is False
+            assert Settings.ENABLE_PUMP_FUN_TOOLS is True
+            assert Settings.ENABLE_DEXSCREENER_TOOLS is False
+            assert Settings.ENABLE_JUPITER_TOOLS is False
+            assert Settings.ENABLE_SEARCH_TOOLS is True
 
     def test_settings_refresh_from_env(self):
         """Test refresh_from_env method."""
@@ -300,5 +331,4 @@ class TestSetupLogging:
 
 
 if __name__ == "__main__":
-    import logging  # Import logging here to avoid circular imports in the test
     pytest.main([__file__])

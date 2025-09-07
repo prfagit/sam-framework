@@ -46,6 +46,15 @@ class Settings:
     # Rate Limiting Configuration (disabled by default for better UX)
     RATE_LIMITING_ENABLED: bool = os.getenv("RATE_LIMITING_ENABLED", "false").lower() == "true"
 
+    # Tool/Integration Toggles (enabled by default)
+    ENABLE_SOLANA_TOOLS: bool = os.getenv("ENABLE_SOLANA_TOOLS", "true").lower() == "true"
+    ENABLE_PUMP_FUN_TOOLS: bool = os.getenv("ENABLE_PUMP_FUN_TOOLS", "true").lower() == "true"
+    ENABLE_DEXSCREENER_TOOLS: bool = (
+        os.getenv("ENABLE_DEXSCREENER_TOOLS", "true").lower() == "true"
+    )
+    ENABLE_JUPITER_TOOLS: bool = os.getenv("ENABLE_JUPITER_TOOLS", "true").lower() == "true"
+    ENABLE_SEARCH_TOOLS: bool = os.getenv("ENABLE_SEARCH_TOOLS", "true").lower() == "true"
+
     # Encryption Configuration
     SAM_FERNET_KEY: Optional[str] = os.getenv("SAM_FERNET_KEY")
 
@@ -95,6 +104,17 @@ class Settings:
 
         # Rate limiting
         cls.RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "false").lower() == "true"
+
+        # Tool/Integration Toggles
+        cls.ENABLE_SOLANA_TOOLS = os.getenv("ENABLE_SOLANA_TOOLS", "true").lower() == "true"
+        cls.ENABLE_PUMP_FUN_TOOLS = (
+            os.getenv("ENABLE_PUMP_FUN_TOOLS", "true").lower() == "true"
+        )
+        cls.ENABLE_DEXSCREENER_TOOLS = (
+            os.getenv("ENABLE_DEXSCREENER_TOOLS", "true").lower() == "true"
+        )
+        cls.ENABLE_JUPITER_TOOLS = os.getenv("ENABLE_JUPITER_TOOLS", "true").lower() == "true"
+        cls.ENABLE_SEARCH_TOOLS = os.getenv("ENABLE_SEARCH_TOOLS", "true").lower() == "true"
 
         # Encryption
         cls.SAM_FERNET_KEY = os.getenv("SAM_FERNET_KEY")
@@ -165,6 +185,14 @@ class Settings:
         logger.info(f"  Solana RPC: {cls.SAM_SOLANA_RPC_URL}")
         logger.info(f"  Database Path: {cls.SAM_DB_PATH}")
         logger.info(f"  Rate Limiting: {'Enabled' if cls.RATE_LIMITING_ENABLED else 'Disabled'}")
+        logger.info(
+            "  Tools: Solana=%s, Pump.fun=%s, DexScreener=%s, Jupiter=%s, Search=%s",
+            "On" if cls.ENABLE_SOLANA_TOOLS else "Off",
+            "On" if cls.ENABLE_PUMP_FUN_TOOLS else "Off",
+            "On" if cls.ENABLE_DEXSCREENER_TOOLS else "Off",
+            "On" if cls.ENABLE_JUPITER_TOOLS else "Off",
+            "On" if cls.ENABLE_SEARCH_TOOLS else "Off",
+        )
         logger.info(f"  Max Transaction: {cls.MAX_TRANSACTION_SOL} SOL")
         logger.info(f"  Default Slippage: {cls.DEFAULT_SLIPPAGE}%")
         logger.info(f"  Log Level: {cls.LOG_LEVEL}")
