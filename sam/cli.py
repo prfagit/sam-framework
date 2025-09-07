@@ -569,6 +569,7 @@ async def main():
     subparsers.add_parser("health", help="System health check")
     subparsers.add_parser("maintenance", help="Database maintenance and cleanup")
     subparsers.add_parser("onboard", help="Run onboarding setup")
+    subparsers.add_parser("debug", help="Show runtime plugins and middleware")
 
     # Global arguments
     parser.add_argument(
@@ -694,6 +695,64 @@ async def main():
 
     if args.command == "onboard":
         return await run_onboarding()
+
+    if args.command == "debug":
+        # Build agent to introspect configured middlewares and registered tools
+        from importlib.metadata import entry_points
+        from .core.builder import AgentBuilder
+
+        agent = await AgentBuilder().build()
+        print(colorize("🔌 Plugins", Style.BOLD, Style.FG_CYAN))
+        try:
+            eps_tools = [e.name for e in entry_points(group="sam.plugins")]
+        except Exception:
+            eps_tools = []
+        try:
+            eps_llm = [e.name for e in entry_points(group="sam.llm_providers")]
+        except Exception:
+            eps_llm = []
+        try:
+            eps_mem = [e.name for e in entry_points(group="sam.memory_backends")]
+        except Exception:
+            eps_mem = []
+        try:
+            eps_sec = [e.name for e in entry_points(group="sam.secure_storage")]
+        except Exception:
+            eps_sec = []
+
+        print(" Entry points:")
+        print(f"  - sam.plugins: {', '.join(eps_tools) or 'none'}")
+        print(f"  - sam.llm_providers: {', '.join(eps_llm) or 'none'}")
+        print(f"  - sam.memory_backends: {', '.join(eps_mem) or 'none'}")
+        print(f"  - sam.secure_storage: {', '.join(eps_sec) or 'none'}")
+
+        env_plugins = os.getenv("SAM_PLUGINS") or ""
+        env_mem = os.getenv("SAM_MEMORY_BACKEND") or ""
+        print(" Environment:")
+        print(f"  - SAM_PLUGINS: {env_plugins or 'unset'}")
+        print(f"  - SAM_MEMORY_BACKEND: {env_mem or 'unset'}")
+
+        # Middlewares (best-effort introspection)
+        print(colorize("\n🧩 Middlewares", Style.BOLD, Style.FG_CYAN))
+        try:
+            mws = getattr(agent.tools, "_middlewares", [])
+            for mw in mws:
+                print(f"  - {mw.__class__.__name__}")
+        except Exception as e:
+            print(f"  (could not inspect middlewares: {e})")
+
+        # Tools list
+        print(colorize("\n🔧 Tools", Style.BOLD, Style.FG_CYAN))
+        for spec in agent.tools.list_specs():
+            ns = spec.get("namespace")
+            vers = spec.get("version")
+            name = spec.get("name")
+            label = name if not ns else f"{ns}/{name}"
+            if vers:
+                label = f"{label} ({vers})"
+            print(f"  - {label}")
+
+        return 0
 
     if args.command == "run":
         # FIRST: Ensure .env is loaded before checking anything

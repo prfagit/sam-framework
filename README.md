@@ -319,6 +319,73 @@ Troubleshooting
 - To inspect behavior, set `LOG_LEVEL=DEBUG` and optionally enable `logging.include_args/include_result`.
 - Rate limiting info is injected into successful tool results under `rate_limit_info`.
 
+### Config File (sam.toml)
+
+Instead of the JSON env var, you can place a TOML config file at one of these locations:
+
+- `SAM_CONFIG` env var path (highest priority)
+- `./sam.toml` (current working directory)
+- `$XDG_CONFIG_HOME/sam/sam.toml` or `~/.config/sam/sam.toml`
+
+Middleware config lives under the `[middleware]` table. The shape mirrors the JSON example above but in TOML. Example:
+
+```toml
+[middleware.logging]
+include_args = false
+include_result = false
+
+[middleware.rate_limit]
+enabled = true
+default_type = ""
+only = ["search_web", "search_news", "get_swap_quote", "jupiter_swap", "transfer_sol", "get_balance", "get_token_data", "pump_fun_buy", "pump_fun_sell"]
+
+[middleware.rate_limit.map.search_web]
+type = "search"
+identifier_field = "query"
+
+[middleware.rate_limit.map.search_news]
+type = "search"
+identifier_field = "query"
+
+[middleware.rate_limit.map.get_swap_quote]
+type = "jupiter"
+
+[middleware.rate_limit.map.jupiter_swap]
+type = "jupiter"
+
+[middleware.rate_limit.map.transfer_sol]
+type = "transfer_sol"
+
+[middleware.rate_limit.map.get_balance]
+type = "solana_rpc"
+
+[middleware.rate_limit.map.get_token_data]
+type = "solana_rpc"
+
+[middleware.rate_limit.map.pump_fun_buy]
+type = "pump_fun_buy"
+identifier_field = "mint"
+
+[middleware.rate_limit.map.pump_fun_sell]
+type = "pump_fun_sell"
+identifier_field = "mint"
+
+[[middleware.retry]]
+only = ["search_web", "search_news", "get_balance", "get_token_data"]
+max_retries = 2
+base_delay = 0.25
+
+[[middleware.retry]]
+only = ["get_swap_quote", "jupiter_swap"]
+max_retries = 3
+base_delay = 0.25
+
+[[middleware.retry]]
+only = ["pump_fun_buy", "pump_fun_sell"]
+max_retries = 2
+base_delay = 0.25
+```
+
 ## Plugin Discovery
 
 SAM can load external tools via plugins. Two mechanisms are supported:
@@ -345,7 +412,100 @@ def register(registry, agent: Optional[object] = None):
 ```toml
 [project.entry-points."sam.plugins"]
 my_plugin = "my_pkg.plugin:register"
+"""
+[project.entry-points."sam.llm_providers"]
+# Allows replacing the LLM provider factory; key must match LLM_PROVIDER
+my_provider = "my_pkg.provider:create_provider"
 ```
+
+Custom LLM provider
+
+- Implement a callable that returns an instance of `sam.core.llm_provider.LLMProvider`.
+- The callable may accept `Settings` as a single argument, or no arguments.
+
+```python
+# my_pkg/provider.py
+from sam.core.llm_provider import LLMProvider
+
+class MyProvider(LLMProvider):
+    async def chat_completion(self, messages, tools=None):
+        # implement
+        ...
+
+def create_provider(settings=None) -> LLMProvider:
+    # settings is optional; use env/config as needed
+    return MyProvider(api_key="...", model="...")
+```
+
+Additional plugin seams
+
+- Memory backend: entry points under `sam.memory_backends` (name matches your backend key; see `sam/core/memory_provider.py`).
+- Secure storage: entry points under `sam.secure_storage` to replace keyring/Fernet with a custom provider.
+
+See `examples/plugins/` and `examples/sdk/` for simple patterns.
+
+### Secure Storage Entry Point (packaged)
+
+Expose a secure storage provider via entry points (recommended for packaged plugins):
+
+```toml
+[project.entry-points."sam.secure_storage"]
+my_secure_storage = "my_pkg.secure_storage:create_storage"
+```
+
+```python
+# my_pkg/secure_storage.py
+from typing import Optional, Dict
+
+class MySecureStorage:
+    def store_private_key(self, user_id: str, private_key: str) -> bool: ...
+    def get_private_key(self, user_id: str) -> Optional[str]: ...
+    def store_api_key(self, service: str, api_key: str) -> bool: ...
+    def get_api_key(self, service: str) -> Optional[str]: ...
+    def store_wallet_config(self, user_id: str, config: Dict) -> bool: ...
+    def get_wallet_config(self, user_id: str) -> Optional[Dict]: ...
+    def test_keyring_access(self) -> Dict[str, bool]: ...
+
+def create_storage() -> MySecureStorage:
+    # Return an instance of your secure storage implementation
+    return MySecureStorage()
+```
+
+SAM will automatically use the first available `sam.secure_storage` entry point, falling back to its built‑in keyring+Fernet implementation.
+
+### ToolResult for Plugin Authors
+
+SAM normalizes tool results to include `success` and preserves existing keys. For stronger typing in your own code, you can use the optional `ToolResult` helper:
+
+```python
+from sam.core.tools import ToolResult
+
+# Success result
+res = ToolResult(success=True, data={"balance": 1.23}).to_dict()
+
+# Error result
+err = ToolResult(success=False, error="Invalid address").to_dict()
+
+# Convert a dict (e.g., handler output) to ToolResult, then back
+wrapped = ToolResult.from_raw({"quote": {...}})
+out = wrapped.to_dict()
+```
+
+Within a tool handler, you may keep returning plain dicts — SAM will normalize them and keep backward compatibility. `ToolResult` is purely for developer ergonomics when composing logic in larger plugins.
+
+Debugging
+
+- Show loaded plugins, middlewares, and tool list:
+
+```bash
+uv run sam debug
+```
+
+Example plugins in this repo
+
+- `examples.plugins.simple_plugin.plugin`: registers `echo` and `time_now` tools.
+- `examples.plugins.memory_mock.backend`: in-memory memory backend (env override `SAM_MEMORY_BACKEND`).
+- `examples.plugins.secure_storage_dummy.plugin`: in-memory secure storage (for demo only; not secure).
 
 Environment variable usage
 

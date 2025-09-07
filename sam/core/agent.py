@@ -6,18 +6,25 @@ from .tools import ToolRegistry
 from .middleware import ToolContext
 from .llm_provider import LLMProvider
 from .memory import MemoryManager
+from .events import EventBus, get_event_bus
 
 logger = logging.getLogger(__name__)
 
 
 class SAMAgent:
     def __init__(
-        self, llm: LLMProvider, tools: ToolRegistry, memory: MemoryManager, system_prompt: str
+        self,
+        llm: LLMProvider,
+        tools: ToolRegistry,
+        memory: MemoryManager,
+        system_prompt: str,
+        event_bus: Optional[EventBus] = None,
     ):
         self.llm = llm
         self.tools = tools
         self.memory = memory
         self.system_prompt = system_prompt
+        self.events = event_bus or get_event_bus()
         self.tool_callback: Optional[Callable] = None  # For CLI tool usage feedback
 
         # Usage tracking
@@ -77,6 +84,20 @@ class SAMAgent:
                     self.session_stats["total_tokens"] += resp.usage.get("total_tokens", 0)
 
                 # Check if LLM wants to call tools
+                # Emit token usage event if available
+                try:
+                    if resp.usage:
+                        await self.events.publish(
+                            "llm.usage",
+                            {
+                                "session_id": session_id,
+                                "usage": resp.usage,
+                                "context_length": self.session_stats.get("context_length", 0),
+                            },
+                        )
+                except Exception:
+                    pass
+
                 if hasattr(resp, "tool_calls") and resp.tool_calls:
                     logger.debug(f"LLM requested {len(resp.tool_calls)} tool calls")
 
@@ -198,6 +219,19 @@ class SAMAgent:
                             tool_call_history.pop(0)
 
                         logger.info(f"Calling tool: {tool_name}")
+                        # Publish tool called event
+                        try:
+                            await self.events.publish(
+                                "tool.called",
+                                {
+                                    "session_id": session_id,
+                                    "name": tool_name,
+                                    "args": tool_args,
+                                    "tool_call_id": tool_call_id,
+                                },
+                            )
+                        except Exception:
+                            pass
 
                         # Notify CLI about tool usage if callback is set
                         if self.tool_callback:
@@ -213,6 +247,19 @@ class SAMAgent:
 
                         if isinstance(result, dict) and "error" in result:
                             error_count += 1
+                            try:
+                                await self.events.publish(
+                                    "tool.failed",
+                                    {
+                                        "session_id": session_id,
+                                        "name": tool_name,
+                                        "args": tool_args,
+                                        "result": result,
+                                        "tool_call_id": tool_call_id,
+                                    },
+                                )
+                            except Exception:
+                                pass
 
                             # Detect structured error format
                             if isinstance(result.get("error"), bool) and result.get("error"):
@@ -273,6 +320,19 @@ class SAMAgent:
                                 messages.append({"role": "system", "content": guidance})
                         else:
                             error_count = 0  # Reset error count on successful tool call
+                            try:
+                                await self.events.publish(
+                                    "tool.succeeded",
+                                    {
+                                        "session_id": session_id,
+                                        "name": tool_name,
+                                        "args": tool_args,
+                                        "result": result,
+                                        "tool_call_id": tool_call_id,
+                                    },
+                                )
+                            except Exception:
+                                pass
 
                         # Add tool result to message chain with tool_call_id
                         messages.append(

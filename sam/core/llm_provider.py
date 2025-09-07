@@ -5,6 +5,7 @@ import json
 import logging
 from ..utils.http_client import get_session
 from ..config.settings import Settings
+from importlib.metadata import entry_points
 
 logger = logging.getLogger(__name__)
 
@@ -558,6 +559,27 @@ class AnthropicProvider(LLMProvider):
 def create_llm_provider() -> LLMProvider:
     """Factory to create the configured LLM provider from Settings."""
     provider = Settings.LLM_PROVIDER
+
+    # Try external provider plugins first (entry points)
+    try:
+        eps = entry_points(group="sam.llm_providers")  # type: ignore[arg-type]
+        for ep in eps:
+            if ep.name == provider:
+                try:
+                    factory = ep.load()
+                    try:
+                        inst = factory(Settings)  # prefer settings-aware factories
+                    except TypeError:
+                        inst = factory()
+                    if isinstance(inst, LLMProvider):
+                        logger.info(f"Loaded external LLM provider via plugin: {provider}")
+                        return inst
+                except Exception as e:
+                    logger.warning(f"Failed to load LLM provider plugin '{provider}': {e}")
+                    break
+    except Exception:
+        # Safe to ignore if no entry points available
+        pass
 
     if provider == "openai":
         return OpenAICompatibleProvider(

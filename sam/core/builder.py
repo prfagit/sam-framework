@@ -6,11 +6,12 @@ from typing import Optional, Dict, Any, List, Set
 
 from .agent import SAMAgent
 from .llm_provider import create_llm_provider
-from .memory import MemoryManager
+from .memory_provider import create_memory_manager
 from .tools import ToolRegistry
 from .middleware import LoggingMiddleware, RateLimitMiddleware, RetryMiddleware
 from ..config.prompts import SOLANA_AGENT_PROMPT
 from ..config.settings import Settings
+from ..config.config_loader import load_middleware_config
 from ..utils.crypto import decrypt_private_key
 from ..utils.secure_storage import get_secure_storage
 from ..utils.http_client import cleanup_http_client
@@ -52,14 +53,15 @@ class AgentBuilder:
         llm = create_llm_provider()
 
         # Memory
-        memory = MemoryManager(Settings.SAM_DB_PATH)
-        await memory.initialize()
+        memory = create_memory_manager(Settings.SAM_DB_PATH)
+        await getattr(memory, "initialize")()
 
         # Tool registry
         tools = ToolRegistry()
 
         # Config-driven middleware with safe defaults
         mw_config_raw = os.getenv("SAM_MIDDLEWARE_JSON")
+        file_mw_cfg = load_middleware_config() if not mw_config_raw else None
 
         def _to_set(v: Any) -> Set[str]:
             if isinstance(v, list):
@@ -141,6 +143,71 @@ class AgentBuilder:
                 logger.info("Configured middlewares from SAM_MIDDLEWARE_JSON")
             except Exception as e:
                 logger.warning(f"Invalid SAM_MIDDLEWARE_JSON, falling back to defaults: {e}")
+                tools.add_middleware(LoggingMiddleware(include_args=False, include_result=False))
+                if Settings.RATE_LIMITING_ENABLED:
+                    tools.add_middleware(
+                        RateLimitMiddleware(
+                            limit_type_fn=lambda n: "search"
+                            if n in {"search_web", "search_news"}
+                            else (
+                                "jupiter"
+                                if n in {"get_swap_quote", "jupiter_swap"}
+                                else (
+                                    "transfer_sol"
+                                    if n == "transfer_sol"
+                                    else (
+                                        "solana_rpc"
+                                        if n in {"get_balance", "get_token_data"}
+                                        else n
+                                    )
+                                )
+                            ),
+                            identifier_fn=lambda n, a, c: (
+                                a.get("query", n)
+                                if n in {"search_web", "search_news"}
+                                else (
+                                    a.get("mint", n)
+                                    if n in {"pump_fun_buy", "pump_fun_sell"}
+                                    else n
+                                )
+                            ),
+                            only={
+                                "search_web",
+                                "search_news",
+                                "get_swap_quote",
+                                "jupiter_swap",
+                                "pump_fun_buy",
+                                "pump_fun_sell",
+                                "get_balance",
+                                "get_token_data",
+                                "transfer_sol",
+                            },
+                        )
+                    )
+                tools.add_middleware(
+                    RetryMiddleware(
+                        max_retries=2,
+                        base_delay=0.25,
+                        only={"search_web", "search_news", "get_balance", "get_token_data"},
+                    )
+                )
+                tools.add_middleware(
+                    RetryMiddleware(
+                        max_retries=3, base_delay=0.25, only={"get_swap_quote", "jupiter_swap"}
+                    )
+                )
+                tools.add_middleware(
+                    RetryMiddleware(
+                        max_retries=2, base_delay=0.25, only={"pump_fun_buy", "pump_fun_sell"}
+                    )
+                )
+        elif file_mw_cfg:
+            try:
+                for mw in _build_middlewares_from_config(file_mw_cfg):
+                    tools.add_middleware(mw)
+                logger.info("Configured middlewares from sam.toml")
+            except Exception as e:
+                logger.warning(f"Invalid middleware config in sam.toml, using defaults: {e}")
                 tools.add_middleware(LoggingMiddleware(include_args=False, include_result=False))
                 if Settings.RATE_LIMITING_ENABLED:
                     tools.add_middleware(

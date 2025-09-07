@@ -3,6 +3,7 @@ import os
 import logging
 from typing import Optional, Dict
 from cryptography.fernet import Fernet
+from importlib.metadata import entry_points
 import base64
 import json
 
@@ -317,7 +318,23 @@ def get_secure_storage() -> SecureStorage:
     # If env key changed since last use, recreate to avoid stale Fernet
     env_key = os.getenv("SAM_FERNET_KEY")
     if _secure_storage is None:
-        _secure_storage = SecureStorage()
+        # Try plugin backend first
+        try:
+            eps = entry_points(group="sam.secure_storage")  # type: ignore[arg-type]
+            for ep in eps:
+                # We only support a single secure storage plugin; pick the first
+                try:
+                    factory = ep.load()
+                    inst = factory()  # expected to return SecureStorage-like object
+                    _secure_storage = inst if inst is not None else SecureStorage()
+                    logger.info(f"Loaded secure storage via plugin: {ep.name}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed loading secure storage plugin {ep.name}: {e}")
+            if _secure_storage is None:
+                _secure_storage = SecureStorage()
+        except Exception:
+            _secure_storage = SecureStorage()
     else:
         try:
             if getattr(_secure_storage, "current_key_str", None) != env_key and env_key is not None:

@@ -1,5 +1,6 @@
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
 from pydantic import BaseModel, ValidationError
+from dataclasses import dataclass, field
 from .middleware import Middleware, ToolContext, ToolCall
 
 
@@ -21,7 +22,7 @@ class Tool:
         handler: Handler,
         *,
         input_model: Optional[Type[BaseModel]] = None,
-    ):
+    ) -> None:
         """A tool with schema and optional Pydantic input validation.
 
         input_model is optional and non-breaking. If provided, ToolRegistry
@@ -44,48 +45,10 @@ class ToolRegistry:
     def add_middleware(self, mw: Middleware) -> None:
         self._middlewares.append(mw)
 
-    def _derive_parameters_from_model(self, model_cls: Type[BaseModel]) -> Dict[str, Any]:
-        """Derive JSON schema parameters for OpenAI tool format from a Pydantic model."""
-        try:
-            schema = model_cls.model_json_schema()
-            props = schema.get("properties", {}) or {}
-            required = schema.get("required", []) or []
-            return {"type": "object", "properties": props, "required": required}
-        except Exception:
-            # Fallback minimal object shape
-            return {"type": "object", "properties": {}, "required": []}
-
-    def list_specs(self) -> List[Dict[str, Any]]:
-        # Emit tool specs; if input_model is provided and schema lacks parameters,
-        # derive parameters to reduce duplication and keep providers happy.
-        specs: List[Dict[str, Any]] = []
-        for t in self._tools.values():
-            spec = t.spec.model_dump()
-            try:
-                if t.input_model is not None:
-                    input_schema = spec.get("input_schema")
-                    derived = self._derive_parameters_from_model(t.input_model)
-
-                    if isinstance(input_schema, dict):
-                        if "parameters" in input_schema:
-                            params = input_schema.get("parameters")
-                            if not params:
-                                input_schema["parameters"] = derived
-                        elif not ("type" in input_schema and "properties" in input_schema):
-                            # Unknown shape: wrap derived under parameters to match OpenAI tool format
-                            spec["input_schema"] = {"parameters": derived}
-                        # else: already a root JSON schema with type/properties; leave as-is
-                    else:
-                        # Not a dict or missing: provide derived parameters wrapper
-                        spec["input_schema"] = {"parameters": derived}
-            except Exception:
-                pass
-            specs.append(spec)
-        return specs
-
     async def call(
         self, name: str, args: Dict[str, Any], context: Optional[ToolContext] = None
     ) -> Dict[str, Any]:
+        """Call a registered tool by name with the given arguments and context."""
         if name not in self._tools:
             # Normalized error shape (non-breaking: keep top-level 'error')
             return {
@@ -169,3 +132,79 @@ class ToolRegistry:
                 "error": f"Normalization failed: {str(e)}",
                 "error_detail": {"code": "normalization_error", "message": str(e)},
             }
+
+    def _derive_parameters_from_model(self, model_cls: Type[BaseModel]) -> Dict[str, Any]:
+        """Derive JSON schema parameters for OpenAI tool format from a Pydantic model."""
+        try:
+            schema = model_cls.model_json_schema()
+            props = schema.get("properties", {}) or {}
+            required = schema.get("required", []) or []
+            return {"type": "object", "properties": props, "required": required}
+        except Exception:
+            # Fallback minimal object shape
+            return {"type": "object", "properties": {}, "required": []}
+
+    def list_specs(self) -> List[Dict[str, Any]]:
+        # Emit tool specs; if input_model is provided and schema lacks parameters,
+        # derive parameters to reduce duplication and keep providers happy.
+        specs: List[Dict[str, Any]] = []
+        for t in self._tools.values():
+            spec = t.spec.model_dump()
+            try:
+                if t.input_model is not None:
+                    input_schema = spec.get("input_schema")
+                    derived = self._derive_parameters_from_model(t.input_model)
+
+                    if isinstance(input_schema, dict):
+                        if "parameters" in input_schema:
+                            params = input_schema.get("parameters")
+                            if not params:
+                                input_schema["parameters"] = derived
+                        elif not ("type" in input_schema and "properties" in input_schema):
+                            # Unknown shape: wrap derived under parameters to match OpenAI tool format
+                            spec["input_schema"] = {"parameters": derived}
+                        # else: already a root JSON schema with type/properties; leave as-is
+                    else:
+                        # Not a dict or missing: provide derived parameters wrapper
+                        spec["input_schema"] = {"parameters": derived}
+            except Exception:
+                pass
+            specs.append(spec)
+        return specs
+
+
+@dataclass
+class ToolResult:
+    """Typed wrapper for normalized tool results.
+
+    This is optional helper for developers. The framework continues to
+    pass dictionaries externally for backward compatibility.
+    """
+
+    success: bool
+    data: Dict[str, Any] = field(default_factory=dict)
+    error: Optional[str] = None
+    error_detail: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        out = dict(self.data)
+        out["success"] = self.success
+        if self.error is not None:
+            out["error"] = self.error
+        if self.error_detail is not None:
+            out["error_detail"] = self.error_detail
+        return out
+
+    @staticmethod
+    def from_raw(raw: Dict[str, Any]) -> "ToolResult":
+        if isinstance(raw, dict) and raw.get("error"):
+            return ToolResult(
+                success=False,
+                data={
+                    k: v for k, v in raw.items() if k not in {"error", "error_detail", "success"}
+                },
+                error=str(raw.get("error")),
+                error_detail=raw.get("error_detail"),
+            )
+        return ToolResult(success=True, data=dict(raw or {}))
+
