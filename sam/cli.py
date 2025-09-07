@@ -12,6 +12,7 @@ import argparse
 import logging
 import shutil
 import textwrap
+import platform
 from typing import Optional
 
 try:
@@ -49,6 +50,22 @@ from .utils.ascii_loader import show_sam_intro
 # Note: integrations are now wired inside AgentBuilder
 
 logger = logging.getLogger(__name__)
+
+
+# Optional interactive UI (menus, prompts) — lazily imported to avoid hard deps
+_INQ = None  # type: ignore
+
+def _ensure_inquirer() -> bool:
+    global _INQ
+    if _INQ is not None:
+        return True
+    try:
+        import inquirer as _inquirer  # type: ignore
+
+        _INQ = _inquirer
+        return True
+    except Exception:
+        return False
 
 
 # Tool name mappings for friendly display
@@ -217,7 +234,52 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
     )
     print()
 
+    # Subtle status strip with quick hints
+    try:
+        provider = Settings.LLM_PROVIDER
+    except Exception:
+        provider = "unknown"
+    try:
+        w = getattr(agent, "_solana_tools", None)
+        addr = getattr(w, "wallet_address", None) if w else None
+        short_addr = (addr[:4] + "…" + addr[-4:]) if addr and len(addr) > 8 else (addr or "unset")
+    except Exception:
+        short_addr = "unset"
+    print(
+        colorize(
+            f"[{provider}]  wallet:{short_addr}  session:{session_id}  (ESC: interrupt • Ctrl+C: exit)",
+            Style.DIM,
+            Style.FG_GRAY,
+        )
+    )
+    print()
+
     # Command helpers
+    MAX_CONTEXT_MSGS = 80  # reasonable working window before auto-compaction
+
+    def model_short() -> str:
+        try:
+            if Settings.LLM_PROVIDER == "openai":
+                return Settings.OPENAI_MODEL
+            if Settings.LLM_PROVIDER == "anthropic":
+                return Settings.ANTHROPIC_MODEL
+            if Settings.LLM_PROVIDER == "xai":
+                return Settings.XAI_MODEL
+            if Settings.LLM_PROVIDER == "local":
+                return Settings.LOCAL_LLM_MODEL
+            if Settings.LLM_PROVIDER == "openai_compat":
+                return Settings.OPENAI_MODEL
+            return Settings.LLM_PROVIDER
+        except Exception:
+            return "model"
+
+    def wallet_short() -> str:
+        try:
+            w = getattr(agent, "_solana_tools", None)
+            addr = getattr(w, "wallet_address", None) if w else None
+            return (addr[:4] + "…" + addr[-4:]) if addr and len(addr) > 8 else (addr or "unset")
+        except Exception:
+            return "unset"
     async def show_tools():
         specs = agent.tools.list_specs()
         print()
@@ -308,31 +370,86 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
         print(banner("SAM"))
 
     def show_context_info():
-        """Display context info below the input field."""
+        """Show compact status line beneath prompt area (no tokens for now)."""
         stats = agent.session_stats
-        context_length = stats.get("context_length", 0)
-        total_tokens = stats.get("total_tokens", 0)
-        requests = stats.get("requests", 0)
+        context_length = int(stats.get("context_length", 0) or 0)
+        pct = min(100, int((context_length / MAX_CONTEXT_MSGS) * 100)) if MAX_CONTEXT_MSGS else 0
+        line = f"model:{model_short()} • ctx:{pct}% ({context_length}/{MAX_CONTEXT_MSGS}) • wallet:{wallet_short()}"
+        print(colorize(f"  {line}", Style.DIM, Style.FG_GRAY))
 
-        info_parts = []
-        if context_length > 0:
-            info_parts.append(f"Context: {context_length} msgs")
-        if total_tokens > 0:
-            info_parts.append(f"Tokens: {total_tokens:,}")
-        if requests > 0:
-            info_parts.append(f"Requests: {requests}")
+    # Unified interactive helpers (inquirer when available)
+    try:
+        from typing import Optional as _Opt  # local alias to avoid top imports noise
+    except Exception:
+        pass
 
-        if info_parts:
-            info_str = " • ".join(info_parts)
-            print(colorize(f"  {info_str}", Style.DIM, Style.FG_GRAY))
+    def interactive_select(title: str, options: list[tuple[str, str]]):
+        if _ensure_inquirer():
+            try:
+                choice_map = {label: value for label, value in options}
+                choice = _INQ.list_input(title, choices=list(choice_map.keys()))  # type: ignore
+                return choice_map.get(choice)
+            except KeyboardInterrupt:
+                return None
+            except Exception as e:
+                print(colorize(f"❌ Menu error: {e}", Style.FG_YELLOW))
+                return None
+        # No numeric fallback to keep UX consistent with settings
+        print(colorize("Interactive menu requires 'inquirer'. Type commands or run /help.", Style.FG_YELLOW))
+        return None
 
+    def interactive_text(title: str, default: str = ""):
+        if _ensure_inquirer():
+            try:
+                return _INQ.text(title, default=default)  # type: ignore
+            except KeyboardInterrupt:
+                return None
+            except Exception:
+                pass
+        prompt = f"{title}"
+        if default:
+            prompt += f" (default: {default})"
+        prompt += ": "
+        val = input(prompt).strip()
+        return val or default
+
+    def interactive_confirm(title: str, default: bool = False) -> bool:
+        if _ensure_inquirer():
+            try:
+                return bool(_INQ.confirm(title, default=default))  # type: ignore
+            except KeyboardInterrupt:
+                return False
+            except Exception:
+                pass
+        ans = input(f"{title} (Y/n): ").strip().lower()
+        if ans == "":
+            return default
+        return ans in {"y", "yes"}
+
+    # Keep input simple and stable across platforms
+
+    last_compacted_at = 0
     try:
         while True:
             try:
-                show_context_info()
-                user_input = input(
-                    colorize("🤖 ", Style.FG_CYAN) + colorize("» ", Style.DIM)
-                ).strip()
+                # Auto-compact when context exceeds window
+                try:
+                    ctx_len = int(agent.session_stats.get("context_length", 0) or 0)
+                    if ctx_len >= MAX_CONTEXT_MSGS and ctx_len != last_compacted_at:
+                        async with Spinner("Auto-compacting conversation"):
+                            msg = await agent.compact_conversation(session_id)
+                        print(colorize(f"📋 {msg}", Style.FG_GREEN))
+                        # Update marker to avoid repeated compaction in same state
+                        last_compacted_at = int(agent.session_stats.get("context_length", 0) or ctx_len)
+                except Exception:
+                    pass
+
+                prompt_text = colorize("🤖 ", Style.FG_CYAN) + colorize("» ", Style.DIM)
+                user_input = input(prompt_text).strip()
+                # Render status just below the input line for a cleaner look
+                if user_input:
+                    show_context_info()
+                    print()  # spacer before handling output/menus
 
                 if not user_input:
                     continue
@@ -341,7 +458,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                 if user_input in ("exit", "quit", "bye", "/exit", "/quit"):
                     print("👋 Goodbye!")
                     break
-                if user_input in ("help", "/help"):
+                if user_input in ("help", "/help", "/?"):
                     print_help()
                     continue
                 if user_input in ("/tools",):
@@ -362,8 +479,152 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                     except Exception as e:
                         print(f"❌ Error with interactive settings: {e}")
                     continue
+                # Slash command palette (unified style)
+                if user_input.strip() == "/":
+                    selection = interactive_select(
+                        "Select a command:",
+                        [
+                            ("🔧 List tools", "tools"),
+                            ("⚙️  Show configuration", "config"),
+                            ("🛠️  Interactive settings", "settings"),
+                            ("📡 Provider actions", "providers"),
+                            ("🧹 Clear screen", "clear"),
+                            ("🧠 Clear conversation context", "clear_context"),
+                            ("🗜️  Compact conversation", "compact"),
+                            ("👛 Show wallet", "wallet"),
+                            ("💰 Check balance", "balance"),
+                            ("❓ Help", "help"),
+                            ("🚪 Exit", "exit"),
+                        ],
+                    )
+                    if not selection:
+                        continue
+
+                    if selection == "tools":
+                        await show_tools()
+                    elif selection == "config":
+                        show_config()
+                    elif selection == "settings":
+                        try:
+                            from .interactive_settings import run_interactive_settings
+
+                            if run_interactive_settings():
+                                print(
+                                    "Settings saved! Please restart SAM for changes to take effect."
+                                )
+                                print("Use: Ctrl+C to exit, then run 'uv run sam' again")
+                            else:
+                                print("No changes made.")
+                        except Exception as e:
+                            print(f"❌ Error with interactive settings: {e}")
+                    elif selection == "providers":
+                        sel2 = interactive_select(
+                            "Provider actions:",
+                            [
+                                ("📡 List providers", "list"),
+                                ("🔎 Show current provider", "current"),
+                                ("🧪 Test provider", "test"),
+                                ("🔄 Switch provider", "switch"),
+                            ],
+                        )
+                        if sel2 == "list":
+                            cmd_list_providers()
+                        elif sel2 == "current":
+                            cmd_show_current_provider()
+                        elif sel2 == "test":
+                            await cmd_test_provider(None)
+                        elif sel2 == "switch":
+                            name = interactive_select(
+                                "Switch to provider:",
+                                [
+                                    ("openai", "openai"),
+                                    ("anthropic", "anthropic"),
+                                    ("xai", "xai"),
+                                    ("openai_compat", "openai_compat"),
+                                    ("local", "local"),
+                                ],
+                            )
+                            if name:
+                                result = cmd_switch_provider(name)
+                                if result == 0:
+                                    print(
+                                        colorize(
+                                            "🔄 Restart SAM to use the new provider", Style.FG_YELLOW
+                                        )
+                                    )
+                    elif selection == "clear":
+                        clear_screen()
+                    elif selection == "clear_context":
+                        async with Spinner("Clearing conversation context"):
+                            result = await agent.clear_context(session_id)
+                        print(colorize("✨ " + result, Style.FG_GREEN))
+                    elif selection == "compact":
+                        async with Spinner("Compacting conversation"):
+                            result = await agent.compact_conversation(session_id)
+                        print(colorize("📋 " + result, Style.FG_GREEN))
+                    elif selection == "wallet":
+                        w = getattr(agent, "_solana_tools", None)
+                        addr = getattr(w, "wallet_address", None) if w else None
+                        if addr:
+                            print(colorize(hr(), Style.FG_GRAY))
+                            print(f" Wallet: {addr}")
+                            print(colorize(hr(), Style.FG_GRAY))
+                        else:
+                            print(colorize("No wallet configured.", Style.FG_YELLOW))
+                    elif selection == "balance":
+                        w = getattr(agent, "_solana_tools", None)
+                        if not w:
+                            print(colorize("Solana tools unavailable.", Style.FG_YELLOW))
+                        else:
+                            addr_in = interactive_text(
+                                "Address (leave blank for default wallet):", ""
+                            )
+                            async with Spinner("Querying balance"):
+                                result = await w.get_balance(addr_in or None)
+                            print(colorize(hr(), Style.FG_GRAY))
+                            print(wrap(str(result)))
+                            print(colorize(hr(), Style.FG_GRAY))
+                    elif selection == "help":
+                        print_help()
+                    elif selection == "exit":
+                        print("👋 Goodbye!")
+                        break
+                    continue
                 if user_input in ("/provider", "/providers"):
-                    cmd_list_providers()
+                    sel = interactive_select(
+                        "Provider actions:",
+                        [
+                            ("📡 List providers", "list"),
+                            ("🔎 Show current provider", "current"),
+                            ("🧪 Test provider", "test"),
+                            ("🔄 Switch provider", "switch"),
+                        ],
+                    )
+                    if sel == "list":
+                        cmd_list_providers()
+                    elif sel == "current":
+                        cmd_show_current_provider()
+                    elif sel == "test":
+                        await cmd_test_provider(None)
+                    elif sel == "switch":
+                        name = interactive_select(
+                            "Switch to provider:",
+                            [
+                                ("openai", "openai"),
+                                ("anthropic", "anthropic"),
+                                ("xai", "xai"),
+                                ("openai_compat", "openai_compat"),
+                                ("local", "local"),
+                            ],
+                        )
+                        if name:
+                            result = cmd_switch_provider(name)
+                            if result == 0:
+                                print(
+                                    colorize(
+                                        "🔄 Restart SAM to use the new provider", Style.FG_YELLOW
+                                    )
+                                )
                     continue
                 if user_input.startswith("/switch "):
                     provider = user_input.split(" ", 1)[1] if len(user_input.split(" ")) > 1 else ""
@@ -389,7 +650,6 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                         result = await agent.compact_conversation(session_id)
                     print(colorize("📋 " + result, Style.FG_GREEN))
                     continue
-
                 # Diagnostics: /wallet and /balance [address]
                 if user_input in ("/wallet",):
                     w = getattr(agent, "_solana_tools", None)
@@ -404,15 +664,22 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                 if user_input.startswith("/balance"):
                     parts = user_input.split()
                     address = parts[1] if len(parts) > 1 else None
+                    if not address:
+                        address = interactive_text("Address (leave blank for default):", "")
                     w = getattr(agent, "_solana_tools", None)
                     if not w:
                         print(colorize("Solana tools unavailable.", Style.FG_YELLOW))
                         continue
                     async with Spinner("Querying balance"):
-                        result = await w.get_balance(address)
+                        result = await w.get_balance(address or None)
                     print(colorize(hr(), Style.FG_GRAY))
                     print(wrap(str(result)))
                     print(colorize(hr(), Style.FG_GRAY))
+                    continue
+
+                # Unknown slash command → show help
+                if user_input.startswith("/"):
+                    print_help()
                     continue
 
                 # Process user input through agent with enhanced spinner
@@ -425,13 +692,63 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                         display_name = TOOL_DISPLAY_NAMES.get(tool_name, f"🔧 {tool_name}")
                         current_spinner.update_status(display_name)
 
-                async with Spinner("🤔 Thinking") as spinner:
+                # Run agent in a task we can cancel via ESC
+                async def _listen_for_escape(cancel_task: asyncio.Task):
+                    """Listen for ESC key and cancel the current task. Portable best-effort."""
+                    try:
+                        if os.name == "nt":
+                            import msvcrt  # type: ignore
+                            while not cancel_task.done():
+                                if msvcrt.kbhit():
+                                    ch = msvcrt.getch()
+                                    if ch in (b"\x1b",):  # ESC
+                                        cancel_task.cancel()
+                                        return
+                                await asyncio.sleep(0.03)
+                        else:
+                            import termios
+                            import tty
+                            import select
+
+                            fd = sys.stdin.fileno()
+                            old_settings = termios.tcgetattr(fd)
+                            try:
+                                tty.setcbreak(fd)
+                                while not cancel_task.done():
+                                    r, _, _ = select.select([sys.stdin], [], [], 0.05)
+                                    if r:
+                                        ch = sys.stdin.read(1)
+                                        if ch == "\x1b":  # ESC
+                                            cancel_task.cancel()
+                                            return
+                                    await asyncio.sleep(0.01)
+                            finally:
+                                # Restore terminal settings
+                                try:
+                                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        # Fallback: do nothing if listener fails
+                        return
+
+                async with Spinner("🤔 Thinking — press ESC to interrupt") as spinner:
                     current_spinner = spinner
                     agent.tool_callback = tool_callback
+                    task = asyncio.create_task(agent.run(user_input, session_id))
+                    esc_task = asyncio.create_task(_listen_for_escape(task))
                     try:
-                        response = await agent.run(user_input, session_id)
+                        response = await task
+                    except asyncio.CancelledError:
+                        print(colorize("\n⏹️  Interrupted.", Style.FG_YELLOW))
+                        continue
                     finally:
                         agent.tool_callback = None
+                        # Ensure listener stops
+                        try:
+                            esc_task.cancel()
+                        except Exception:
+                            pass
 
                 # Render response in a clean block with better formatting
                 print()
@@ -443,8 +760,8 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                 print()
 
             except KeyboardInterrupt:
-                print(colorize("\n🫡 Later!", Style.FG_CYAN))
-                break
+                # Exit immediately on Ctrl+C as requested
+                raise
             except EOFError:
                 break
             except Exception as e:
@@ -479,6 +796,11 @@ def print_help():
     print(f"  {colorize('/clear-context', Style.FG_GREEN)} Clear conversation context")
     print(f"  {colorize('/compact', Style.FG_GREEN)}       Compact conversation history")
     print(f"  {colorize('exit', Style.FG_GREEN)}           Exit SAM")
+    print()
+    print(colorize("⌨️  Shortcuts", Style.BOLD, Style.FG_CYAN))
+    print("  • ESC: interrupt current agent run")
+    print("  • Ctrl+C: exit immediately")
+    print("  • '/': show commands")
     print()
     print(colorize("💡 Try saying:", Style.BOLD, Style.FG_CYAN))
     print("   • check balance")

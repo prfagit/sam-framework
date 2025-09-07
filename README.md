@@ -1,4 +1,6 @@
-# SAM Framework
+# 🤖 SAM Framework
+
+<div align="center">
 
 ```
 ⠀⠀⠀⢘⠀⡂⢠⠆⠀⡰⠀⡀⢀⣠⣶⣦⣶⣶⣶⣶⣾⣿⣿⡿⢀⠈⢐⠈⠀⠀
@@ -21,31 +23,95 @@
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠓⠈⠙⠙⠋⠉⠁⠀⠀⠀⠀⠀⠀⠀⡂⠠⠤⢶
 ```
 
-**Solana Agent Middleware** - AI-powered framework for Solana blockchain operations.
+**Solana Agent Middleware** - Production-ready AI agent framework for blockchain operations
 
-Created by [@prfa](https://twitter.com/prfa) • [@prfagit](https://github.com/prfagit) • [prfa.me](https://prfa.me)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/sam-framework)](https://pypi.org/project/sam-framework/)
+[![Tests](https://img.shields.io/badge/Tests-Passing-green.svg)](tests/)
 
-## What is SAM?
+*Framework for building autonomous AI agents that interact with the Solana blockchain ecosystem*
 
-SAM is an AI agent framework for Solana blockchain operations. It provides 15 production-ready tools for:
+</div>
 
-- **Automated Trading**: Execute trades on Pump.fun and Jupiter
-- **Portfolio Management**: Track balances and transaction history
-- **Market Data**: Real-time data from DexScreener
-- **Web Search**: Query information using Brave Search API
-- **Risk Management**: Transaction validation and safety limits
+---
 
-## Key Features
+## 📋 Table of Contents
 
-- **15 Production-Ready Tools** for Solana ecosystem operations
-- **Secure Key Management** with Fernet encryption and OS keyring
-- **Async Architecture** optimized for high-performance trading
-- **Persistent Memory** with conversation context and trade history
-- **Rate Limiting & Safety** configurable protection against abuse
-- **Clean CLI Interface** with comprehensive command suite
-- **Real Blockchain Integration** - live operations only
+- [🔍 Overview](#-overview)
+- [⚡ Key Features](#-key-features)
+- [🚀 Quick Start](#-quick-start)
+- [🛠️ Tool Ecosystem](#-tool-ecosystem)
+- [🏗️ Architecture](#-architecture)
+- [🔧 Configuration](#-configuration)
+- [🔌 Plugin System](#-plugin-system)
+- [🛡️ Security](#-security)
+- [📊 Development](#-development)
+- [📚 Documentation](#-documentation)
 
-## Quick Start
+---
+
+## 🔍 Overview
+
+SAM Framework provides a production-ready infrastructure for building AI agents that interact with the Solana blockchain ecosystem. The framework implements an event-driven architecture with plugin support, enabling automated trading, portfolio management, market data analysis, and web research capabilities.
+
+### Core Capabilities
+
+| Category | Description | Tools |
+|----------|-------------|-------|
+| 🤖 **Agent Engine** | Multi-LLM orchestration with advanced tool calling | OpenAI, Anthropic, xAI, Local |
+| 🛠️ **Tool Registry** | Production-ready integrations with middleware | 15+ tools |
+| 📡 **Event System** | Async pub/sub messaging for component communication | Real-time streaming |
+| 🔌 **Plugin SDK** | Extensible architecture for custom tools | Entry point discovery |
+| 💾 **Memory System** | Persistent conversation context with compression | SQLite-based |
+| 🔒 **Security Layer** | Encrypted key management and validation | Fernet + OS keyring |
+
+### Use Cases
+
+- **Automated Trading**: Execute trades on Pump.fun and Jupiter DEX
+- **Portfolio Management**: Monitor balances and transaction history
+- **Market Research**: Real-time data from DexScreener
+- **Web Intelligence**: Search and news aggregation
+- **Transaction Automation**: Safety-controlled blockchain operations
+
+---
+
+## ⚡ Key Features
+
+<div align="center">
+
+### 🤖 Agent Architecture
+| Feature | Description |
+|---------|-------------|
+| **Multi-LLM Support** | OpenAI, Anthropic, xAI, and local models |
+| **Advanced Tool Calling** | Loop prevention and error recovery |
+| **Event-Driven Design** | Async pub/sub messaging system |
+| **Session Persistence** | SQLite-based conversation context |
+| **Async Optimization** | uvloop integration for performance |
+
+### 🛠️ Tool Ecosystem
+| Feature | Description |
+|---------|-------------|
+| **15+ Production Tools** | Complete Solana ecosystem coverage |
+| **Plugin Architecture** | Extensible with entry point discovery |
+| **Middleware Pipeline** | Configurable logging, rate limiting, retries |
+| **SDK Integration** | Programmatic agent construction |
+| **Error Handling** | Structured error responses and recovery |
+
+### 🔒 Security & Safety
+| Feature | Description |
+|---------|-------------|
+| **Fernet Encryption** | AES-128 encryption for sensitive data |
+| **OS Keyring Integration** | System-level credential storage |
+| **Transaction Validation** | Pre-execution safety checks |
+| **Rate Limiting** | Configurable request throttling |
+| **Address Validation** | Solana address format verification |
+
+</div>
+
+---
+
+## 🚀 Quick Start
 
 ### Installation
 
@@ -55,204 +121,235 @@ cd sam-framework
 uv sync
 ```
 
-### Configuration
+### Setup Options
 
-Create a `.env` file and choose your LLM provider. You can also run `uv run sam onboard` to be guided interactively.
+<details>
+<summary><strong>🎯 Interactive Onboarding (Recommended)</strong></summary>
 
 ```bash
-# Choose provider: openai (default), anthropic, xai, openai_compat, local
+uv run sam onboard
+```
+
+**Configures:**
+- LLM provider selection and API key setup
+- Wallet private key import (encrypted storage)
+- Environment configuration
+- Tool enablement preferences
+
+</details>
+
+<details>
+<summary><strong>⚙️ Manual Configuration</strong></summary>
+
+Create `.env` file:
+```bash
+# Provider Selection
 LLM_PROVIDER=openai
 
-# OpenAI
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-4o-mini
-# OPENAI_BASE_URL=https://api.openai.com/v1  # optional override
+# API Keys
+OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+XAI_API_KEY=xai-your-key-here
 
-# Anthropic (Claude)
-# ANTHROPIC_API_KEY=your_anthropic_api_key
-# ANTHROPIC_MODEL=claude-3-5-sonnet-latest
-# ANTHROPIC_BASE_URL=https://api.anthropic.com
+# Security
+SAM_FERNET_KEY=your-generated-key
 
-# xAI (Grok) — OpenAI-compatible
-# XAI_API_KEY=your_xai_api_key
-# XAI_MODEL=grok-2-latest
-# XAI_BASE_URL=https://api.x.ai/v1
-
-# Local OpenAI-compatible (e.g., Ollama/LM Studio/vLLM)
-# LOCAL_LLM_BASE_URL=http://localhost:11434/v1
-# LOCAL_LLM_MODEL=llama3.1
-# LOCAL_LLM_API_KEY=
-
-# Required for secure wallet storage
-SAM_FERNET_KEY=your_generated_key
-
-# Optional: Brave Search for web search tools
-# BRAVE_API_KEY=your_brave_api_key
+# Optional Services
+BRAVE_API_KEY=your-brave-search-key
 ```
+
+</details>
+
+<details>
+<summary><strong>🔄 Provider Management</strong></summary>
+
+```bash
+# List available providers
+sam provider list
+
+# Switch providers
+sam provider switch anthropic
+
+# Test provider connection
+sam provider test
+```
+
+</details>
 
 ### First Run
 
 ```bash
-# Interactive setup (recommended)
-uv run sam onboard
+# Start interactive agent
+sam run
 
-# Or manual start
-uv run sam
+# Or with custom session
+sam run --session trading_session
 ```
 
-On first run, configure:
-1. **LLM Provider** (OpenAI, Anthropic/Claude, xAI/Grok, or Local OpenAI-compatible) and credentials
-2. **Solana Private Key** for wallet operations
+### Interactive Features
 
-### Start Trading
+**Enhanced Status Display:**
+- Real-time model and wallet information
+- Context usage percentage (auto-compacts at 80%)
+- Session statistics and performance metrics
+
+**Available Commands:**
+- `/help` - Show available commands
+- `/tools` - List available tools
+- `/config` - Show current configuration
+- `/provider` - Manage LLM providers
+- `/settings` - Interactive configuration editor
+- `/clear-context` - Clear conversation context
+- `/compact` - Compact conversation history
+- ESC - Interrupt current operation
+- Ctrl+C - Exit
+
+---
+
+## 🛠️ Tool Ecosystem
+
+SAM provides 15+ production-ready tools organized by category:
+
+### 💰 Wallet Operations
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_balance` | Complete wallet overview | `address` (optional) |
+| `transfer_sol` | Send SOL between addresses | `to_address`, `amount` |
+| `get_token_data` | Token metadata and supply | `address` |
+
+### 🚀 Pump.fun Trading
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `pump_fun_buy` | Execute token purchases | `mint`, `amount`, `slippage` |
+| `pump_fun_sell` | Sell tokens with percentage | `mint`, `percentage`, `slippage` |
+| `get_pump_token_info` | Detailed token information | `mint` |
+| `get_token_trades` | View trading activity | `mint` |
+
+### 🌌 Jupiter DEX
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_swap_quote` | Get swap quotes | `input_mint`, `output_mint`, `amount` |
+| `jupiter_swap` | Execute token swaps | Quote parameters |
+
+### 📊 Market Data
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `search_pairs` | Search trading pairs | `query` |
+| `get_token_pairs` | Get pairs for token | `address` |
+| `get_solana_pair` | Detailed pair information | `pair_address` |
+| `get_trending_pairs` | Trending pairs by volume | `chain` |
+
+### 🌐 Web Intelligence
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `search_web` | Search internet content | `query`, `count` |
+| `search_news` | Search news articles | `query`, `count` |
+
+### Usage Examples
 
 ```bash
-# Start interactive agent
-uv run sam
-
-# Custom session
-uv run sam --session trading_session
-```
-
-### Private Key Format
-
-- Use a base58-encoded Solana secret key string (not a JSON array).
-- Recommended: import securely via `uv run sam key import` (encrypted in OS keyring).
-- If using `.env`, set `SAM_WALLET_PRIVATE_KEY` to the base58 string. You may also use a Fernet‑encrypted value (strings starting with `gAAAAA...`).
-
-## Usage Examples
-
-### Trading Operations
-```
 "Buy 0.01 SOL worth of BONK on pump.fun"
 "Sell 50% of my DOGE position"
 "Get swap quote for 1 SOL to USDC on Jupiter"
-```
-
-### Portfolio Management
-```
 "Check my wallet balance"
-"Show my SOL balance"
-"Get token data for EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-```
-
-### Market Data
-```
 "Show trending pairs on DexScreener"
-"Search for BONK trading pairs"
-"Get detailed info for pair address"
 ```
 
-### Web Search
-```
-"Search for Solana ecosystem news"
-"Find information about new DEX launches"
-```
+---
 
-## Available Tools
-
-### Wallet & Balance (3 tools)
-- `get_balance` - Complete wallet overview (SOL + all tokens)
-- `transfer_sol` - Send SOL between addresses
-- `get_token_data` - Token metadata and supply info
-
-### Pump.fun Trading (4 tools)
-- `pump_fun_buy` - Buy tokens on pump.fun
-- `pump_fun_sell` - Sell tokens on pump.fun
-- `get_token_trades` - View trading activity
-- `get_pump_token_info` - Token information
-
-### Jupiter Swaps (2 tools)
-- `get_swap_quote` - Get swap quotes
-- `jupiter_swap` - Execute token swaps
-
-### Market Data (4 tools)
-- `search_pairs` - Find trading pairs by query
-- `get_token_pairs` - Get pairs for specific token
-- `get_solana_pair` - Detailed pair information
-- `get_trending_pairs` - Trending pairs by chain
-
-### Web Search (2 tools)
-- `search_web` - Search internet content
-- `search_news` - Search news articles
-
-## Architecture
+## 🏗️ Architecture
 
 ```
 sam/
-├── cli.py             # Command-line interface
-├── core/              # Agent orchestration and LLM integration
-│   ├── agent.py       # Main SAMAgent class
-│   ├── llm_provider.py # Multi‑LLM providers (OpenAI‑compatible, Anthropic) + factory
-│   ├── memory.py      # Conversation persistence
-│   └── tools.py       # Tool registry and execution
-├── config/            # Configuration and prompts
-│   ├── prompts.py     # System prompts
-│   └── settings.py    # Environment configuration
-├── integrations/      # Blockchain and DeFi connectors
-│   ├── solana/        # Native Solana operations
-│   ├── pump_fun.py    # Pump.fun trading
-│   ├── jupiter.py     # Jupiter aggregator
-│   ├── dexscreener.py # Market data
-│   └── search.py      # Web search (Brave API)
-└── utils/             # Security and utilities
-    ├── crypto.py      # Key encryption
-    ├── secure_storage.py # OS keyring integration
-    ├── validators.py  # Input validation
-    └── rate_limiter.py # Request throttling
+├── cli.py                 # Enhanced CLI with interactive features
+├── core/
+│   ├── agent.py          # Main SAMAgent with advanced tool calling
+│   ├── builder.py        # AgentBuilder for modular construction
+│   ├── llm_provider.py   # Multi-LLM provider abstraction
+│   ├── memory.py         # SQLite-based conversation persistence
+│   ├── tools.py          # Tool registry with middleware support
+│   ├── events.py         # Event system for pub/sub messaging
+│   └── middleware.py     # Tool middleware pipeline
+├── integrations/         # Blockchain and service integrations
+│   ├── solana/          # Native Solana RPC operations
+│   ├── pump_fun.py      # Pump.fun trading interface
+│   ├── jupiter.py       # Jupiter aggregator integration
+│   ├── dexscreener.py   # Market data provider
+│   └── search.py        # Web search via Brave API
+├── config/               # Configuration management
+│   ├── settings.py      # Environment and settings
+│   ├── prompts.py       # System prompts and templates
+│   └── config_loader.py # TOML/JSON configuration loader
+├── utils/                # Security and utilities
+│   ├── crypto.py        # Key encryption with Fernet
+│   ├── secure_storage.py # OS keyring integration
+│   ├── validators.py    # Input validation and safety
+│   ├── rate_limiter.py  # Request throttling
+│   └── connection_pool.py # RPC connection management
+└── commands/             # CLI command modules
+    ├── onboard.py       # Interactive setup wizard
+    ├── providers.py     # LLM provider management
+    ├── health.py        # System diagnostics
+    └── maintenance.py   # Database maintenance
 ```
 
-## Security & Safety
+### Design Patterns
 
-- **Encrypted Key Storage**: Private keys secured with Fernet encryption
-- **OS Keyring Integration**: System-level credential storage
-- **Transaction Validation**: Pre-execution safety checks and limits
-- **Rate Limiting**: Built-in protection against API abuse
-- **Slippage Protection**: Configurable slippage tolerance (1-50%)
-- **Address Validation**: Solana address format verification
+- **Event-Driven**: Async pub/sub system for component communication
+- **Plugin Architecture**: Entry point discovery for extensibility
+- **Middleware Pipeline**: Configurable tool execution pipeline
+- **Builder Pattern**: Modular agent construction
+- **Repository Pattern**: Data access abstraction
 
-## CLI Commands
+---
 
-```bash
-# Agent Operations
-sam run [--session ID]        # Start interactive agent
-sam onboard                   # Interactive setup wizard
-sam health                    # System health diagnostics
-sam maintenance              # Database cleanup and optimization
+## 🔧 Configuration
 
-# Security & Configuration
-sam key import               # Import private key securely
-sam key generate             # Generate encryption key
-sam setup                    # Check setup status
+SAM supports multiple configuration methods with automatic loading priority:
 
-# Development & Testing
-sam tools                    # List available tools
+### Configuration Priority
+1. **Environment Variables** (highest priority)
+2. **TOML Configuration File** (`sam.toml`)
+3. **`.env` File** (auto-loaded)
+4. **Interactive Settings** (runtime configuration)
+5. **Sensible Defaults** (lowest priority)
+
+### LLM Provider Configuration
+
+| Provider | Environment Variables | Models |
+|----------|----------------------|--------|
+| **OpenAI** | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` | GPT-4, GPT-3.5 |
+| **Anthropic** | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` | Claude 3 |
+| **xAI** | `XAI_API_KEY`, `XAI_MODEL`, `XAI_BASE_URL` | Grok |
+| **Local** | `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL` | Ollama, LM Studio |
+| **OpenAI Compat** | `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL` | Custom endpoints |
+
+### TOML Configuration
+
+```toml
+# sam.toml
+[llm]
+provider = "anthropic"
+model = "claude-3-5-sonnet-latest"
+
+[safety]
+max_transaction_sol = 5.0
+default_slippage = 2.0
+
+[tools]
+enable_solana_tools = true
+enable_pump_fun_tools = true
+enable_jupiter_tools = true
+enable_dexscreener_tools = true
+enable_search_tools = false
 ```
 
-## Configuration Options
-
-- LLM
-  - `LLM_PROVIDER`: one of `openai` (default), `anthropic`, `xai`, `openai_compat`, `local`.
-  - OpenAI: `OPENAI_API_KEY` (required), `OPENAI_MODEL` (default `gpt-4o-mini`), `OPENAI_BASE_URL` (optional).
-  - Anthropic: `ANTHROPIC_API_KEY` (required), `ANTHROPIC_MODEL` (default `claude-3-5-sonnet-latest`), `ANTHROPIC_BASE_URL` (optional).
-  - xAI (Grok): `XAI_API_KEY` (required), `XAI_MODEL` (default `grok-2-latest`), `XAI_BASE_URL` (default `https://api.x.ai/v1`).
-  - Local/OpenAI-compatible: `LOCAL_LLM_BASE_URL` (default `http://localhost:11434/v1`), `LOCAL_LLM_MODEL` (e.g., `llama3.1`), `LOCAL_LLM_API_KEY` (optional).
-- Security: `SAM_FERNET_KEY` (required).
-- Solana: `SAM_SOLANA_RPC_URL` (default `https://api.mainnet-beta.solana.com`).
-- Storage: `SAM_DB_PATH` (default `.sam/sam_memory.db`).
-- Web Search: `BRAVE_API_KEY` (optional).
-- Safety: `RATE_LIMITING_ENABLED`, `MAX_TRANSACTION_SOL`, `DEFAULT_SLIPPAGE`.
-- Logging: `LOG_LEVEL` (use `NO` to suppress logs in TTY UI).
-
-## Middleware Configuration
-
-SAM uses a pluggable middleware pipeline for tool calls (logging, rate limiting, retries). You can control this at runtime with the `SAM_MIDDLEWARE_JSON` environment variable.
-
-- Env var: `SAM_MIDDLEWARE_JSON` — JSON object defining middlewares.
-- Behavior: When set and valid JSON, it fully defines the middleware stack. When missing or invalid, sensible defaults are applied.
-- Rate limiting: `rate_limit.enabled` can enable rate limiting even if `RATE_LIMITING_ENABLED=false` (and vice‑versa).
-
-Example configuration
+### Middleware Configuration
 
 ```json
 {
@@ -264,291 +361,117 @@ Example configuration
   },
   "rate_limit": {
     "enabled": true,
-    "default_type": null,
-    "only": [
-      "search_web", "search_news", "get_swap_quote", "jupiter_swap",
-      "transfer_sol", "get_balance", "get_token_data", "pump_fun_buy", "pump_fun_sell"
-    ],
-    "exclude": [],
     "map": {
       "search_web": {"type": "search", "identifier_field": "query"},
-      "search_news": {"type": "search", "identifier_field": "query"},
-      "get_swap_quote": {"type": "jupiter"},
-      "jupiter_swap": {"type": "jupiter"},
-      "transfer_sol": {"type": "transfer_sol"},
-      "get_balance": {"type": "solana_rpc"},
-      "get_token_data": {"type": "solana_rpc"},
-      "pump_fun_buy": {"type": "pump_fun_buy", "identifier_field": "mint"},
-      "pump_fun_sell": {"type": "pump_fun_sell", "identifier_field": "mint"}
+      "pump_fun_buy": {"type": "pump_fun_buy", "identifier_field": "mint"}
     }
   },
   "retry": [
-    {"only": ["search_web", "search_news", "get_balance", "get_token_data"], "max_retries": 2, "base_delay": 0.25},
-    {"only": ["get_swap_quote", "jupiter_swap"], "max_retries": 3, "base_delay": 0.25},
-    {"only": ["pump_fun_buy", "pump_fun_sell"], "max_retries": 2, "base_delay": 0.25}
+    {"only": ["search_web"], "max_retries": 2, "base_delay": 0.25}
   ]
 }
 ```
 
-Export tips (avoid shell escaping issues)
+---
 
-```bash
-# macOS/Linux: keep JSON in a file and export via command substitution
-cat > /tmp/sam_mw.json <<'JSON'
-{
-  "logging": {"include_args": false, "include_result": false},
-  "rate_limit": {
-    "enabled": true,
-    "map": {
-      "search_web": {"type": "search", "identifier_field": "query"},
-      "search_news": {"type": "search", "identifier_field": "query"}
-    }
-  },
-  "retry": [{"only": ["search_web", "search_news"], "max_retries": 2, "base_delay": 0.25}]
-}
-JSON
-export SAM_MIDDLEWARE_JSON="$(cat /tmp/sam_mw.json)"
+## 🔌 Plugin System
 
-# Or use single quotes if you inline small JSON
-export SAM_MIDDLEWARE_JSON='{"logging":{"include_args":false}}'
-```
+SAM supports external tools via Python entry points:
 
-Troubleshooting
-
-- If the JSON is invalid, SAM logs a warning and falls back to defaults.
-- To inspect behavior, set `LOG_LEVEL=DEBUG` and optionally enable `logging.include_args/include_result`.
-- Rate limiting info is injected into successful tool results under `rate_limit_info`.
-
-### Config File (sam.toml)
-
-Instead of the JSON env var, you can place a TOML config file at one of these locations:
-
-- `SAM_CONFIG` env var path (highest priority)
-- `./sam.toml` (current working directory)
-- `$XDG_CONFIG_HOME/sam/sam.toml` or `~/.config/sam/sam.toml`
-
-Middleware config lives under the `[middleware]` table. The shape mirrors the JSON example above but in TOML. Example:
-
-```toml
-[middleware.logging]
-include_args = false
-include_result = false
-
-[middleware.rate_limit]
-enabled = true
-default_type = ""
-only = ["search_web", "search_news", "get_swap_quote", "jupiter_swap", "transfer_sol", "get_balance", "get_token_data", "pump_fun_buy", "pump_fun_sell"]
-
-[middleware.rate_limit.map.search_web]
-type = "search"
-identifier_field = "query"
-
-[middleware.rate_limit.map.search_news]
-type = "search"
-identifier_field = "query"
-
-[middleware.rate_limit.map.get_swap_quote]
-type = "jupiter"
-
-[middleware.rate_limit.map.jupiter_swap]
-type = "jupiter"
-
-[middleware.rate_limit.map.transfer_sol]
-type = "transfer_sol"
-
-[middleware.rate_limit.map.get_balance]
-type = "solana_rpc"
-
-[middleware.rate_limit.map.get_token_data]
-type = "solana_rpc"
-
-[middleware.rate_limit.map.pump_fun_buy]
-type = "pump_fun_buy"
-identifier_field = "mint"
-
-[middleware.rate_limit.map.pump_fun_sell]
-type = "pump_fun_sell"
-identifier_field = "mint"
-
-[[middleware.retry]]
-only = ["search_web", "search_news", "get_balance", "get_token_data"]
-max_retries = 2
-base_delay = 0.25
-
-[[middleware.retry]]
-only = ["get_swap_quote", "jupiter_swap"]
-max_retries = 3
-base_delay = 0.25
-
-[[middleware.retry]]
-only = ["pump_fun_buy", "pump_fun_sell"]
-max_retries = 2
-base_delay = 0.25
-```
-
-## Plugin Discovery
-
-SAM can load external tools via plugins. Two mechanisms are supported:
-
-- Entry points: Python package entry points under the group `sam.plugins`.
-- Environment variable: `SAM_PLUGINS` with a comma‑separated list of modules to import.
-
-Entry point usage (recommended)
-
-1) In your plugin package:
+### Entry Point Registration
 
 ```python
-# my_pkg/plugin.py
-from typing import Optional
-
-def register(registry, agent: Optional[object] = None):
-    # Create and register Tool instances, or return an iterable of Tool
-    # Example: registry.register(Tool(...))
-    pass
-```
-
-2) In your plugin's `pyproject.toml`:
-
-```toml
+# setup.py or pyproject.toml
 [project.entry-points."sam.plugins"]
-my_plugin = "my_pkg.plugin:register"
-"""
+my_trading_tools = "my_package.tools:register"
+
 [project.entry-points."sam.llm_providers"]
-# Allows replacing the LLM provider factory; key must match LLM_PROVIDER
-my_provider = "my_pkg.provider:create_provider"
+custom_llm = "my_package.llm:create_provider"
+
+[project.entry-points."sam.memory_backends"]
+redis_memory = "my_package.memory:create_backend"
 ```
 
-Custom LLM provider
-
-- Implement a callable that returns an instance of `sam.core.llm_provider.LLMProvider`.
-- The callable may accept `Settings` as a single argument, or no arguments.
+### Custom Tool Implementation
 
 ```python
-# my_pkg/provider.py
-from sam.core.llm_provider import LLMProvider
+# my_trading_tools.py
+from sam.core.tools import Tool
 
-class MyProvider(LLMProvider):
-    async def chat_completion(self, messages, tools=None):
-        # implement
-        ...
+async def arbitrage_scanner(args: dict) -> dict:
+    """Scan for arbitrage opportunities."""
+    return {
+        "success": True,
+        "opportunities": [],
+        "timestamp": "2024-01-01T12:00:00Z"
+    }
 
-def create_provider(settings=None) -> LLMProvider:
-    # settings is optional; use env/config as needed
-    return MyProvider(api_key="...", model="...")
+def register(registry, agent=None):
+    registry.register(Tool(
+        name="arbitrage_scanner",
+        description="Scan for arbitrage opportunities across DEXs",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "min_profit_percent": {"type": "number", "default": 1.0}
+            }
+        },
+        handler=arbitrage_scanner
+    ))
 ```
 
-Additional plugin seams
-
-- Memory backend: entry points under `sam.memory_backends` (name matches your backend key; see `sam/core/memory_provider.py`).
-- Secure storage: entry points under `sam.secure_storage` to replace keyring/Fernet with a custom provider.
-
-See `examples/plugins/` and `examples/sdk/` for simple patterns.
-
-### Secure Storage Entry Point (packaged)
-
-Expose a secure storage provider via entry points (recommended for packaged plugins):
-
-```toml
-[project.entry-points."sam.secure_storage"]
-my_secure_storage = "my_pkg.secure_storage:create_storage"
-```
-
-```python
-# my_pkg/secure_storage.py
-from typing import Optional, Dict
-
-class MySecureStorage:
-    def store_private_key(self, user_id: str, private_key: str) -> bool: ...
-    def get_private_key(self, user_id: str) -> Optional[str]: ...
-    def store_api_key(self, service: str, api_key: str) -> bool: ...
-    def get_api_key(self, service: str) -> Optional[str]: ...
-    def store_wallet_config(self, user_id: str, config: Dict) -> bool: ...
-    def get_wallet_config(self, user_id: str) -> Optional[Dict]: ...
-    def test_keyring_access(self) -> Dict[str, bool]: ...
-
-def create_storage() -> MySecureStorage:
-    # Return an instance of your secure storage implementation
-    return MySecureStorage()
-```
-
-SAM will automatically use the first available `sam.secure_storage` entry point, falling back to its built‑in keyring+Fernet implementation.
-
-### ToolResult for Plugin Authors
-
-SAM normalizes tool results to include `success` and preserves existing keys. For stronger typing in your own code, you can use the optional `ToolResult` helper:
-
-```python
-from sam.core.tools import ToolResult
-
-# Success result
-res = ToolResult(success=True, data={"balance": 1.23}).to_dict()
-
-# Error result
-err = ToolResult(success=False, error="Invalid address").to_dict()
-
-# Convert a dict (e.g., handler output) to ToolResult, then back
-wrapped = ToolResult.from_raw({"quote": {...}})
-out = wrapped.to_dict()
-```
-
-Within a tool handler, you may keep returning plain dicts — SAM will normalize them and keep backward compatibility. `ToolResult` is purely for developer ergonomics when composing logic in larger plugins.
-
-Debugging
-
-- Show loaded plugins, middlewares, and tool list:
+### Plugin Loading
 
 ```bash
-uv run sam debug
+# Load custom plugins
+export SAM_PLUGINS="my_package.tools,vendor.tools"
+
+# Use custom memory backend
+export SAM_MEMORY_BACKEND="my_package.memory:create_backend"
 ```
 
-Example plugins in this repo
+---
 
-- `examples.plugins.simple_plugin.plugin`: registers `echo` and `time_now` tools.
-- `examples.plugins.memory_mock.backend`: in-memory memory backend (env override `SAM_MEMORY_BACKEND`).
-- `examples.plugins.secure_storage_dummy.plugin`: in-memory secure storage (for demo only; not secure).
+## 🛡️ Security
 
-Environment variable usage
+### Key Management
 
-- Set `SAM_PLUGINS` to module paths exposing `register` or `register_tools`:
+SAM implements multiple layers of security for key management:
+
+| Method | Description | Use Case |
+|--------|-------------|----------|
+| **OS Keyring** | System-level credential storage | Production deployments |
+| **Fernet Encryption** | AES-128 encryption for keys | Secure storage |
+| **Environment Variables** | Runtime configuration | Development |
+
+### Security Features
+
+- **Transaction Validation**: Pre-execution safety checks
+- **Slippage Protection**: Configurable slippage tolerance
+- **Rate Limiting**: Request throttling and abuse prevention
+- **Address Validation**: Solana address format verification
+- **Audit Logging**: Tool execution and error tracking
+
+### Production Security Settings
 
 ```bash
-export SAM_PLUGINS="vendor_a.sam_ext,acme.tools.plugin"
+# Security configuration
+RATE_LIMITING_ENABLED=true
+MAX_TRANSACTION_SOL=5.0
+DEFAULT_SLIPPAGE=2.0
+LOG_LEVEL=WARNING
+
+# Key management
+sam key import  # Secure key import
+sam key generate  # Generate encryption keys
 ```
 
-Each module should define either `register(registry[, agent])` or `register_tools(registry[, agent])`. The function can optionally return an iterable of `Tool` objects; if not, it should call `registry.register(tool)` internally.
+---
 
-## Examples
-
-### Trading
-```bash
-"Buy 0.01 SOL worth of BONK on pump.fun"
-"Sell 50% of my DOGE position"
-"Get swap quote for 1 SOL to USDC"
-```
-
-### Balance & Portfolio
-```bash
-"Check my wallet balance"
-"Show my SOL balance"
-"Get token data for EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-```
-
-### Market Data
-```bash
-"Show trending pairs on DexScreener"
-"Search for BONK trading pairs"
-"Get detailed info for pair address"
-```
-
-### Web Search
-```bash
-"Search for Solana ecosystem news"
-"Find information about DEX launches"
-```
-
-## Development
+## 📊 Development
 
 ### Testing
+
 ```bash
 # Run test suite
 uv run pytest tests/ -v
@@ -556,218 +479,95 @@ uv run pytest tests/ -v
 # Run specific tests
 uv run pytest tests/test_tools.py
 uv run pytest tests/test_integration.py
+
+# Run with coverage
+uv run pytest tests/ --cov=sam --cov-report=html
 ```
 
 ### Code Quality
+
 ```bash
 # Format code
 uv run ruff format
+
+# Check style and fix issues
 uv run ruff check --fix
 
 # Type checking
 uv run mypy sam/
 ```
 
-## Contributing
-
-### Development Setup
+### Development Commands
 
 ```bash
-# Fork and clone
-git clone https://github.com/your-username/sam-framework
-cd sam-framework
-
-# Install dependencies
-uv sync
-
-# Install pre-commit hooks
-uv run pre-commit install
-
-# Create feature branch
-git checkout -b feature/your-feature-name
+# Interactive development
+sam debug                    # Show plugins and middleware
+sam provider test           # Test LLM provider
+sam health                  # System diagnostics
+sam settings               # Runtime configuration
 ```
 
-### Code Style
-
-- **Python**: Follow PEP 8 with 100 character line length
-- **Imports**: Group by standard library, third-party, local
-- **Docstrings**: Use Google style for functions
-- **Types**: Full type hints required
-- **Naming**: snake_case for functions/variables, PascalCase for classes
-
-### Commit Guidelines
-
-```bash
-# Format: type(scope): description
-git commit -m "feat(trading): add pump.fun buy functionality"
-git commit -m "fix(memory): resolve session cleanup bug"
-git commit -m "docs(readme): update installation instructions"
-git commit -m "test(tools): add integration tests for jupiter"
-```
-
-**Types:**
-- `feat`: New features
-- `fix`: Bug fixes
-- `docs`: Documentation
-- `style`: Code style changes
-- `refactor`: Code refactoring
-- `test`: Testing
-- `chore`: Maintenance
-
-### Testing Requirements
-
-```bash
-# Run all tests
-uv run pytest tests/ -v
-
-# Run with coverage
-uv run pytest tests/ --cov=sam --cov-report=html
-
-# Run specific test file
-uv run pytest tests/test_tools.py -v
-
-# Run tests in watch mode
-uv run pytest-watch tests/
-```
-
-**Coverage Requirements:**
-- Minimum 80% coverage
-- All new features must have tests
-- Integration tests for API changes
-
-### Pull Request Process
-
-1. **Fork** the repository
-2. **Create** a feature branch from `master`
-3. **Make** your changes with tests
-4. **Run** the full test suite
-5. **Update** documentation if needed
-6. **Commit** with conventional format
-7. **Push** to your fork
-8. **Create** a Pull Request
-
-**PR Template:**
-```markdown
-## Description
-Brief description of changes
-
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation update
-
-## Testing
-- [ ] Unit tests added/updated
-- [ ] Integration tests added/updated
-- [ ] Manual testing completed
-
-## Checklist
-- [ ] Code follows style guidelines
-- [ ] Tests pass locally
-- [ ] Documentation updated
-- [ ] No breaking changes
-```
-
-### Adding New Tools
+### SDK Usage
 
 ```python
-# 1. Create tool implementation
-async def handle_new_tool(args: Dict[str, Any]) -> Dict[str, Any]:
-    # Implementation here
-    pass
+import asyncio
+from sam.core.builder import AgentBuilder
 
-# 2. Add tool spec
-ToolSpec(
-    name="new_tool",
-    description="What the tool does",
-    input_schema={
-        "name": "new_tool",
-        "description": "Tool description",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "param": {"type": "string", "description": "Parameter description"}
-            },
-            "required": ["param"]
-        }
-    }
-)
+async def main():
+    agent = await AgentBuilder().build()
 
-# 3. Register in appropriate tool file (e.g., integrations/solana/solana_tools.py)
-# 4. Add to CLI tool display names in cli.py
-# 5. Add tests in tests/test_tools.py or tests/test_integration.py
-# 6. Update README.md Available Tools section
+    # Direct tool calls
+    result = await agent.tools.call("get_balance", {"address": "..."})
+    print(result)
+
+    # Headless agent
+    response = await agent.run("Check my SOL balance", session_id="sdk")
+    print(response)
+
+asyncio.run(main())
 ```
-
-### Project Structure
-
-```
-sam-framework/
-├── sam/                    # Main package
-│   ├── cli.py             # Command-line interface
-│   ├── core/              # Core functionality
-│   ├── integrations/      # External service integrations
-│   └── utils/             # Utilities and helpers
-├── tests/                 # Test suite
-├── docs/                  # Documentation (future)
-├── pyproject.toml         # Project configuration
-└── uv.lock               # Dependency lock file
-```
-
-### Release Process
-
-1. **Version bump** in `pyproject.toml`
-2. **Update** changelog
-3. **Run** full test suite
-4. **Create** release branch
-5. **Merge** to main with release commit
-6. **Create** GitHub release
-7. **Publish** to PyPI
-
-## Production Deployment
-
-### Environment Variables
-```bash
-# Production settings
-SAM_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
-RATE_LIMITING_ENABLED=true
-LOG_LEVEL=WARNING
-MAX_TRANSACTION_SOL=10.0
-```
-
-### System Management
-```bash
-# Health check
-sam health
-
-# Database maintenance
-sam maintenance
-
-# Check configuration
-sam setup
-```
-
-## Requirements
-
-- Python 3.11+
-- OpenAI API key
-- Solana private key
-- Internet connection
-- Optional: Brave API key for web search
-
-## License
-
-MIT License
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/prfagit/sam-framework/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/prfagit/sam-framework/discussions)
-- **Twitter**: [@prfa](https://twitter.com/prfa)
 
 ---
 
-SAM Framework - AI-powered Solana blockchain operations.
+## 📚 Documentation
 
-Created by [@prfa](https://twitter.com/prfa) • [@prfagit](https://github.com/prfagit) • [prfa.me](https://prfa.me)
+- **[📖 Architecture Guide](https://sam.prfa.me/docs/architecture)** - System design and components
+- **[🛠️ Tools Reference](https://sam.prfa.me/docs/tools)** - Complete tool documentation
+- **[🔧 Configuration Guide](https://sam.prfa.me/docs/configuration)** - Setup and configuration options
+- **[📋 CLI Reference](https://sam.prfa.me/docs/cli-reference)** - Command-line interface documentation
+- **[🛡️ Security Guide](https://sam.prfa.me/docs/security)** - Security features and best practices
+- **[🚀 Getting Started](https://sam.prfa.me/docs/getting-started)** - Step-by-step setup guide
+- **[📊 API Reference](https://sam.prfa.me/docs/api-reference)** - SDK and API documentation
+
+### Examples
+
+- **`examples/plugins/`** - Plugin development examples
+- **`examples/sdk/`** - SDK integration patterns
+- **`tests/`** - Comprehensive test suite
+
+---
+
+## 📄 License
+
+**MIT License** - See [LICENSE](LICENSE) for details.
+
+## 🤝 Contributing
+
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## 👥 Authors
+
+**[@prfa](https://twitter.com/prfa)** • **[@prfagit](https://github.com/prfagit)** • **[prfa.me](https://prfa.me)**
+
+---
+
+<div align="center">
+
+**SAM Framework** - Production-ready AI agent infrastructure for Solana blockchain operations.
+
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black.svg)](https://github.com/prfagit/sam-framework)
+[![Documentation](https://img.shields.io/badge/Documentation-Complete-blue.svg)](https://sam.prfa.me/docs/)
+
+*Built for developers who value technical excellence and production reliability.*
+
+</div>

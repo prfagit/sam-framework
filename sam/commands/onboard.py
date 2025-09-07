@@ -125,6 +125,21 @@ async def run_onboarding() -> int:
         print(CLIFormatter.info("Get API key from: https://api.search.brave.com/"))
         brave_key = getpass.getpass("Enter Brave API Key (optional, hidden): ").strip()
 
+        # Step 4: Legal & Risk Disclosure
+        print(CLIFormatter.header("Step 4: Legal & Risk Disclosure"))
+        print(
+            CLIFormatter.info(
+                "SAM is an automation framework that can use tools to access networks and execute blockchain transactions you authorize."
+            )
+        )
+        print(
+            "By continuing you acknowledge: 1) blockchain transactions are irreversible; 2) market data can be unreliable; 3) you are responsible for reviewing outputs and confirming actions; 4) no warranty is provided."
+        )
+        accept = input("Type 'I AGREE' to accept and continue: ").strip()
+        if accept.upper() != "I AGREE":
+            print(CLIFormatter.warning("You must accept the disclosure to proceed."))
+            return 1
+
         print(CLIFormatter.info("Configuring SAM with optimal defaults..."))
         fernet_key = generate_encryption_key()
 
@@ -138,6 +153,7 @@ async def run_onboarding() -> int:
                 "MAX_TRANSACTION_SOL": "1000",
                 "DEFAULT_SLIPPAGE": "1",
                 "LOG_LEVEL": "NO",
+                "SAM_LEGAL_ACCEPTED": "true",
             }
         )
         if brave_key:
