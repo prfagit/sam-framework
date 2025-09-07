@@ -8,7 +8,6 @@ animation, and handy slash-commands for a clean contributor UX.
 import asyncio
 import sys
 import os
-import getpass
 import argparse
 import logging
 import shutil
@@ -23,16 +22,10 @@ except ImportError:
     pass  # Fallback to standard asyncio
 
 from .core.agent import SAMAgent
-from .core.llm_provider import create_llm_provider
-from .core.memory import MemoryManager
-from .core.tools import ToolRegistry
-from .config.prompts import SOLANA_AGENT_PROMPT
+from .core.builder import AgentBuilder, cleanup_agent_fast
 from .config.settings import Settings, setup_logging
-from .utils.crypto import encrypt_private_key, decrypt_private_key, generate_encryption_key
-from .utils.secure_storage import get_secure_storage
-from .utils.http_client import cleanup_http_client
-from .utils.connection_pool import cleanup_database_pool
-from .utils.rate_limiter import cleanup_rate_limiter
+# crypto helpers are used in commands; CLI no longer needs them directly
+# secure storage used in subcommands; not needed at CLI top-level anymore
 from .utils.cli_helpers import (
     CLIFormatter,
     show_setup_status,
@@ -40,13 +33,19 @@ from .utils.cli_helpers import (
     show_startup_summary,
     check_setup_status,
 )
+from .commands.providers import (
+    list_providers as cmd_list_providers,
+    show_current_provider as cmd_show_current_provider,
+    switch_provider as cmd_switch_provider,
+    test_provider as cmd_test_provider,
+)
+from .commands.onboard import run_onboarding
+from .commands.keys import import_private_key as cmd_import_key, generate_key as cmd_generate_key
+from .commands.maintenance import run_maintenance as cmd_run_maintenance
+from .commands.health import run_health_check as cmd_run_health
+from .utils.env_files import find_env_path
 from .utils.ascii_loader import show_sam_intro
-from .utils.price_service import cleanup_price_service
-from .integrations.solana.solana_tools import SolanaTools, create_solana_tools
-from .integrations.pump_fun import PumpFunTools, create_pump_fun_tools
-from .integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
-from .integrations.jupiter import JupiterTools, create_jupiter_tools
-from .integrations.search import SearchTools, create_search_tools
+# Note: integrations are now wired inside AgentBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -172,110 +171,17 @@ class Spinner:
 
 
 async def setup_agent() -> SAMAgent:
-    """Initialize the SAM agent with all tools and integrations."""
+    """Initialize the SAM agent with all tools and integrations.
 
-    # Initialize core components
-    llm = create_llm_provider()
-
-    memory = MemoryManager(Settings.SAM_DB_PATH)
-    await memory.initialize()  # Initialize database tables
-    tools = ToolRegistry()
-
-    # Initialize Solana tools with secure storage
-    private_key = None
-    secure_storage = get_secure_storage()
-
-    # Try to get private key from secure storage first
-    private_key = secure_storage.get_private_key("default")
-
-    # Fallback to environment variable (for backward compatibility)
-    if not private_key and Settings.SAM_WALLET_PRIVATE_KEY:
-        try:
-            # Try to decrypt if it looks encrypted, otherwise use as-is
-            if Settings.SAM_WALLET_PRIVATE_KEY.startswith("gAAAAA"):
-                private_key = decrypt_private_key(Settings.SAM_WALLET_PRIVATE_KEY)
-            else:
-                private_key = Settings.SAM_WALLET_PRIVATE_KEY
-
-            # Store in secure storage for next time
-            if private_key:
-                secure_storage.store_private_key("default", private_key)
-                logger.info("Migrated private key from environment to secure storage")
-
-        except Exception as e:
-            logger.warning(f"Could not decrypt private key: {e}")
-
-    solana_tools = SolanaTools(Settings.SAM_SOLANA_RPC_URL, private_key)
-
-    # Create agent first (with empty tool registry initially)
-    agent = SAMAgent(llm=llm, tools=tools, memory=memory, system_prompt=SOLANA_AGENT_PROMPT)
-
-    # Register Solana tools (with agent reference for caching)
-    if Settings.ENABLE_SOLANA_TOOLS:
-        for tool in create_solana_tools(solana_tools, agent=agent):
-            tools.register(tool)
-
-    # Initialize and register Pump.fun tools (with solana_tools for signing)
-    pump_tools = PumpFunTools(solana_tools)
-    if Settings.ENABLE_PUMP_FUN_TOOLS:
-        for tool in create_pump_fun_tools(pump_tools, agent=agent):
-            tools.register(tool)
-
-    # Initialize and register DexScreener tools
-    dex_tools = DexScreenerTools()
-    if Settings.ENABLE_DEXSCREENER_TOOLS:
-        for tool in create_dexscreener_tools(dex_tools):
-            tools.register(tool)
-
-    # Initialize and register Jupiter tools
-    jupiter_tools = JupiterTools(solana_tools)
-    if Settings.ENABLE_JUPITER_TOOLS:
-        for tool in create_jupiter_tools(jupiter_tools):
-            tools.register(tool)
-
-    # Initialize and register Search tools
-    brave_api_key = os.getenv("BRAVE_API_KEY")  # Optional
-    search_tools = SearchTools(api_key=brave_api_key)
-    if Settings.ENABLE_SEARCH_TOOLS:
-        for tool in create_search_tools(search_tools):
-            tools.register(tool)
-
-    # Store references to tools that need cleanup (for mypy)
-    setattr(agent, "_solana_tools", solana_tools)
-    setattr(agent, "_pump_tools", pump_tools)
-    setattr(agent, "_dex_tools", dex_tools)
-    setattr(agent, "_jupiter_tools", jupiter_tools)
-    setattr(agent, "_search_tools", search_tools)
-    setattr(agent, "_llm", llm)
-
-    logger.info(f"Agent initialized with {len(tools.list_specs())} tools")
-    return agent
+    Delegates to core.AgentBuilder for modular construction.
+    """
+    builder = AgentBuilder()
+    return await builder.build()
 
 
 async def cleanup_agent(agent):
-    """Clean up agent resources quickly."""
-    try:
-        # Quick cleanup - don't wait for slow operations
-        cleanup_funcs = [
-            cleanup_http_client,
-            cleanup_database_pool,
-            cleanup_rate_limiter,
-            cleanup_price_service
-        ]
-        
-        # Run all cleanup in parallel with very short timeout
-        tasks = [asyncio.create_task(func()) for func in cleanup_funcs]
-        try:
-            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=0.5)
-        except asyncio.TimeoutError:
-            # Cancel any remaining tasks and continue
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-        
-    except Exception:
-        # Ignore all cleanup errors during shutdown
-        pass
+    """Clean up agent resources quickly (delegated)."""
+    await cleanup_agent_fast()
 
 
 async def run_interactive_session(session_id: str, no_animation: bool = False):
@@ -455,12 +361,12 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                         print(f"❌ Error with interactive settings: {e}")
                     continue
                 if user_input in ("/provider", "/providers"):
-                    list_providers()
+                    cmd_list_providers()
                     continue
                 if user_input.startswith("/switch "):
                     provider = user_input.split(" ", 1)[1] if len(user_input.split(" ")) > 1 else ""
                     if provider:
-                        result = switch_provider(provider)
+                        result = cmd_switch_provider(provider)
                         if result == 0:
                             print(
                                 colorize("🔄 Restart SAM to use the new provider", Style.FG_YELLOW)
@@ -580,9 +486,6 @@ def print_help():
     print()
 
 
-# ---------------------------
-# Onboarding
-# ---------------------------
 def _onboarded_flag_path() -> str:
     # Keep alongside the default DB in .sam
     root = os.getcwd()
@@ -591,730 +494,40 @@ def _onboarded_flag_path() -> str:
     return os.path.join(sam_dir, ".onboarded")
 
 
-def _find_env_path() -> str:
-    """Determine a good location for the .env file.
-    Prefers existing .env in CWD; else sam_framework/.env next to example; else CWD/.env
-    """
-    cwd_env = os.path.join(os.getcwd(), ".env")
-    if os.path.exists(cwd_env):
-        return cwd_env
-    repo_env_example = os.path.join(os.getcwd(), "sam_framework", ".env.example")
-    if os.path.exists(repo_env_example):
-        return os.path.join(os.path.dirname(repo_env_example), ".env")
-    return cwd_env
 
-
-def _write_env_file(path: str, values: dict) -> None:
-    existing = {}
-    if os.path.exists(path):
-        try:
-            with open(path, "r") as f:
-                for line in f:
-                    if "=" in line and not line.strip().startswith("#"):
-                        k, v = line.strip().split("=", 1)
-                        existing[k] = v
-        except Exception:
-            pass
-    existing.update(values)
-    lines = ["# SAM Framework configuration", "# Generated by onboarding", ""]
-    for k, v in existing.items():
-        lines.append(f"{k}={v}")
-    with open(path, "w") as f:
-        f.write("\n".join(lines) + "\n")
-
-
-async def run_onboarding() -> int:
-    """Streamlined onboarding with provider selection."""
-    # Show a quick intro for onboarding
-    await show_sam_intro("static")
-    
-    print(banner("SAM Setup"))
-    print()
-
-    try:
-        # Step 1: LLM Provider Configuration
-        print(colorize("Step 1: LLM Configuration", Style.BOLD, Style.FG_CYAN))
-        print(colorize("Select your LLM provider:", Style.DIM))
-        print("1. OpenAI")
-        print("2. Anthropic (Claude)")
-        print("3. xAI (Grok)")
-        print("4. Local OpenAI-compatible (e.g., Ollama)")
-        provider_choice = input("Choice (1-4, default: 1): ").strip() or "1"
-
-        provider_map = {
-            "1": "openai",
-            "2": "anthropic",
-            "3": "xai",
-            "4": "local",
-        }
-        provider = provider_map.get(provider_choice, "openai")
-
-        # Collect provider-specific config
-        config_data = {"LLM_PROVIDER": provider}
-
-        if provider == "openai":
-            print()
-            print(colorize("OpenAI API Key", Style.DIM))
-            print(colorize("Get your key: https://platform.openai.com/api-keys", Style.DIM))
-            openai_key = getpass.getpass("Enter your OpenAI API Key (hidden): ").strip()
-            while not openai_key:
-                print(colorize("API key is required.", Style.FG_YELLOW))
-                openai_key = getpass.getpass("Enter your OpenAI API Key: ").strip()
-            print()
-            model = input("OpenAI Model (default: gpt-4o-mini): ").strip() or "gpt-4o-mini"
-            base_url = input("OpenAI Base URL (blank for default): ").strip()
-            config_data.update(
-                {
-                    "OPENAI_API_KEY": openai_key,
-                    "OPENAI_MODEL": model,
-                }
-            )
-            if base_url:
-                config_data["OPENAI_BASE_URL"] = base_url
-
-        elif provider == "anthropic":
-            print()
-            print(colorize("Anthropic API Key", Style.DIM))
-            print(colorize("Get your key: https://console.anthropic.com/", Style.DIM))
-            ant_key = getpass.getpass("Enter your Anthropic API Key (hidden): ").strip()
-            while not ant_key:
-                print(colorize("API key is required.", Style.FG_YELLOW))
-                ant_key = getpass.getpass("Enter your Anthropic API Key: ").strip()
-            model = (
-                input("Anthropic Model (default: claude-3-5-sonnet-latest): ").strip()
-                or "claude-3-5-sonnet-latest"
-            )
-            base_url = input("Anthropic Base URL (blank for default): ").strip()
-            config_data.update(
-                {
-                    "ANTHROPIC_API_KEY": ant_key,
-                    "ANTHROPIC_MODEL": model,
-                }
-            )
-            if base_url:
-                config_data["ANTHROPIC_BASE_URL"] = base_url
-
-        elif provider == "xai":
-            print()
-            print(colorize("xAI (Grok) API Key", Style.DIM))
-            print(colorize("Docs: https://docs.x.ai/", Style.DIM))
-            xai_key = getpass.getpass("Enter your xAI API Key (hidden): ").strip()
-            while not xai_key:
-                print(colorize("API key is required.", Style.FG_YELLOW))
-                xai_key = getpass.getpass("Enter your xAI API Key: ").strip()
-            model = input("xAI Model (default: grok-2-latest): ").strip() or "grok-2-latest"
-            base_url = (
-                input("xAI Base URL (default: https://api.x.ai/v1): ").strip()
-                or "https://api.x.ai/v1"
-            )
-            config_data.update(
-                {
-                    "XAI_API_KEY": xai_key,
-                    "XAI_MODEL": model,
-                    "XAI_BASE_URL": base_url,
-                }
-            )
-
-        elif provider == "local":
-            print()
-            print(colorize("Local OpenAI-compatible endpoint (e.g., Ollama/LM Studio)", Style.DIM))
-            base_url = (
-                input("Base URL (default: http://localhost:11434/v1): ").strip()
-                or "http://localhost:11434/v1"
-            )
-            model = input("Model name (e.g., llama3.1): ").strip() or "llama3.1"
-            api_key = getpass.getpass("API Key if required (optional, hidden): ").strip()
-            config_data.update(
-                {
-                    "LOCAL_LLM_BASE_URL": base_url,
-                    "LOCAL_LLM_MODEL": model,
-                }
-            )
-            if api_key:
-                config_data["LOCAL_LLM_API_KEY"] = api_key
-
-        # Step 2: Solana Configuration
-        print()
-        print(colorize("Step 2: Solana Configuration", Style.BOLD, Style.FG_CYAN))
-        print(colorize("Choose RPC endpoint (default: mainnet):", Style.DIM))
-        print("1. Mainnet (https://api.mainnet-beta.solana.com)")
-        print("2. Devnet (https://api.devnet.solana.com)")
-        print("3. Custom URL")
-        rpc_choice = input("Choice (1-3): ").strip() or "1"
-
-        if rpc_choice == "2":
-            rpc_url = "https://api.devnet.solana.com"
-        elif rpc_choice == "3":
-            rpc_url = input("Enter custom RPC URL: ").strip()
-            while not rpc_url:
-                rpc_url = input("RPC URL is required: ").strip()
-        else:
-            rpc_url = "https://api.mainnet-beta.solana.com"
-
-        # Solana Private Key
-        print()
-        print(
-            colorize(
-                "This enables trading and balance checks. Your key is encrypted and stored securely.",
-                Style.DIM,
-            )
-        )
-        private_key = getpass.getpass("Enter your Solana private key (hidden): ").strip()
-        while not private_key:
-            print(colorize("Private key is required for wallet operations.", Style.FG_YELLOW))
-            private_key = getpass.getpass("Enter your Solana private key: ").strip()
-
-        # Step 3: Brave Search API (Optional)
-        print()
-        print(colorize("Step 3: Brave Search API (Optional)", Style.BOLD, Style.FG_CYAN))
-        print(colorize("Enables web search functionality. Leave empty to skip.", Style.DIM))
-        print(colorize("Get API key from: https://api.search.brave.com/", Style.DIM))
-        brave_key = getpass.getpass("Enter Brave API Key (optional, hidden): ").strip()
-
-        # Auto-generate everything else with sensible defaults
-        print()
-        print(colorize("Configuring SAM with optimal defaults...", Style.DIM))
-
-        fernet_key = generate_encryption_key()
-
-        # Merge common config defaults
-        config_data.update(
-            {
-                "SAM_FERNET_KEY": fernet_key,
-                "SAM_DB_PATH": ".sam/sam_memory.db",
-                "SAM_SOLANA_RPC_URL": rpc_url,
-                "RATE_LIMITING_ENABLED": "false",
-                "MAX_TRANSACTION_SOL": "1000",
-                "DEFAULT_SLIPPAGE": "1",
-                "LOG_LEVEL": "NO",
-            }
-        )
-
-        # Add Brave API key if provided
-        if brave_key:
-            config_data["BRAVE_API_KEY"] = brave_key
-
-        # Create/update .env file at preferred location
-        env_path = _find_env_path()
-        _write_env_file(env_path, config_data)
-
-        # Create database directory if it doesn't exist
-        db_path = config_data["SAM_DB_PATH"]
-        db_dir = os.path.dirname(db_path)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
-
-        # Apply to current environment
-        for key, value in config_data.items():
-            os.environ[key] = value
-
-        # Refresh Settings from environment to reflect new values consistently
-        Settings.refresh_from_env()
-
-        # Store private key securely
-        storage = get_secure_storage()
-        success = storage.store_private_key("default", private_key)
-
-        if not success:
-            print(colorize("❌ Failed to store private key securely.", Style.FG_YELLOW))
-            return 1
-
-        # Verify storage worked
-        test_key = storage.get_private_key("default")
-        if not test_key:
-            print(colorize("❌ Could not verify private key storage.", Style.FG_YELLOW))
-            return 1
-
-        print(colorize("✅ SAM configured successfully!", Style.FG_GREEN))
-        return 0
-
-    except KeyboardInterrupt:
-        print("\n❌ Setup cancelled.")
-        return 1
-    except Exception as e:
-        print(f"{colorize('❌ Setup failed:', Style.FG_YELLOW)} {e}")
-        return 1
 
 
 def import_private_key():
-    """Import and securely store a private key using keyring."""
-    print("🔐 Secure Private Key Import")
-    print("This will encrypt and store your private key in the system keyring.")
-
-    try:
-        # Test keyring access
-        secure_storage = get_secure_storage()
-        keyring_test = secure_storage.test_keyring_access()
-
-        if not keyring_test["keyring_available"]:
-            print(
-                "❌ System keyring is not available. Falling back to environment variable method."
-            )
-            return import_private_key_legacy()
-
-        print("✅ System keyring is available")
-
-        # Get user ID (default to "default" for now)
-        user_id = input("Enter user ID (or press enter for 'default'): ").strip() or "default"
-
-        # Check if key already exists
-        existing_key = secure_storage.get_private_key(user_id)
-        if existing_key:
-            overwrite = (
-                input(f"Private key for '{user_id}' already exists. Overwrite? (y/N): ")
-                .strip()
-                .lower()
-            )
-            if overwrite != "y":
-                print("❌ Import cancelled")
-                return 1
-
-        private_key = getpass.getpass("Enter your private key (hidden): ")
-        if not private_key.strip():
-            print("❌ Private key cannot be empty")
-            return 1
-
-        # Store in secure storage
-        success = secure_storage.store_private_key(user_id, private_key.strip())
-
-        if success:
-            print(f"✅ Private key securely stored in system keyring for user: {user_id}")
-            print("The key is encrypted and will be automatically loaded when needed.")
-
-            # Test retrieval
-            test_key = secure_storage.get_private_key(user_id)
-            if test_key:
-                print("✅ Key retrieval test successful")
-            else:
-                print("⚠️ Warning: Could not retrieve stored key for verification")
-
-            return 0
-        else:
-            print("❌ Failed to store private key in keyring")
-            return 1
-
-    except Exception as e:
-        print(f"❌ Failed to import private key: {e}")
-        return 1
+    """Shim delegating to commands.keys.import_private_key."""
+    from .commands.keys import import_private_key as _import
+    return _import()
 
 
 def import_private_key_legacy():
-    """Legacy import using environment variables (fallback)."""
-    print("🔐 Legacy Private Key Import (Environment Variable)")
-    print("This will encrypt and store your private key as an environment variable.")
-
-    if not Settings.SAM_FERNET_KEY:
-        print("❌ SAM_FERNET_KEY not set. Generate one securely with:")
-        print("sam generate-key")
-        return 1
-
-    try:
-        private_key = getpass.getpass("Enter your private key (hidden): ")
-        if not private_key.strip():
-            print("❌ Private key cannot be empty")
-            return 1
-
-        # Encrypt the private key
-        encrypted_key = encrypt_private_key(private_key.strip())
-
-        # Store in environment (for this session) and suggest permanent storage
-        os.environ["SAM_WALLET_PRIVATE_KEY"] = encrypted_key
-
-        print("✅ Private key encrypted and stored for this session")
-        print("To make permanent, add this to your .env file:")
-        print(f"SAM_WALLET_PRIVATE_KEY={encrypted_key}")
-
-        return 0
-
-    except Exception as e:
-        print(f"❌ Failed to import private key: {e}")
-        return 1
+    """Shim delegating to commands.keys.import_private_key_legacy."""
+    from .commands.keys import import_private_key_legacy as _legacy
+    return _legacy()
 
 
 def generate_key():
-    """Generate a new Fernet encryption key and store it securely."""
-    try:
-        # Generate key
-        key = generate_encryption_key()
-
-        # Try to store in environment file automatically
-        env_path = _find_env_path()
-        if os.path.exists(env_path):
-            print(f"🔐 Generated new encryption key and updated {env_path}")
-            # Update existing .env file
-            env_values = {}
-            try:
-                with open(env_path, "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and "=" in line and not line.startswith("#"):
-                            k, v = line.split("=", 1)
-                            env_values[k] = v
-            except Exception:
-                pass
-
-            env_values["SAM_FERNET_KEY"] = key
-            _write_env_file(env_path, env_values)
-
-            # Apply to current environment
-            os.environ["SAM_FERNET_KEY"] = key
-            print("✅ Key generated and configured automatically")
-        else:
-            print("🔐 Generated new encryption key")
-            print(f"Key stored in new .env file: {env_path}")
-            _write_env_file(env_path, {"SAM_FERNET_KEY": key})
-            os.environ["SAM_FERNET_KEY"] = key
-
-        print("🔒 Key is ready for use. Restart your session to apply changes.")
-        return 0
-
-    except Exception as e:
-        print(f"❌ Failed to generate key: {e}")
-        print("Manual fallback: Add SAM_FERNET_KEY to your .env file")
-        return 1
+    """Shim delegating to commands.keys.generate_key."""
+    from .commands.keys import generate_key as _gen
+    return _gen()
 
 
-async def run_maintenance():
-    """Run database maintenance tasks."""
-    print("🔧 SAM Framework Maintenance")
-    print("Running database cleanup and maintenance tasks...")
-
-    try:
-        # Initialize components
-        from .core.memory import MemoryManager
-        from .utils.error_handling import get_error_tracker
-
-        memory = MemoryManager(Settings.SAM_DB_PATH)
-        await memory.initialize()
-
-        error_tracker = await get_error_tracker()
-
-        # Run cleanup tasks
-        print("\n📊 Current database stats:")
-        stats = await memory.get_session_stats()
-        size_info = await memory.get_database_size()
-
-        print(f"  Sessions: {stats.get('sessions', 0)}")
-        print(f"  Preferences: {stats.get('preferences', 0)}")
-        print(f"  Trades: {stats.get('trades', 0)}")
-        print(f"  Secure data: {stats.get('secure_data', 0)}")
-        print(f"  Database size: {size_info.get('size_mb', 0)} MB")
-
-        # Clean up old sessions (30 days)
-        print("\n🧹 Cleaning up old sessions...")
-        deleted_sessions = await memory.cleanup_old_sessions(30)
-        print(f"  Deleted {deleted_sessions} old sessions")
-
-        # Clean up old trades (90 days)
-        print("\n🧹 Cleaning up old trades...")
-        deleted_trades = await memory.cleanup_old_trades(90)
-        print(f"  Deleted {deleted_trades} old trades")
-
-        # Clean up old errors (30 days)
-        print("\n🧹 Cleaning up old errors...")
-        deleted_errors = await error_tracker.cleanup_old_errors(30)
-        print(f"  Deleted {deleted_errors} old error records")
-
-        # Vacuum database
-        print("\n🔧 Vacuuming database...")
-        vacuum_success = await memory.vacuum_database()
-        if vacuum_success:
-            print("  Database vacuum completed successfully")
-        else:
-            print("  Database vacuum failed")
-
-        # Final stats
-        print("\n📊 Post-maintenance stats:")
-        final_stats = await memory.get_session_stats()
-        final_size = await memory.get_database_size()
-
-        print(f"  Sessions: {final_stats.get('sessions', 0)}")
-        print(f"  Database size: {final_size.get('size_mb', 0)} MB")
-
-        size_saved = size_info.get("size_mb", 0) - final_size.get("size_mb", 0)
-        if size_saved > 0:
-            print(f"  Space saved: {size_saved:.2f} MB")
-
-        print("\n✅ Maintenance completed successfully")
-        return 0
-
-    except Exception as e:
-        print(f"❌ Maintenance failed: {e}")
-        return 1
+# moved to sam.commands.maintenance.run_maintenance
 
 
-def list_providers():
-    """List available LLM providers."""
-    providers = {
-        "openai": {
-            "name": "OpenAI",
-            "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-            "description": "OpenAI GPT models",
-        },
-        "anthropic": {
-            "name": "Anthropic Claude",
-            "models": [
-                "claude-3-5-sonnet-latest",
-                "claude-3-5-haiku-latest",
-                "claude-3-opus-latest",
-            ],
-            "description": "Anthropic Claude models",
-        },
-        "xai": {
-            "name": "xAI Grok",
-            "models": ["grok-2-latest", "grok-beta"],
-            "description": "xAI Grok models",
-        },
-        "local": {
-            "name": "Local/Ollama",
-            "models": ["llama3.1", "llama3.2", "mixtral", "custom"],
-            "description": "Local OpenAI-compatible server",
-        },
-    }
-
-    print(colorize("🤖 Available LLM Providers", Style.BOLD, Style.FG_CYAN))
-    print()
-
-    current = Settings.LLM_PROVIDER
-    for key, info in providers.items():
-        marker = "→" if key == current else " "
-        status = colorize("(current)", Style.FG_GREEN) if key == current else ""
-        print(f" {marker} {colorize(key, Style.BOLD)} - {info['name']} {status}")
-        print(f"   {colorize(info['description'], Style.DIM)}")
-        print(
-            f"   Models: {', '.join(info['models'][:3])}{'...' if len(info['models']) > 3 else ''}"
-        )
-        print()
-
-
-def show_current_provider():
-    """Show current provider configuration."""
-    provider = Settings.LLM_PROVIDER
-    print(colorize("🔧 Current Provider Configuration", Style.BOLD, Style.FG_CYAN))
-    print()
-    print(f"Provider: {colorize(provider, Style.FG_GREEN)}")
-
-    if provider == "openai":
-        print(f"Model: {Settings.OPENAI_MODEL}")
-        print(f"Base URL: {Settings.OPENAI_BASE_URL or 'default'}")
-        print(f"API Key: {'✓ configured' if Settings.OPENAI_API_KEY else '✗ missing'}")
-    elif provider == "anthropic":
-        print(f"Model: {Settings.ANTHROPIC_MODEL}")
-        print(f"Base URL: {Settings.ANTHROPIC_BASE_URL}")
-        print(f"API Key: {'✓ configured' if Settings.ANTHROPIC_API_KEY else '✗ missing'}")
-    elif provider == "xai":
-        print(f"Model: {Settings.XAI_MODEL}")
-        print(f"Base URL: {Settings.XAI_BASE_URL}")
-        print(f"API Key: {'✓ configured' if Settings.XAI_API_KEY else '✗ missing'}")
-    elif provider == "local":
-        print(f"Model: {Settings.LOCAL_LLM_MODEL}")
-        print(f"Base URL: {Settings.LOCAL_LLM_BASE_URL}")
-        print(f"API Key: {'✓ configured' if Settings.LOCAL_LLM_API_KEY else 'not required'}")
-    print()
-
-
-def switch_provider(provider_name: str):
-    """Switch to a different LLM provider."""
-    valid_providers = ["openai", "anthropic", "xai", "local", "openai_compat"]
-
-    if provider_name not in valid_providers:
-        print(f"❌ Invalid provider. Choose from: {', '.join(valid_providers)}")
-        return 1
-
-    # Find and update .env file
-    env_path = _find_env_path()
-
-    try:
-        # Read existing .env
-        config_data = {}
-        if os.path.exists(env_path):
-            with open(env_path, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and "=" in line and not line.startswith("#"):
-                        key, value = line.split("=", 1)
-                        config_data[key] = value
-
-        # Update provider
-        config_data["LLM_PROVIDER"] = provider_name
-
-        # Write back to .env
-        _write_env_file(env_path, config_data)
-
-        # Update current environment
-        os.environ["LLM_PROVIDER"] = provider_name
-        Settings.LLM_PROVIDER = provider_name
-
-        print(f"✅ Switched to provider: {colorize(provider_name, Style.FG_GREEN)}")
-
-        # Check if required API key is configured
-        key_configured = False
-        if provider_name == "openai":
-            key_configured = bool(Settings.OPENAI_API_KEY)
-        elif provider_name == "anthropic":
-            key_configured = bool(Settings.ANTHROPIC_API_KEY)
-        elif provider_name == "xai":
-            key_configured = bool(Settings.XAI_API_KEY)
-        elif provider_name == "local":
-            key_configured = True  # API key not required for local
-
-        if not key_configured:
-            print(f"⚠️  {provider_name.upper()}_API_KEY not configured. Add it to your .env file.")
-            print("   Or run 'uv run sam onboard' to reconfigure.")
-
-        return 0
-
-    except Exception as e:
-        print(f"❌ Failed to switch provider: {e}")
-        return 1
+# Provider subcommands moved to sam.cli.commands.providers
 
 
 async def test_provider(provider_name: Optional[str] = None):
-    """Test connection to LLM provider."""
-    if not provider_name:
-        provider_name = Settings.LLM_PROVIDER
-
-    print(f"🧪 Testing {provider_name} provider...")
-
-    try:
-        # Temporarily switch provider for testing
-        original_provider = Settings.LLM_PROVIDER
-        Settings.LLM_PROVIDER = provider_name
-
-        # Create provider instance
-        llm = create_llm_provider()
-
-        # Test with a simple message
-        test_messages = [{"role": "user", "content": "Say 'Hello from SAM!' and nothing else."}]
-
-        async with Spinner(f"Testing {provider_name} connection"):
-            response = await llm.chat_completion(test_messages)
-
-        # Restore original provider
-        Settings.LLM_PROVIDER = original_provider
-
-        if response and response.content:
-            print(f"✅ {provider_name} test successful!")
-            print(f"   Response: {response.content.strip()}")
-            if response.usage:
-                tokens = response.usage.get("total_tokens", 0)
-                if tokens > 0:
-                    print(f"   Tokens used: {tokens}")
-            return 0
-        else:
-            print(f"❌ {provider_name} test failed: Empty response")
-            return 1
-
-    except Exception as e:
-        # Restore original provider
-        Settings.LLM_PROVIDER = original_provider
-        print(f"❌ {provider_name} test failed: {e}")
-        return 1
-    finally:
-        if "llm" in locals():
-            await llm.close()
+    """Shim delegating to commands.providers.test_provider."""
+    from .commands.providers import test_provider as _test
+    return await _test(provider_name)
 
 
-async def run_health_check():
-    """Run health checks on SAM framework components."""
-    print("🏥 SAM Framework Health Check")
-
-    try:
-        from .utils.error_handling import get_health_checker, get_error_tracker
-        from .utils.secure_storage import get_secure_storage
-        from .utils.rate_limiter import get_rate_limiter
-        from .core.memory import MemoryManager
-
-        health_checker = get_health_checker()
-
-        # Register health checks
-        async def database_health():
-            memory = MemoryManager(Settings.SAM_DB_PATH)
-            await memory.initialize()
-            stats = await memory.get_session_stats()
-            return {"status": "ok", "stats": stats}
-
-        async def secure_storage_health():
-            storage = get_secure_storage()
-            test_results = storage.test_keyring_access()
-            return test_results
-
-        async def rate_limiter_health():
-            limiter = await get_rate_limiter()
-            # Get stats about the in-memory rate limiter
-            num_keys = len(limiter.request_history)
-            return {"status": "healthy", "active_keys": num_keys}
-
-        async def error_tracker_health():
-            tracker = await get_error_tracker()
-            stats = await tracker.get_error_stats(24)
-            return {"recent_errors": stats.get("total_errors", 0)}
-
-        health_checker.register_health_check("database", database_health, 0)
-        health_checker.register_health_check("secure_storage", secure_storage_health, 0)
-        health_checker.register_health_check("rate_limiter", rate_limiter_health, 0)
-        health_checker.register_health_check("error_tracker", error_tracker_health, 0)
-
-        # Run health checks
-        results = await health_checker.run_health_checks()
-
-        print("\n🔍 Component Health Status:")
-
-        all_healthy = True
-        for component, result in results.items():
-            if result:
-                status = result.get("status", "unknown")
-                if status == "healthy":
-                    print(f"  ✅ {component}: {status}")
-                else:
-                    print(f"  ❌ {component}: {status}")
-                    if "error" in result:
-                        print(f"     Error: {result['error']}")
-                    all_healthy = False
-
-                # Show additional details
-                if "details" in result:
-                    details = result["details"]
-                    if isinstance(details, dict):
-                        for key, value in details.items():
-                            if key != "status":
-                                print(f"     {key}: {value}")
-            else:
-                print(f"  ❓ {component}: no data")
-                all_healthy = False
-
-        # Show recent errors
-        error_tracker = await get_error_tracker()
-        error_stats = await error_tracker.get_error_stats(24)
-
-        total_errors = error_stats.get("total_errors", 0)
-        if total_errors > 0:
-            print(f"\n⚠️  {total_errors} errors in the last 24 hours")
-
-            severity_counts = error_stats.get("severity_counts", {})
-            for severity, count in severity_counts.items():
-                print(f"     {severity}: {count}")
-
-            critical_errors = error_stats.get("critical_errors", [])
-            if critical_errors:
-                print("\n🚨 Recent critical errors:")
-                for error in critical_errors[:3]:
-                    print(
-                        f"     {error['timestamp']}: {error['component']} - {error['error_message']}"
-                    )
-        else:
-            print("\n✅ No errors in the last 24 hours")
-
-        if all_healthy and total_errors == 0:
-            print("\n🎉 All systems healthy!")
-            return 0
-        else:
-            print("\n⚠️  Some issues detected")
-            return 1
-
-    except Exception as e:
-        print(f"❌ Health check failed: {e}")
-        return 1
+# moved to sam.commands.health.run_health_check
 
 
 async def main():
@@ -1380,9 +593,9 @@ async def main():
     if args.command == "key":
         if hasattr(args, "key_action") and args.key_action:
             if args.key_action == "import":
-                return import_private_key()
+                return cmd_import_key()
             elif args.key_action == "generate":
-                return generate_key()
+                return cmd_generate_key()
         else:
             print("Usage: sam key {import|generate}")
             return 1
@@ -1390,14 +603,14 @@ async def main():
     if args.command == "provider":
         if hasattr(args, "provider_action") and args.provider_action:
             if args.provider_action == "list":
-                list_providers()
+                cmd_list_providers()
                 return 0
             elif args.provider_action == "current":
-                show_current_provider()
+                cmd_show_current_provider()
                 return 0
             elif args.provider_action == "switch":
                 if hasattr(args, "name"):
-                    return switch_provider(args.name)
+                    return cmd_switch_provider(args.name)
                 else:
                     print(
                         colorize(
@@ -1407,7 +620,7 @@ async def main():
                     )
                     return 1
             elif args.provider_action == "test":
-                return await test_provider(getattr(args, "provider", None))
+                return await cmd_test_provider(getattr(args, "provider", None))
         else:
             print("Usage: sam provider {list|current|switch|test}")
             return 1
@@ -1471,10 +684,10 @@ async def main():
         return 0
 
     if args.command == "maintenance":
-        return await run_maintenance()
+        return await cmd_run_maintenance()
 
     if args.command == "health":
-        return await run_health_check()
+        return await cmd_run_health()
 
     if args.command == "onboard":
         return await run_onboarding()
@@ -1484,7 +697,7 @@ async def main():
         from dotenv import load_dotenv
 
         # Prefer a stable .env location (CWD/repo) over module path
-        env_path = _find_env_path()
+        env_path = find_env_path()
         load_dotenv(env_path, override=True)
 
         # Refresh Settings from current environment to avoid stale class attributes
@@ -1510,7 +723,7 @@ async def main():
             # Reload environment and refresh Settings after onboarding
             from dotenv import load_dotenv
 
-            env_path = _find_env_path()
+            env_path = find_env_path()
             load_dotenv(env_path, override=True)
             Settings.refresh_from_env()
 

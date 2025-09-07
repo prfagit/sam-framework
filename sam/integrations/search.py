@@ -3,6 +3,7 @@
 import logging
 import os
 from typing import Dict, Any, Union, List, Optional
+from pydantic import BaseModel, Field
 from ..core.tools import Tool, ToolSpec
 from ..utils.decorators import rate_limit, retry_with_backoff, log_execution
 from ..utils.http_client import get_session
@@ -121,6 +122,31 @@ class SearchTools:
 def create_search_tools(search_tools: SearchTools) -> List[Tool]:
     """Create search tool instances."""
 
+    # Optional input models for decentralized validation
+    class WebSearchInput(BaseModel):
+        query: str = Field(..., description="Search query terms")
+        count: int = Field(5, ge=1, le=10, description="Number of results to return (1-10)")
+        freshness: Optional[str] = Field(
+            None,
+            description="Time filter: 'pd' (day), 'pw' (week), 'pm' (month), 'py' (year)",
+        )
+
+        def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
+            # Enforce allowed freshness values if provided
+            if self.freshness is not None and self.freshness not in {"pd", "pw", "pm", "py"}:
+                raise ValueError("freshness must be one of: pd, pw, pm, py")
+
+    class NewsSearchInput(BaseModel):
+        query: str = Field(..., description="News search query")
+        count: int = Field(5, ge=1, le=10, description="Number of results to return (1-10)")
+        freshness: str = Field(
+            "pw", description="Time filter: 'pd' (day), 'pw' (week), 'pm' (month)"
+        )
+
+        def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
+            if self.freshness not in {"pd", "pw", "pm"}:
+                raise ValueError("freshness must be one of: pd, pw, pm")
+
     async def handle_web_search(args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle web search requests."""
         query = args.get("query", "")
@@ -169,6 +195,7 @@ def create_search_tools(search_tools: SearchTools) -> List[Tool]:
                 },
             ),
             handler=handle_web_search,
+            input_model=WebSearchInput,
         ),
         Tool(
             spec=ToolSpec(
@@ -196,6 +223,7 @@ def create_search_tools(search_tools: SearchTools) -> List[Tool]:
                 },
             ),
             handler=handle_news_search,
+            input_model=NewsSearchInput,
         ),
     ]
 
