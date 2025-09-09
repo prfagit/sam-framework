@@ -179,12 +179,31 @@ sam provider test
 ### First Run
 
 ```bash
-# Start interactive agent
+# Start interactive agent (CLI)
 sam run
 
 # Or with custom session
 sam run --session trading_session
 ```
+
+<details>
+<summary><strong>🌐 Web Interface (Streamlit)</strong></summary>
+
+```bash
+# Launch the web interface
+uv run streamlit run examples/streamlit_app/app.py
+
+# Access at http://localhost:8501
+```
+
+**Web Features:**
+- Real-time chat with streaming responses
+- Live tool call visualization and event streaming
+- Interactive settings, wallet, and tools pages
+- Session management with conversation history
+- Responsive design with custom styling
+
+</details>
 
 ### Interactive Features
 
