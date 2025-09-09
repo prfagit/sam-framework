@@ -1,0 +1,124 @@
+import logging
+from typing import Dict, Any, List
+
+from pydantic import BaseModel, Field, field_validator
+
+from ..core.tools import Tool, ToolSpec
+
+logger = logging.getLogger(__name__)
+
+
+WSOL_MINT = "So11111111111111111111111111111111111111112"
+
+
+class SmartTrader:
+    def __init__(self, pump_tools=None, jupiter_tools=None, solana_tools=None):
+        self.pump = pump_tools
+        self.jupiter = jupiter_tools
+        self.solana = solana_tools
+
+    async def smart_buy(
+        self, mint: str, amount_sol: float, slippage_percent: int = 5
+    ) -> Dict[str, Any]:
+        """Try pump.fun first; on failure fall back to Jupiter SOL->mint swap."""
+        if not self.solana or not getattr(self.solana, "wallet_address", None):
+            return {"error": "No wallet configured for trading"}
+
+        wallet = self.solana.wallet_address
+
+        # 1) Try pump.fun
+        if self.pump is not None:
+            try:
+                logger.info("smart_buy: attempting pump.fun buy")
+                res = await self.pump.create_buy_transaction(
+                    wallet, mint, amount_sol, slippage_percent
+                )
+                if isinstance(res, dict) and "error" not in res:
+                    res.setdefault("provider", "pump.fun")
+                    return res
+                else:
+                    logger.warning(f"pump.fun buy failed, will fallback: {res}")
+            except Exception as e:
+                logger.warning(f"pump.fun buy raised, falling back: {e}")
+
+        # 2) Fallback to Jupiter
+        if self.jupiter is None:
+            return {"error": "Jupiter swap unavailable for fallback"}
+
+        try:
+            slippage_bps = max(1, min(1000, int(slippage_percent * 100)))
+            amount_lamports = int(amount_sol * 1_000_000_000)
+            logger.info(
+                f"smart_buy: attempting Jupiter swap SOL->{mint} amount={amount_lamports} bps={slippage_bps}"
+            )
+            res = await self.jupiter.execute_swap(WSOL_MINT, mint, amount_lamports, slippage_bps)
+            if isinstance(res, dict) and "error" not in res:
+                res.setdefault("provider", "jupiter")
+            return res
+        except Exception as e:
+            logger.error(f"Jupiter fallback failed: {e}")
+            return {"error": f"Jupiter swap failed: {str(e)}"}
+
+
+def create_smart_trader_tools(
+    trader: SmartTrader,
+) -> List[Tool]:
+    """Register smart trading helpers."""
+
+    class SmartBuyInput(BaseModel):
+        mint: str = Field(..., description="Token mint to buy")
+        amount_sol: float = Field(..., gt=0, le=1000, description="Amount of SOL to spend")
+        slippage_percent: int = Field(
+            5,
+            ge=1,
+            le=50,
+            description="Slippage percent (used for both providers; Jupiter uses equivalent bps)",
+        )
+
+        @field_validator("mint")
+        @classmethod
+        def _validate_mint(cls, v: str) -> str:
+            if not isinstance(v, str) or len(v) < 32 or len(v) > 44:
+                raise ValueError("Invalid token mint address")
+            return v
+
+    async def handle_smart_buy(args: Dict[str, Any]) -> Dict[str, Any]:
+        mint = args.get("mint", "")
+        amount_sol = float(args.get("amount_sol", 0))
+        slippage_percent = int(args.get("slippage_percent", 5))
+        return await trader.smart_buy(mint, amount_sol, slippage_percent)
+
+    return [
+        Tool(
+            spec=ToolSpec(
+                name="smart_buy",
+                description="Buy a token using best available route: tries pump.fun first, falls back to Jupiter SOL->token.",
+                input_schema={
+                    "name": "smart_buy",
+                    "description": "Smart buy with fallback",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "mint": {"type": "string", "description": "Token mint address"},
+                            "amount_sol": {
+                                "type": "number",
+                                "description": "Amount of SOL to spend",
+                                "minimum": 0.001,
+                                "maximum": 1000,
+                            },
+                            "slippage_percent": {
+                                "type": "integer",
+                                "description": "Slippage percent (1-50) applied to provider",
+                                "default": 5,
+                                "minimum": 1,
+                                "maximum": 50,
+                            },
+                        },
+                        "required": ["mint", "amount_sol"],
+                    },
+                },
+            ),
+            handler=handle_smart_buy,
+            input_model=SmartBuyInput,
+        )
+    ]

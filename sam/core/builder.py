@@ -25,6 +25,7 @@ from ..integrations.pump_fun import PumpFunTools, create_pump_fun_tools
 from ..integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
 from ..integrations.jupiter import JupiterTools, create_jupiter_tools
 from ..integrations.search import SearchTools, create_search_tools
+from ..integrations.smart_trader import SmartTrader, create_smart_trader_tools
 from .plugins import load_plugins
 
 logger = logging.getLogger(__name__)
@@ -372,6 +373,14 @@ class AgentBuilder:
             load_plugins(tools, agent=agent)
         except Exception as e:
             logger.warning(f"Plugin loading encountered an issue: {e}")
+
+        # Smart trader (pump.fun -> Jupiter fallback)
+        try:
+            trader = SmartTrader(pump_tools, jupiter_tools, solana_tools)
+            for tool in create_smart_trader_tools(trader):
+                tools.register(tool)
+        except Exception as e:
+            logger.warning(f"Failed to register smart trader tools: {e}")
 
         # Keep references (mypy-friendly) as before
         setattr(agent, "_solana_tools", solana_tools)

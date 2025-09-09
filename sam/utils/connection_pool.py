@@ -30,6 +30,10 @@ class DatabasePool:
         self._created_connections = 0
         self._lock = asyncio.Lock()
         self._closed = False
+        try:
+            self._loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+        except Exception:
+            self._loop = None
 
         # Ensure directory exists
         dirpath = os.path.dirname(db_path) or "."
@@ -100,12 +104,12 @@ class DatabasePool:
 
         # Check if connection is still alive with retry
         try:
-            if hasattr(conn, "_closed") and conn._closed:
-                return False
-
             # Simple validation with timeout
             await asyncio.wait_for(conn.execute("SELECT 1"), timeout=5.0)
-            await conn.commit()
+            try:
+                await conn.commit()
+            except Exception:
+                pass
             return True
         except (Exception, asyncio.TimeoutError) as e:
             logger.warning(f"Database connection check failed: {e}")
@@ -162,9 +166,12 @@ class DatabasePool:
     async def _close_connection(self, conn_info: Dict[str, Any]):
         """Close a single connection."""
         try:
-            conn = conn_info["connection"]
-            if conn and not conn._closed:
-                await conn.close()
+            conn = conn_info.get("connection")
+            if conn:
+                try:
+                    await conn.close()
+                except Exception:
+                    pass
             logger.debug("Closed database connection")
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
@@ -172,6 +179,7 @@ class DatabasePool:
     async def close(self):
         """Close all connections in the pool."""
         self._closed = True
+        self._loop = None
 
         closed_count = 0
         while not self._pool.empty():
@@ -199,17 +207,40 @@ class DatabasePool:
 
 # Global pool instance
 _global_pool: Optional[DatabasePool] = None
-_pool_lock = asyncio.Lock()
+# Avoid a global event-loop-bound lock; lockless init is acceptable here
+_pool_lock = None  # kept for backward compatibility; unused
 
 
 async def get_database_pool(db_path: str, pool_size: int = 5) -> DatabasePool:
     """Get global database pool instance."""
     global _global_pool
 
-    if _global_pool is None or _global_pool._closed:
-        async with _pool_lock:
-            if _global_pool is None or _global_pool._closed:
-                _global_pool = DatabasePool(db_path, pool_size)
+    current_loop = None
+    try:
+        current_loop = asyncio.get_running_loop()
+    except Exception:
+        pass
+
+    needs_new = (
+        _global_pool is None
+        or _global_pool._closed
+        or _global_pool._loop is None
+        or (_global_pool._loop and _global_pool._loop.is_closed())
+        or (
+            _global_pool._loop is not None
+            and current_loop is not None
+            and _global_pool._loop is not current_loop
+        )
+    )
+
+    if needs_new:
+        # Lock-free replacement to avoid cross-loop lock usage in Streamlit
+        if _global_pool and not _global_pool._closed:
+            try:
+                await _global_pool.close()
+            except Exception:
+                pass
+        _global_pool = DatabasePool(db_path, pool_size)
 
     return _global_pool
 

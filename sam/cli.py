@@ -12,7 +12,6 @@ import argparse
 import logging
 import shutil
 import textwrap
-import platform
 from typing import Optional
 
 try:
@@ -55,6 +54,7 @@ logger = logging.getLogger(__name__)
 # Optional interactive UI (menus, prompts) — lazily imported to avoid hard deps
 _INQ = None  # type: ignore
 
+
 def _ensure_inquirer() -> bool:
     global _INQ
     if _INQ is not None:
@@ -83,6 +83,7 @@ TOOL_DISPLAY_NAMES = {
     "get_trending_pairs": "🔥 Getting trending pairs",
     "get_swap_quote": "💱 Getting swap quote",
     "jupiter_swap": "🌌 Swapping on Jupiter",
+    "get_token_price": "💲 Getting token price",
     "search_web": "🔍 Searching web",
     "search_news": "📰 Searching news",
 }
@@ -280,6 +281,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
             return (addr[:4] + "…" + addr[-4:]) if addr and len(addr) > 8 else (addr or "unset")
         except Exception:
             return "unset"
+
     async def show_tools():
         specs = agent.tools.list_specs()
         print()
@@ -379,7 +381,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
 
     # Unified interactive helpers (inquirer when available)
     try:
-        from typing import Optional as _Opt  # local alias to avoid top imports noise
+        pass  # local alias to avoid top imports noise
     except Exception:
         pass
 
@@ -395,7 +397,11 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                 print(colorize(f"❌ Menu error: {e}", Style.FG_YELLOW))
                 return None
         # No numeric fallback to keep UX consistent with settings
-        print(colorize("Interactive menu requires 'inquirer'. Type commands or run /help.", Style.FG_YELLOW))
+        print(
+            colorize(
+                "Interactive menu requires 'inquirer'. Type commands or run /help.", Style.FG_YELLOW
+            )
+        )
         return None
 
     def interactive_text(title: str, default: str = ""):
@@ -440,7 +446,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                             msg = await agent.compact_conversation(session_id)
                         print(colorize(f"📋 {msg}", Style.FG_GREEN))
                         # Update marker to avoid repeated compaction in same state
-                        last_compacted_at = int(agent.session_stats.get("context_length", 0) or ctx_len)
+                        last_compacted_at = int(
+                            agent.session_stats.get("context_length", 0) or ctx_len
+                        )
                 except Exception:
                     pass
 
@@ -549,7 +557,8 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                                 if result == 0:
                                     print(
                                         colorize(
-                                            "🔄 Restart SAM to use the new provider", Style.FG_YELLOW
+                                            "🔄 Restart SAM to use the new provider",
+                                            Style.FG_YELLOW,
                                         )
                                     )
                     elif selection == "clear":
@@ -698,6 +707,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                     try:
                         if os.name == "nt":
                             import msvcrt  # type: ignore
+
                             while not cancel_task.done():
                                 if msvcrt.kbhit():
                                     ch = msvcrt.getch()

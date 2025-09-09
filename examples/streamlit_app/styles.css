@@ -1,0 +1,198 @@
+/* Shadcn-like dark theme polish for Streamlit */
+
+:root {
+  --bg: #0a0a0a;            /* near-black */
+  --surface: #121212;       /* subtle elevation */
+  --muted: #0d0d0d;         /* muted blocks */
+  --text: #e5e5e5;          /* light gray */
+  --text-dim: #a3a3a3;      /* dim text */
+  --primary: #f5f5f5;       /* neutral accent (no blue) */
+  --primary-700: #d4d4d4;   /* darker neutral for hover */
+  --ring: rgba(245, 245, 245, 0.2);
+  --border: #262626;        /* subtle borders */
+  --radius: 12px;
+}
+
+/* Base */
+html, body, [data-testid="stAppViewContainer"] { background-color: var(--bg) !important; }
+body, .stMarkdown, .stText, .stCaption, .stTooltip { color: var(--text) !important; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif; }
+
+/* Hide default chrome (keep header so sidebar toggle remains accessible) */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; height: 0; }
+header { visibility: visible; height: auto; background: transparent; }
+
+/* Sidebar */
+[data-testid="stSidebar"] { background: var(--surface) !important; border-right: 1px solid var(--border); }
+[data-testid="stSidebar"] .stButton > button { border-radius: calc(var(--radius) - 4px); background: var(--muted); border: 1px solid var(--border); color: var(--text); }
+[data-testid="stSidebar"] .stButton > button:hover { border-color: var(--primary-700); box-shadow: 0 0 0 4px var(--ring); }
+
+/* Headings */
+h1, h2, h3 { letter-spacing: -0.01em; }
+
+/* Cards and containers - prefer stable selections only */
+
+/* Chat bubbles (assistant) */
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
+  background: linear-gradient(180deg, rgba(18,18,18,1) 0%, rgba(14,14,14,1) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+/* Chat bubbles (user): rely on order to differentiate; tune as needed */
+[data-testid="stChatMessage"]:has([data-testid="user-avatar"]) [data-testid="stMarkdownContainer"],
+[data-testid="stChatMessage"]:nth-of-type(odd) [data-testid="stMarkdownContainer"] {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Chat input */
+[data-testid="stChatInput"] textarea {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  color: var(--text) !important;
+}
+[data-testid="stChatInput"] button {
+  background: #1a1a1a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+}
+[data-testid="stChatInput"] button:focus { box-shadow: 0 0 0 4px var(--ring); }
+
+/* Lightweight spinner */
+.sam-spinner {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 2px solid #333; border-top-color: var(--text);
+  animation: sam-spin 0.8s linear infinite;
+}
+@keyframes sam-spin { to { transform: rotate(360deg); } }
+
+/* Typing cursor */
+.typing-cursor::after {
+  content: "\00a0"; /* non-breaking space */
+  display: inline-block;
+  width: 8px; height: 1.1em; margin-left: 2px;
+  background: var(--text);
+  animation: blink 1s steps(1) infinite;
+  vertical-align: -0.1em;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Links and code */
+a { color: #d4d4d4; }
+code, pre { background: #0b1220 !important; border: 1px solid #111827 !important; border-radius: 10px !important; }
+pre code { white-space: pre-wrap !important; }
+
+/* Subtle separators */
+.stDivider { border-color: var(--border) !important; }
+
+/* Tool events and enhanced components */
+.tool-event { 
+  background: var(--muted); 
+  border: 1px solid var(--border); 
+  border-radius: 10px; 
+  padding: 8px 10px; 
+  margin-bottom: 8px; 
+  font-size: 12.5px; 
+  color: var(--text-dim); 
+}
+.tool-event strong { color: var(--text); }
+
+/* Enhanced metrics and widgets */
+.stMetric {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 8px !important;
+}
+
+.stMetric > div > div {
+  color: var(--text) !important;
+}
+
+/* Quick action buttons */
+.stButton > button {
+  background: linear-gradient(135deg, var(--surface), var(--muted)) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  color: var(--text) !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+
+.stButton > button:hover {
+  border-color: var(--primary-700) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 2px var(--ring) !important;
+  transform: translateY(-1px) !important;
+}
+
+.stButton > button:active {
+  transform: translateY(0px) !important;
+}
+
+/* Success and error states */
+.stSuccess {
+  background: rgba(34, 197, 94, 0.1) !important;
+  border: 1px solid rgba(34, 197, 94, 0.3) !important;
+  color: #86efac !important;
+}
+
+.stError {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  color: #fca5a5 !important;
+}
+
+.stWarning {
+  background: rgba(245, 158, 11, 0.1) !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  color: #fde047 !important;
+}
+
+.stInfo {
+  background: rgba(59, 130, 246, 0.1) !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  color: #93c5fd !important;
+}
+
+/* Progress bars */
+.stProgress > div > div {
+  background: linear-gradient(90deg, var(--primary), var(--primary-700)) !important;
+  border-radius: 4px !important;
+}
+
+/* Expanders */
+.streamlit-expanderHeader {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  color: var(--text) !important;
+}
+
+.streamlit-expanderContent {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-top: none !important;
+  border-radius: 0 0 var(--radius) var(--radius) !important;
+}
+
+/* Containers and cards */
+.element-container {
+  margin-bottom: 0.5rem !important;
+}
+
+/* Copy button styling */
+[data-testid="stButton"] button[kind="secondary"] {
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  font-size: 14px !important;
+  padding: 4px 8px !important;
+  min-height: auto !important;
+}
+
+/* (kept earlier code block style; avoid duplicate overrides) */

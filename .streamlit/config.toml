@@ -1,0 +1,10 @@
+[theme]
+base = "dark"
+primaryColor = "#F5F5F5"          # neutral light (no blue)
+backgroundColor = "#0A0A0A"        # near-black
+secondaryBackgroundColor = "#121212" # surface
+textColor = "#E5E5E5"             # gray-200
+font = "sans serif"
+
+[client]
+toolbarMode = "viewer"

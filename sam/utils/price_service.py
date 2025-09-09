@@ -1,6 +1,7 @@
-"""Price service for USD conversions using Jupiter API."""
+"""Price service for USD conversions (Jupiter first, DexScreener fallback or selectable)."""
 
 import asyncio
+import os
 import logging
 import time
 from typing import Dict, Optional, Any, List
@@ -35,6 +36,8 @@ class PriceService:
         self.cache_ttl = cache_ttl  # Cache for 30 seconds
         self._price_cache: Dict[str, PriceData] = {}
         self._lock = asyncio.Lock()
+        self._last_error_at: float = 0.0
+        self._last_estimate_log_at: float = 0.0
 
         # Common token mint addresses for quick reference
         self.COMMON_TOKENS = {
@@ -46,7 +49,14 @@ class PriceService:
         }
 
     async def get_sol_price_usd(self) -> float:
-        """Get current SOL price in USD from Jupiter."""
+        """Get current SOL price in USD.
+
+        Provider order is controlled via env var SAM_PRICE_PROVIDER:
+        - "jupiter" (default): Jupiter only
+        - "dexscreener": DexScreener only
+        - "auto": try Jupiter, then DexScreener
+        """
+        provider = (os.getenv("SAM_PRICE_PROVIDER") or "jupiter").lower()
         try:
             async with self._lock:
                 # Check cache first
@@ -57,36 +67,82 @@ class PriceService:
                     )
                     return cached_sol.price_usd
 
-                # Fetch fresh price from Jupiter
-                session = await get_session()
-
-                # Jupiter price API endpoint
-                url = "https://price.jup.ag/v4/price"
-                params = {"ids": "SOL"}
-
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
+                async def _from_jupiter() -> Optional[float]:
+                    session = await get_session()
+                    url = "https://api.jup.ag/price/v3/price"
+                    params = {
+                        "ids": "So11111111111111111111111111111111111111112"
+                    }  # SOL mint address
+                    async with session.get(url, params=params) as response:
+                        if response.status != 200:
+                            return None
                         data = await response.json()
+                        try:
+                            # v3 API returns price directly under the mint address
+                            sol_mint = "So11111111111111111111111111111111111111112"
+                            return float(data["data"][sol_mint]["price"])  # type: ignore[index]
+                        except Exception:
+                            return None
 
-                        if "data" in data and "SOL" in data["data"]:
-                            price_usd = float(data["data"]["SOL"]["price"])
+                async def _from_dexscreener() -> Optional[float]:
+                    session = await get_session()
+                    # SOL mint
+                    mint = "So11111111111111111111111111111111111111112"
+                    url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            return None
+                        data = await response.json()
+                        pairs = data.get("pairs") or []
+                        best = None
+                        best_liq = -1.0
+                        for p in pairs:
+                            try:
+                                liq = float((p.get("liquidity") or {}).get("usd") or 0.0)
+                                if liq > best_liq and p.get("priceUsd"):
+                                    best = p
+                                    best_liq = liq
+                            except Exception:
+                                continue
+                        if best and best.get("priceUsd"):
+                            return float(best["priceUsd"])  # type: ignore[index]
+                        return None
 
-                            # Cache the result
-                            self._price_cache["SOL"] = PriceData(
-                                price_usd=price_usd, timestamp=time.time(), source="jupiter"
-                            )
+                async def _cache_and_return(price: float, source: str) -> float:
+                    self._price_cache["SOL"] = PriceData(
+                        price_usd=price, timestamp=time.time(), source=source
+                    )
+                    logger.debug(f"Fetched SOL price from {source}: ${price}")
+                    return price
 
-                            logger.debug(f"Fetched fresh SOL price: ${price_usd}")
-                            return price_usd
-                        else:
-                            logger.warning("SOL price not found in Jupiter response")
-                            return await self._get_fallback_sol_price()
-                    else:
-                        logger.warning(f"Jupiter price API error: {response.status}")
-                        return await self._get_fallback_sol_price()
+                # Provider selection
+                if provider == "jupiter":
+                    j = await _from_jupiter()
+                    if j is not None:
+                        return await _cache_and_return(j, "jupiter")
+                    return await self._get_fallback_sol_price()
+                elif provider == "dexscreener":
+                    d = await _from_dexscreener()
+                    if d is not None:
+                        return await _cache_and_return(d, "dexscreener")
+                    return await self._get_fallback_sol_price()
+                else:  # auto
+                    j = await _from_jupiter()
+                    if j is not None:
+                        return await _cache_and_return(j, "jupiter")
+                    d = await _from_dexscreener()
+                    if d is not None:
+                        return await _cache_and_return(d, "dexscreener")
+                    return await self._get_fallback_sol_price()
 
         except Exception as e:
-            logger.error(f"Error fetching SOL price: {e}")
+            # Reduce log noise by rate-limiting network error logs
+            now = time.time()
+            if now - self._last_error_at > 120:
+                logger.error(f"Error fetching SOL price: {e}")
+                self._last_error_at = now
+            else:
+                logger.debug(f"Price fetch error suppressed (recent): {e}")
             return await self._get_fallback_sol_price()
 
     async def _get_fallback_sol_price(self) -> float:
@@ -100,8 +156,13 @@ class PriceService:
             return cached_sol.price_usd
 
         # Last resort: use a reasonable estimate
-        estimated_price = 150.0  # Conservative estimate
-        logger.warning(f"Using estimated SOL price: ${estimated_price}")
+        estimated_price = 215.0  # Conservative estimate in restricted envs
+        now = time.time()
+        if now - self._last_estimate_log_at > 60:
+            logger.warning(f"Using estimated SOL price: ${estimated_price}")
+            self._last_estimate_log_at = now
+        else:
+            logger.debug(f"Using estimated SOL price: ${estimated_price}")
         return estimated_price
 
     async def sol_to_usd(self, sol_amount: float) -> float:

@@ -205,30 +205,96 @@ class PumpFunTools:
             return {"error": str(e)}
 
     async def get_token_info(self, mint: str) -> Dict[str, Any]:
-        """Get basic information about a token."""
+        """Get basic information about a token.
+
+        Note: The pumpportal.fun API doesn't expose coin-data; use the
+        pump.fun frontend API for token metadata.
+        """
         try:
             session = await get_session()
 
-            async with session.get(f"{self.base_url}/coin-data/{mint}") as response:
+            # Primary: pump.fun frontend API for coin metadata
+            url = f"https://frontend-api.pump.fun/coins/{mint}"
+            async with session.get(url) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.error(f"Token info API error {response.status}: {error_text}")
-                    return {"error": f"API error {response.status}: {error_text}"}
+                    logger.warning(
+                        f"Pump.fun frontend API error {response.status}: {error_text} — attempting DexScreener fallback"
+                    )
+                    # Fallback to DexScreener if pump.fun frontend API is unavailable
+                    ds_url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
+                    async with session.get(ds_url) as ds_resp:
+                        if ds_resp.status != 200:
+                            ds_text = await ds_resp.text()
+                            logger.error(f"DexScreener fallback error {ds_resp.status}: {ds_text}")
+                            return {"error": f"API error {response.status}: {error_text}"}
+
+                        ds_data = await ds_resp.json()
+                        pairs = ds_data.get("pairs") or []
+                        # Pick the highest liquidity pair as representative
+                        best = None
+                        best_liq = -1.0
+                        for p in pairs:
+                            try:
+                                liq = float((p.get("liquidity") or {}).get("usd") or 0.0)
+                                if liq > best_liq:
+                                    best = p
+                                    best_liq = liq
+                            except Exception:
+                                continue
+                        if not best:
+                            return {"error": "No token data available from pump.fun or DexScreener"}
+
+                        base = best.get("baseToken") or {}
+                        info = {
+                            "mint": mint,
+                            "name": base.get("name") or "Unknown",
+                            "symbol": base.get("symbol") or "Unknown",
+                            "description": "",
+                            "market_cap": best.get("fdv") or 0,
+                            "price": best.get("priceUsd") or 0,
+                            "bonding_curve": {},
+                            "twitter": None,
+                            "telegram": None,
+                            "website": None,
+                            "raw": ds_data,
+                            "source": "dexscreener",
+                        }
+                        logger.info(f"Retrieved token info from DexScreener for {mint}")
+                        return info
 
                 data = await response.json()
+
+                # Map common fields safely
+                name = data.get("name") or data.get("coin_name") or "Unknown"
+                symbol = data.get("symbol") or data.get("ticker") or "Unknown"
+                description = data.get("description") or data.get("bio") or ""
+                price = (
+                    data.get("price")
+                    or data.get("usdMarketCap")  # some endpoints expose market cap instead
+                    or 0
+                )
+                bonding_curve = data.get("bonding_curve") or data.get("bondingCurve") or {}
+
+                links = data.get("links") or {}
+                twitter = data.get("twitter") or links.get("twitter")
+                telegram = data.get("telegram") or links.get("telegram")
+                website = data.get("website") or links.get("website")
 
                 logger.info(f"Retrieved token info for {mint}")
                 return {
                     "mint": mint,
-                    "name": data.get("name", "Unknown"),
-                    "symbol": data.get("symbol", "Unknown"),
-                    "description": data.get("description", ""),
-                    "market_cap": data.get("market_cap", 0),
-                    "price": data.get("price", 0),
-                    "bonding_curve": data.get("bonding_curve", {}),
-                    "twitter": data.get("twitter"),
-                    "telegram": data.get("telegram"),
-                    "website": data.get("website"),
+                    "name": name,
+                    "symbol": symbol,
+                    "description": description,
+                    "market_cap": data.get("market_cap") or data.get("marketCap") or 0,
+                    "price": price,
+                    "bonding_curve": bonding_curve,
+                    "twitter": twitter,
+                    "telegram": telegram,
+                    "website": website,
+                    "raw": data,
+                    "source": "pump.fun",
                 }
 
         except aiohttp.ClientError as e:

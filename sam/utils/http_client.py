@@ -14,23 +14,44 @@ class SharedHTTPClient:
 
     _instance: Optional["SharedHTTPClient"] = None
     _session: Optional[aiohttp.ClientSession] = None
-    _lock = asyncio.Lock()
 
     def __init__(self):
         self._closed = False
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     @classmethod
     async def get_instance(cls) -> "SharedHTTPClient":
-        """Get singleton instance of shared HTTP client."""
+        """Get singleton instance of shared HTTP client.
+
+        Avoids cross-loop locks to remain compatible with reruns; in practice,
+        a single instance per process is sufficient.
+        """
         if cls._instance is None:
-            async with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls()
+            cls._instance = cls()
         return cls._instance
 
     async def get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session with optimized settings."""
-        if self._session is None or self._session.closed or self._closed:
+        """Get or create HTTP session with optimized settings.
+
+        Recreates the session if the associated event loop is different or closed
+        (common in Streamlit reruns or when using asyncio.run multiple times).
+        """
+        current_loop = asyncio.get_running_loop()
+        recreate = False
+        if self._session is None or self._closed:
+            recreate = True
+        else:
+            # If the loop changed or is closed, drop and recreate the session
+            if self._loop is None or self._loop.is_closed() or self._loop is not current_loop:
+                try:
+                    if self._session and not self._session.closed:
+                        await self._session.close()
+                except Exception:
+                    pass
+                self._session = None
+                recreate = True
+
+        if recreate:
             await self._create_session()
         assert self._session is not None, "Session should be created by _create_session"
         return self._session
@@ -54,11 +75,18 @@ class SharedHTTPClient:
         )
 
         self._session = aiohttp.ClientSession(
-            connector=connector, timeout=timeout, headers={"User-Agent": "SAM-Framework/0.1.0"}
+            connector=connector,
+            timeout=timeout,
+            headers={"User-Agent": "SAM-Framework/0.1.0"},
+            trust_env=True,  # honor HTTP(S)_PROXY and system SSL settings
         )
 
         logger.info("Created shared HTTP session with connection pooling")
         self._closed = False
+        try:
+            self._loop = asyncio.get_running_loop()
+        except Exception:
+            self._loop = None
 
     @asynccontextmanager
     async def request(self, method: str, url: str, **kwargs):
@@ -77,6 +105,7 @@ class SharedHTTPClient:
             await self._session.close()
             logger.info("Closed shared HTTP session")
         self._closed = True
+        self._loop = None
 
     async def __aenter__(self):
         return self

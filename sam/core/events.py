@@ -16,6 +16,20 @@ class EventBus:
     def subscribe(self, event: str, handler: Subscriber) -> None:
         self._subs[event].append(handler)
 
+    def unsubscribe(self, event: str, handler: Subscriber) -> None:
+        """Remove a previously subscribed handler if present.
+
+        Safe to call multiple times; ignores if the handler is not registered.
+        """
+        try:
+            handlers = self._subs.get(event)
+            if not handlers:
+                return
+            # Remove all matching references
+            self._subs[event] = [h for h in handlers if h is not handler]
+        except Exception as e:
+            logger.warning(f"Failed to unsubscribe handler for {event}: {e}")
+
     async def publish(self, event: str, payload: Dict[str, Any]) -> None:
         handlers = list(self._subs.get(event, []))
         for h in handlers:

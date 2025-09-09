@@ -155,7 +155,8 @@ class TestJupiterTools:
     @pytest.mark.asyncio
     async def test_jupiter_tools_initialization(self, jupiter_tools):
         """Test JupiterTools initialization."""
-        assert jupiter_tools.base_url == "https://quote-api.jup.ag"
+        assert jupiter_tools.base_url == "https://quote-api.jup.ag/v6"
+        assert jupiter_tools.price_url == "https://api.jup.ag/price/v3"
         assert jupiter_tools.solana_tools is None
 
     @pytest.mark.asyncio

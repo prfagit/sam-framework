@@ -207,4 +207,3 @@ class ToolResult:
                 error_detail=raw.get("error_detail"),
             )
         return ToolResult(success=True, data=dict(raw or {}))
-

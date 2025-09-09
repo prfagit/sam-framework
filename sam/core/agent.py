@@ -43,9 +43,20 @@ class SAMAgent:
             "token_metadata": {},  # {mint: metadata_dict}
         }
 
-    async def run(self, user_input: str, session_id: str) -> str:
+    async def run(
+        self, user_input: str, session_id: str, *, publish_final_event: bool = True
+    ) -> str:
         """Main agent execution loop."""
         logger.info(f"Starting agent run for session {session_id}")
+
+        # Signal run start for UIs
+        try:
+            await self.events.publish(
+                "agent.status",
+                {"session_id": session_id, "state": "start", "message": "Starting"},
+            )
+        except Exception:
+            pass
 
         # Load session context
         context = await self.memory.load_session(session_id)
@@ -56,6 +67,26 @@ class SAMAgent:
             + context
             + [{"role": "user", "content": user_input}]
         )
+
+        # Guard against repetitive greetings/responses
+        try:
+            prior_assistant = next(
+                (m for m in reversed(context) if m.get("role") == "assistant"),
+                None,
+            )
+            if prior_assistant and prior_assistant.get("content"):
+                messages.insert(
+                    1,
+                    {
+                        "role": "system",
+                        "content": (
+                            "Do not repeat previous greetings or the same reply. "
+                            "If a similar instruction was already given earlier in this session, respond directly and proceed with tools."
+                        ),
+                    },
+                )
+        except Exception:
+            pass
 
         # Update context length tracking
         self.session_stats["context_length"] = len(messages)
@@ -72,6 +103,18 @@ class SAMAgent:
 
             try:
                 # Get LLM response with available tools
+                try:
+                    await self.events.publish(
+                        "agent.status",
+                        {
+                            "session_id": session_id,
+                            "state": "thinking",
+                            "message": "Thinking",
+                            "iteration": iteration,
+                        },
+                    )
+                except Exception:
+                    pass
                 resp = await self.llm.chat_completion(messages, tools=self.tools.list_specs())
 
                 # Track token usage
@@ -218,6 +261,19 @@ class SAMAgent:
                         if len(tool_call_history) > 5:
                             tool_call_history.pop(0)
 
+                        # Auto-fill missing required args for certain tools
+                        try:
+                            if tool_name in {"search_web", "search_news"}:
+                                q = str(tool_args.get("query", "")).strip()
+                                if not q:
+                                    # Use the current user_input as a sensible default
+                                    tool_args["query"] = (user_input or "").strip()[:256]
+                                    logger.debug(
+                                        f"Filled missing 'query' for {tool_name} from user input"
+                                    )
+                        except Exception:
+                            pass
+
                         logger.info(f"Calling tool: {tool_name}")
                         # Publish tool called event
                         try:
@@ -228,6 +284,20 @@ class SAMAgent:
                                     "name": tool_name,
                                     "args": tool_args,
                                     "tool_call_id": tool_call_id,
+                                },
+                            )
+                        except Exception:
+                            pass
+
+                        # Update agent status for UIs
+                        try:
+                            await self.events.publish(
+                                "agent.status",
+                                {
+                                    "session_id": session_id,
+                                    "state": "tool_call",
+                                    "name": tool_name,
+                                    "message": f"Calling {tool_name}",
                                 },
                             )
                         except Exception:
@@ -246,6 +316,92 @@ class SAMAgent:
                         error_details = {}
 
                         if isinstance(result, dict) and "error" in result:
+                            # Automatic fallback: if pump.fun buy failed, try Jupiter swap
+                            try:
+                                if tool_name == "pump_fun_buy":
+                                    await self.events.publish(
+                                        "agent.status",
+                                        {
+                                            "session_id": session_id,
+                                            "state": "fallback",
+                                            "message": "pump.fun failed — trying Jupiter",
+                                        },
+                                    )
+
+                                    wsol = "So11111111111111111111111111111111111111112"
+                                    out_mint = str(tool_args.get("mint", ""))
+                                    amount_sol = float(tool_args.get("amount", 0))
+                                    slippage_pct = int(tool_args.get("slippage", 5) or 5)
+                                    amount_lamports = max(0, int(amount_sol * 1_000_000_000))
+                                    slippage_bps = max(1, min(1000, slippage_pct * 100))
+
+                                    jup_args = {
+                                        "input_mint": wsol,
+                                        "output_mint": out_mint,
+                                        "amount": amount_lamports,
+                                        "slippage_bps": slippage_bps,
+                                    }
+
+                                    # Announce fallback tool call
+                                    await self.events.publish(
+                                        "tool.called",
+                                        {
+                                            "session_id": session_id,
+                                            "name": "jupiter_swap",
+                                            "args": jup_args,
+                                            "tool_call_id": f"fallback-{tool_call_id}",
+                                        },
+                                    )
+
+                                    jup_res = await self.tools.call(
+                                        "jupiter_swap",
+                                        jup_args,
+                                        context=ToolContext(session_id=session_id),
+                                    )
+
+                                    # Append tool result into the transcript so the model can continue
+                                    messages.append(
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": f"fallback-{tool_call_id}",
+                                            "name": "jupiter_swap",
+                                            "content": json.dumps(jup_res, default=str)
+                                            if isinstance(jup_res, dict)
+                                            else str(jup_res),
+                                        }
+                                    )
+
+                                    # Also emit succeeded/failed events for the fallback
+                                    if isinstance(jup_res, dict) and "error" not in jup_res:
+                                        await self.events.publish(
+                                            "tool.succeeded",
+                                            {
+                                                "session_id": session_id,
+                                                "name": "jupiter_swap",
+                                                "args": jup_args,
+                                                "result": jup_res,
+                                                "tool_call_id": f"fallback-{tool_call_id}",
+                                            },
+                                        )
+                                    else:
+                                        await self.events.publish(
+                                            "tool.failed",
+                                            {
+                                                "session_id": session_id,
+                                                "name": "jupiter_swap",
+                                                "args": jup_args,
+                                                "result": jup_res,
+                                                "tool_call_id": f"fallback-{tool_call_id}",
+                                            },
+                                        )
+
+                                    # Continue loop to let the model react to the fallback result
+                                    error_count = 0
+                                    continue
+                            except Exception:
+                                # Fallback attempt errors are non-fatal; proceed with normal handling
+                                pass
+
                             error_count += 1
                             try:
                                 await self.events.publish(
@@ -334,13 +490,26 @@ class SAMAgent:
                             except Exception:
                                 pass
 
+                            try:
+                                await self.events.publish(
+                                    "agent.status",
+                                    {
+                                        "session_id": session_id,
+                                        "state": "tool_done",
+                                        "name": tool_name,
+                                        "message": f"{tool_name} done",
+                                    },
+                                )
+                            except Exception:
+                                pass
+
                         # Add tool result to message chain with tool_call_id
                         messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": tool_call_id,
                                 "name": tool_name,
-                                "content": json.dumps(result)
+                                "content": json.dumps(result, default=str)
                                 if isinstance(result, dict)
                                 else str(result),
                             }
@@ -354,6 +523,26 @@ class SAMAgent:
 
                     # Save session context (excluding system prompt)
                     await self.memory.save_session(session_id, messages[1:])
+                    try:
+                        await self.events.publish(
+                            "agent.status",
+                            {"session_id": session_id, "state": "finish", "message": "Finished"},
+                        )
+                    except Exception:
+                        pass
+                    # Optionally publish final assistant message event for UI adapters
+                    if publish_final_event:
+                        try:
+                            await self.events.publish(
+                                "agent.message",
+                                {
+                                    "session_id": session_id,
+                                    "content": resp.content or "",
+                                    "usage": dict(self.session_stats),
+                                },
+                            )
+                        except Exception:
+                            pass
 
                     return resp.content or "No response generated"
 

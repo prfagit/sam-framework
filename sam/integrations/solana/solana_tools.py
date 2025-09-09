@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 class SolanaTools:
     def __init__(self, rpc_url: str, private_key: Optional[str] = None):
         self.rpc_url = rpc_url
-        self.client = AsyncClient(rpc_url)
+        # Lazily create AsyncClient to avoid binding to a closed/other loop
+        self.client: Optional[AsyncClient] = None
+        self._loop = None
         self.keypair = None
         self.wallet_address = None
 
@@ -37,11 +39,48 @@ class SolanaTools:
         else:
             logger.info("Initialized Solana tools without wallet")
 
+    async def _get_client(self) -> AsyncClient:
+        """Get or (re)create AsyncClient bound to current loop."""
+        current_loop = None
+        try:
+            import asyncio
+
+            current_loop = asyncio.get_running_loop()
+        except Exception:
+            pass
+
+        need_new = (
+            self.client is None
+            or self._loop is None
+            or (getattr(self._loop, "is_closed", lambda: False)())
+            or (
+                self._loop is not None
+                and current_loop is not None
+                and self._loop is not current_loop
+            )
+        )
+        if need_new:
+            # Close previous client if needed
+            try:
+                if self.client is not None:
+                    await self.client.close()
+            except Exception:
+                pass
+            self.client = AsyncClient(self.rpc_url)
+            self._loop = current_loop
+        assert self.client is not None
+        return self.client
+
     async def close(self):
         """Close the Solana client connection."""
         if self.client:
-            await self.client.close()
+            try:
+                await self.client.close()
+            except Exception:
+                pass
             logger.info("Closed Solana client connection")
+        self.client = None
+        self._loop = None
 
     async def get_balance(self, address: Optional[str] = None) -> Dict[str, Any]:
         """Get SOL balance and all SPL token balances for an address or the configured wallet."""
@@ -54,7 +93,8 @@ class SolanaTools:
             pubkey = Pubkey.from_string(target_address)
 
             # Get SOL balance
-            response = await self.client.get_balance(pubkey)
+            client = await self._get_client()
+            response = await client.get_balance(pubkey)
 
             if response.value is None:
                 logger.error(f"Failed to get SOL balance for {target_address}")
@@ -166,7 +206,8 @@ class SolanaTools:
             )
 
             # Get recent blockhash
-            recent_blockhash = await self.client.get_latest_blockhash()
+            client = await self._get_client()
+            recent_blockhash = await client.get_latest_blockhash()
             if not recent_blockhash.value:
                 return {"error": "Failed to get recent blockhash"}
 
@@ -186,7 +227,8 @@ class SolanaTools:
             versioned_tx = VersionedTransaction(message, [self.keypair])
 
             # Send transaction
-            result = await self.client.send_transaction(versioned_tx, TxOpts(skip_preflight=False))
+            client = await self._get_client()
+            result = await client.send_transaction(versioned_tx, TxOpts(skip_preflight=False))
 
             if result.value:
                 tx_signature = str(result.value)
@@ -227,7 +269,8 @@ class SolanaTools:
 
             from solana.rpc.types import TokenAccountOpts
 
-            response = await self.client.get_token_accounts_by_owner(
+            client = await self._get_client()
+            response = await client.get_token_accounts_by_owner(
                 pubkey,
                 TokenAccountOpts(
                     program_id=Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
