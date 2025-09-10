@@ -51,7 +51,7 @@ def colorize(text: str, *styles: str) -> str:
 SAM_ASCII_ART = [
     "⠀⠀⠀⢘⠀⡂⢠⠆⠀⡰⠀⡀⢀⣠⣶⣦⣶⣶⣶⣶⣾⣿⣿⡿⢀⠈⢐⠈⠀⠀",
     "⠀⠀⠀⡁⢄⡀⣞⡇⢰⠃⣼⣇⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⠛⣰⣻⡀⢸⠀⠀⠀",
-    "⠀⠀⠀⣠⠁⣛⣽⣇⠘⢸⣿⣿⣷⣾⣿⣿⣿⣿⣿⣿⣿⠟⢡⣾⣿⢿⡇⠀⡃⠀⠀",
+    "⠀⠀⠀⣠⠁⣛⣽⣇⠘⢸⣿⣿⣷⣾⣿⣿⣿⣿⣿⣿⣿⠟⢡⣾⣿⢿⡇⠀⡃⠀",
     "⠀⠀⢀⠐⠀⢳⣿⡯⡞⣾⣿⣿⣿⣿⣿⣿⢿⣿⠟⢁⣴⣿⣿⣿⡜⢷⠀⢘⠄⠀",
     "⠀⠀⠀⡊⢸⡆⠙⠛⡵⣿⣿⣿⣿⣿⡿⠤⠛⣠⣴⣿⣿⠿⣟⣟⠟⢿⡆⢳⠀⠀",
     "⠀⠀⠘⡁⢸⡾⠁⠀⠀⠀⠀⠉⠉⠉⠈⣠⡌⢁⠄⡛⠡⠉⠍⠙⢳⢾⠁⢸⠀⠀",
@@ -115,8 +115,25 @@ class ASCIILoader:
         import re
 
         clean_text = re.sub(r"\033\[[0-9;]*m", "", text)
-        padding = max(0, (width - len(clean_text)) // 2)
-        return " " * padding + text
+        text_length = len(clean_text)
+        if text_length >= width:
+            return text
+        
+        left_padding = (width - text_length) // 2
+        right_padding = width - text_length - left_padding
+        
+        # Return with padding but preserve exact width by recalculating with ANSI codes
+        result = " " * left_padding + text + " " * right_padding
+        result_clean = re.sub(r"\033\[[0-9;]*m", "", result)
+        
+        # Adjust padding if ANSI codes affected the total length
+        if len(result_clean) != width:
+            actual_padding_needed = width - text_length
+            left_padding = actual_padding_needed // 2
+            right_padding = actual_padding_needed - left_padding
+            result = " " * left_padding + text + " " * right_padding
+        
+        return result
 
     def get_terminal_width(self) -> int:
         """Get terminal width or default to 80."""

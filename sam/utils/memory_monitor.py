@@ -166,7 +166,7 @@ class MemoryMonitor:
                 },
             },
             "caches": {
-                name: f"{size / 1024 / 1024:.1f}MB" for name, size in self._cache_sizes.items()
+                name: f"{size / 1024 / 1024:.2f}MB" for name, size in self._cache_sizes.items()
             },
             "alerts": dict(self._memory_alerts),
             "cpu": {

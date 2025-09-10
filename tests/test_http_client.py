@@ -50,11 +50,13 @@ class TestSharedHTTPClient:
     @pytest.mark.asyncio
     async def test_get_session_reuses_session(self):
         """Test that get_session reuses existing session."""
+        import asyncio
         client = SharedHTTPClient()
         existing_session = AsyncMock()
         existing_session.closed = False
         client._session = existing_session
         client._closed = False
+        client._loop = asyncio.get_running_loop()  # Set the correct loop
 
         session = await client.get_session()
 

@@ -40,6 +40,9 @@ async def close_agent() -> None:
     global _agent_singleton
     try:
         await cleanup_agent_fast()
+    except Exception:
+        # Swallow cleanup errors to avoid crashing callers
+        pass
     finally:
         _agent_singleton = None
 
@@ -73,6 +76,7 @@ async def run_with_events(
     bus = get_event_bus()
     queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
     done = asyncio.Event()
+    run_exc: Optional[Exception] = None
 
     async def handler(evt: str, payload: Dict[str, Any]) -> None:
         # Only forward events for our session_id (if provided)
@@ -92,6 +96,7 @@ async def run_with_events(
         bus.subscribe(evt, handler)
 
     async def _runner():
+        nonlocal run_exc
         try:
             agent = await get_agent()
             # Do not publish final event here; adapter will stream and publish
@@ -124,6 +129,8 @@ async def run_with_events(
                 )
             except Exception:
                 pass
+        except Exception as e:
+            run_exc = e
         finally:
             done.set()
 
@@ -160,3 +167,11 @@ async def run_with_events(
             "agent.message",
         ):
             bus.unsubscribe(evt, handler)
+        # Ensure the runner finished before propagating any error
+        try:
+            await asyncio.wait_for(task, timeout=0.2)
+        except Exception:
+            pass
+        # Propagate any runner exception to the caller
+        if run_exc is not None:
+            raise run_exc
