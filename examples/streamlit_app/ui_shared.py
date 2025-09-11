@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-from uuid import uuid4
 import streamlit as st
 
 from sam.web.session import get_agent
@@ -28,9 +27,17 @@ def ensure_env_loaded():
 def ensure_session_init():
     if "messages" not in st.session_state:
         st.session_state["messages"] = []
-    # Generate a stable, per-session id to avoid shared conversations
+    # Attach to latest session by default (or create a dated one)
     if "session_id" not in st.session_state or not st.session_state["session_id"]:
-        st.session_state["session_id"] = str(uuid4())
+        try:
+            from sam.web.session import get_default_session_id
+
+            st.session_state["session_id"] = run_sync(get_default_session_id())
+        except Exception:
+            # Fallback to a generated id if web adapter fails
+            from uuid import uuid4
+
+            st.session_state["session_id"] = str(uuid4())
     if "agent_ready" not in st.session_state:
         st.session_state["agent_ready"] = False
     if "last_input" not in st.session_state:

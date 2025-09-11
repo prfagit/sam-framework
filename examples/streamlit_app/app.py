@@ -2,7 +2,11 @@ import streamlit as st
 import sys
 from pathlib import Path
 
-from sam.web.session import run_with_events, run_once, get_agent
+from sam.web.session import (
+    run_with_events,
+    run_once,
+    get_agent,
+)
 
 # Ensure local module imports work when run via `streamlit run`
 _APP_DIR = Path(__file__).resolve().parent
@@ -28,10 +32,15 @@ agent_ready_marker()
 
 
 def render_chat():
-    col1, col2 = st.columns([6, 1])
+    col1, col2 = st.columns([6, 2])
     with col1:
         st.title("🤖 SAM Agent")
         st.caption("Solana Agent Middleware — Chat")
+        # Show active session id inline (no sidebar)
+        try:
+            st.caption(f"Session: {st.session_state['session_id']}")
+        except Exception:
+            pass
     with col2:
         if st.button("🗑️ Clear Chat"):
 
@@ -51,6 +60,8 @@ def render_chat():
                 st.rerun()
             except Exception:
                 pass
+
+    # No sidebar session management; see Sessions page instead
 
     # Load history from memory if not yet loaded
     if not st.session_state.get("history_loaded"):
@@ -231,6 +242,9 @@ def render_chat():
             return
         if cmd in {"tools"}:
             st.switch_page("pages/30_Tools.py")
+            return
+        if cmd in {"sessions", "session"}:
+            st.switch_page("pages/15_Sessions.py")
             return
         if cmd in {"clear", "new", "reset"}:
             # Clear conversation context (DB + UI)

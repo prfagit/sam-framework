@@ -73,6 +73,9 @@ class MemoryManager:
                         updated_at TEXT NOT NULL
                     )
                     """)
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)"
+                    )
 
                     # Create preferences table
                     await conn.execute("""
@@ -96,6 +99,9 @@ class MemoryManager:
                             timestamp TEXT NOT NULL
                         )
                     """)
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)"
+                    )
 
                     # Create secure_data table
                     await conn.execute("""
@@ -122,33 +128,19 @@ class MemoryManager:
         async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
 
-            # Check if session exists
-            cursor = await conn.execute(
-                "SELECT created_at FROM sessions WHERE session_id = ?", (session_id,)
-            )
-            existing = await cursor.fetchone()
-
             messages_json = json.dumps(messages)
 
-            if existing:
-                # Update existing session
-                await conn.execute(
-                    """
-                    UPDATE sessions 
-                    SET messages = ?, updated_at = ? 
-                    WHERE session_id = ?
+            # Use UPSERT to reduce round-trips
+            await conn.execute(
+                """
+                INSERT INTO sessions (session_id, messages, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                  messages = excluded.messages,
+                  updated_at = excluded.updated_at
                 """,
-                    (messages_json, now, session_id),
-                )
-            else:
-                # Create new session
-                await conn.execute(
-                    """
-                    INSERT INTO sessions (session_id, messages, created_at, updated_at)
-                    VALUES (?, ?, ?, ?)
-                """,
-                    (session_id, messages_json, now, now),
-                )
+                (session_id, messages_json, now, now),
+            )
 
             await conn.commit()
             logger.debug(f"Saved session {session_id} with {len(messages)} messages")
@@ -396,3 +388,98 @@ class MemoryManager:
 
         logger.info(f"Cleared session {session_id}")
         return deleted_count
+
+    async def list_sessions(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """List recent conversation sessions with metadata.
+
+        Returns newest-first up to `limit` sessions with:
+        - session_id, created_at, updated_at, message_count
+        """
+        async with get_db_connection(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT session_id, created_at, updated_at, messages
+                FROM sessions
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+
+        sessions: List[Dict[str, Any]] = []
+        for row in rows or []:
+            try:
+                msgs = json.loads(row[3]) if row[3] else []
+            except Exception:
+                msgs = []
+            sessions.append(
+                {
+                    "session_id": row[0],
+                    "created_at": row[1],
+                    "updated_at": row[2],
+                    "message_count": len(msgs) if isinstance(msgs, list) else 0,
+                }
+            )
+
+        logger.debug(f"Listed {len(sessions)} sessions (limit={limit})")
+        return sessions
+
+    async def clear_all_sessions(self) -> int:
+        """Delete all conversation sessions."""
+        async with get_db_connection(self.db_path) as conn:
+            cursor = await conn.execute("DELETE FROM sessions")
+            count = cursor.rowcount
+            await conn.commit()
+        logger.info(f"Cleared all sessions (deleted {count} rows)")
+        return count or 0
+
+    async def get_latest_session(self) -> Optional[Dict[str, Any]]:
+        """Get the most recently updated session, or None if no sessions exist."""
+        async with get_db_connection(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT session_id, created_at, updated_at, messages
+                FROM sessions
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """
+            )
+            row = await cursor.fetchone()
+
+        if not row:
+            return None
+        try:
+            msgs = json.loads(row[3]) if row[3] else []
+        except Exception:
+            msgs = []
+        return {
+            "session_id": row[0],
+            "created_at": row[1],
+            "updated_at": row[2],
+            "message_count": len(msgs) if isinstance(msgs, list) else 0,
+        }
+
+    async def create_session(self, session_id: str, initial_messages: Optional[List[Dict]] = None) -> bool:
+        """Create a new empty session if it doesn't exist.
+
+        Returns True if created, False if already existed.
+        """
+        async with get_db_connection(self.db_path) as conn:
+            now = datetime.utcnow().isoformat()
+            msgs_json = json.dumps(initial_messages or [])
+            try:
+                await conn.execute(
+                    """
+                    INSERT OR IGNORE INTO sessions (session_id, messages, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (session_id, msgs_json, now, now),
+                )
+                await conn.commit()
+            except Exception as e:
+                logger.warning(f"Failed to create session {session_id}: {e}")
+                return False
+
+        logger.info(f"Created session {session_id}")
+        return True

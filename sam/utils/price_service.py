@@ -155,8 +155,11 @@ class PriceService:
             )
             return cached_sol.price_usd
 
-        # Last resort: use a reasonable estimate
-        estimated_price = 215.0  # Conservative estimate in restricted envs
+        # Last resort: use a reasonable estimate (configurable)
+        try:
+            estimated_price = float(os.getenv("SAM_SOL_ESTIMATE", "215.0"))
+        except Exception:
+            estimated_price = 215.0  # fallback default
         now = time.time()
         if now - self._last_estimate_log_at > 60:
             logger.warning(f"Using estimated SOL price: ${estimated_price}")

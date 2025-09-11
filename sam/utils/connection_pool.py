@@ -66,7 +66,7 @@ class DatabasePool:
                         await conn.execute("PRAGMA mmap_size=268435456")  # 256MB
                     await conn.commit()
                 except Exception as e:
-                    logger.warning(f"Failed to set PRAGMA options: {e}")
+                    logger.debug(f"Failed to set PRAGMA options: {e}")
                     # Continue with connection even if PRAGMA fails
 
                 break

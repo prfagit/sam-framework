@@ -1,4 +1,5 @@
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Type
+import logging
 from pydantic import BaseModel, ValidationError
 from dataclasses import dataclass, field
 from .middleware import Middleware, ToolContext, ToolCall
@@ -38,9 +39,13 @@ class ToolRegistry:
     def __init__(self, middlewares: Optional[List[Middleware]] = None):
         self._tools: Dict[str, Tool] = {}
         self._middlewares: List[Middleware] = list(middlewares or [])
+        self._logger = logging.getLogger(__name__)
 
     def register(self, tool: Tool):
-        self._tools[tool.spec.name] = tool
+        name = tool.spec.name
+        if name in self._tools:
+            self._logger.warning(f"Overwriting already-registered tool: {name}")
+        self._tools[name] = tool
 
     def add_middleware(self, mw: Middleware) -> None:
         self._middlewares.append(mw)

@@ -258,6 +258,18 @@ class TestSettings:
                     # Check that logger.info was called multiple times
                     assert mock_logger.info.call_count > 5
 
+    @patch("sam.config.settings.logger")
+    def test_settings_log_config_no_secrets(self, mock_logger, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-test")
+        monkeypatch.setenv("SAM_FERNET_KEY", "fernet-secret-test")
+        Settings.refresh_from_env()
+        Settings.log_config()
+        # Ensure secrets not printed in any info log
+        msgs = [str(c.args[0]) if c.args else "" for c in mock_logger.info.call_args_list]
+        joined = "\n".join(msgs)
+        assert "sk-secret-test" not in joined
+        assert "fernet-secret-test" not in joined
+
 
 class TestSetupLogging:
     """Test setup_logging function."""

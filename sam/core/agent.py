@@ -222,7 +222,9 @@ class SAMAgent:
                                 continue
 
                         # Prevent balance checks after transaction errors
-                        elif tool_name == "get_balance" and error_count > 0:
+                        # Note: this must be an independent check (not `elif`),
+                        # otherwise it's unreachable when the first `if tool_name == "get_balance"` is false.
+                        if tool_name == "get_balance" and error_count > 0:
                             # Check if recent errors were balance-related
                             recent_balance_errors = any(
                                 "insufficient" in str(msg.get("content", "")).lower()
@@ -311,11 +313,19 @@ class SAMAgent:
                             tool_name, tool_args, context=ToolContext(session_id=session_id)
                         )
 
+                        # Determine success/failure in a normalized way
+                        is_success = False
+                        if isinstance(result, dict):
+                            if "success" in result:
+                                is_success = bool(result.get("success"))
+                            else:
+                                is_success = "error" not in result
+
                         # Check if tool returned an error and categorize it
                         error_type = "unknown"
                         error_details = {}
 
-                        if isinstance(result, dict) and "error" in result:
+                        if not is_success:
                             # Automatic fallback: if pump.fun buy failed, try Jupiter swap
                             try:
                                 if tool_name == "pump_fun_buy":
@@ -372,7 +382,14 @@ class SAMAgent:
                                     )
 
                                     # Also emit succeeded/failed events for the fallback
-                                    if isinstance(jup_res, dict) and "error" not in jup_res:
+                                    jup_success = (
+                                        isinstance(jup_res, dict)
+                                        and (
+                                            jup_res.get("success") is True
+                                            or "error" not in jup_res
+                                        )
+                                    )
+                                    if jup_success:
                                         await self.events.publish(
                                             "tool.succeeded",
                                             {
@@ -432,7 +449,11 @@ class SAMAgent:
                                 )
                             else:
                                 # Simple error string
-                                error_msg = str(result.get("error", "Unknown error"))
+                                error_msg = (
+                                    str(result.get("error", "Unknown error"))
+                                    if isinstance(result, dict)
+                                    else "Unknown error"
+                                )
                                 logger.warning(f"Tool {tool_name} returned error: {error_msg}")
 
                                 # Categorize based on error content
@@ -521,8 +542,21 @@ class SAMAgent:
                     # No tool calls - this is the final response
                     logger.info(f"Agent completed for session {session_id}")
 
+                    # Append the final assistant message to the transcript
+                    try:
+                        messages.append({"role": "assistant", "content": resp.content or ""})
+                    except Exception:
+                        # Ensure we still save even if append fails for some reason
+                        pass
+
                     # Save session context (excluding system prompt)
                     await self.memory.save_session(session_id, messages[1:])
+
+                    # Update context length tracking including final assistant message
+                    try:
+                        self.session_stats["context_length"] = len(messages)
+                    except Exception:
+                        pass
                     try:
                         await self.events.publish(
                             "agent.status",
@@ -570,16 +604,23 @@ class SAMAgent:
         logger.info(f"Cleared context for session {session_id}")
         return "Context cleared! Starting fresh conversation."
 
-    async def compact_conversation(self, session_id: str) -> str:
-        """Compact the conversation by summarizing older messages."""
+    async def compact_conversation(self, session_id: str, keep_recent: int = 4) -> str:
+        """Compact the conversation by summarizing older messages.
+
+        Args:
+            session_id: Conversation session identifier
+            keep_recent: Number of most recent messages to retain after the summary
+                          (default 4). Set to 0 to keep only the summary.
+        """
         context = await self.memory.load_session(session_id)
 
-        if len(context) <= 6:  # Keep if already short
+        if len(context) <= max(keep_recent + 2, 6):  # small conversations are already compact
             return "Conversation is already compact (≤6 messages)."
 
-        # Keep the last 4 messages and summarize the rest
-        recent_messages = context[-4:]
-        old_messages = context[:-4]
+        # Keep the last N messages and summarize the rest
+        k = max(0, int(keep_recent))
+        recent_messages = context[-k:] if k > 0 else []
+        old_messages = context[:-k] if k > 0 else context
 
         if not old_messages:
             return "Nothing to compact."
@@ -598,8 +639,7 @@ Respond with just the bullet points, no preamble."""
 
         # Create new compact context
         compact_context = [
-            {"role": "assistant", "content": f"📋 **Previous conversation summary:**\n{summary}"},
-            {"role": "user", "content": "---"},
+            {"role": "assistant", "content": f"📋 **Previous conversation summary:**\n{summary}"}
         ] + recent_messages
 
         # Save compacted context
@@ -661,3 +701,25 @@ Respond with just the bullet points, no preamble."""
         """Invalidate balance cache after transactions."""
         self.session_cache["balance_data"] = None
         self.session_cache["balance_updated"] = 0
+
+    async def close(self) -> None:
+        """Close any resources owned or referenced by this agent.
+
+        Best-effort and safe to call multiple times.
+        """
+        # Close Solana client if present
+        try:
+            st = getattr(self, "_solana_tools", None)
+            if st and hasattr(st, "close"):
+                await st.close()
+        except Exception:
+            pass
+
+        # Close LLM provider if it exposes close (no-op for shared HTTP client)
+        try:
+            if self.llm and hasattr(self.llm, "close"):
+                await self.llm.close()
+        except Exception:
+            pass
+
+        # Nothing to do for ToolRegistry/memory; shared utilities have their own cleanup

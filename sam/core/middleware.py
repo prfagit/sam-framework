@@ -151,7 +151,13 @@ class RateLimitMiddleware:
                 logger.warning(f"RateLimitMiddleware error: {e}")
             result = await call_next(args, ctx)
             try:
-                if isinstance(result, dict) and "error" not in result:
+                # Include limiter hints only if we have info from a successful check
+                if (
+                    isinstance(result, dict)
+                    and "error" not in result
+                    and 'info' in locals()
+                    and isinstance(info, dict)
+                ):
                     result.setdefault(
                         "rate_limit_info",
                         {

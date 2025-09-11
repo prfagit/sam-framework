@@ -86,6 +86,8 @@ TOOL_DISPLAY_NAMES = {
     "get_token_price": "💲 Getting token price",
     "search_web": "🔍 Searching web",
     "search_news": "📰 Searching news",
+    "smart_buy": "🧠 Smart buy",
+    "smart_sell": "🧠 Smart sell",
 }
 
 
@@ -133,8 +135,9 @@ def wrap(text: str, width_offset: int = 0) -> str:
 
 
 def banner(title: str) -> str:
-    """Clean, minimal banner with subtle styling."""
-    return f"{colorize('🤖 SAM', Style.BOLD, Style.FG_CYAN)} {colorize('• Solana Agent •', Style.DIM, Style.FG_GRAY)}"
+    """Clean, minimal banner with subtle styling (use title)."""
+    left = f"🤖 {title}" if title else "🤖 SAM"
+    return f"{colorize(left, Style.BOLD, Style.FG_CYAN)} {colorize('• Solana Agent •', Style.DIM, Style.FG_GRAY)}"
 
 
 class Spinner:
@@ -200,10 +203,17 @@ async def setup_agent() -> SAMAgent:
 
 async def cleanup_agent(agent):
     """Clean up agent resources quickly (delegated)."""
+    try:
+        if agent and hasattr(agent, "close"):
+            # Give agent a chance to close owned resources
+            await asyncio.wait_for(agent.close(), timeout=1.0)
+    except Exception:
+        pass
+    # Also run shared cleanup (HTTP client, DB pool, rate limiter, price service)
     await cleanup_agent_fast()
 
 
-async def run_interactive_session(session_id: str, no_animation: bool = False):
+async def run_interactive_session(session_id: str, no_animation: bool = False, *, clear_sessions: bool = False):
     """Run interactive REPL session."""
     # Show fast glitch intro (unless disabled)
     if not no_animation:
@@ -219,6 +229,30 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
         print(f"{colorize('❌ Failed to initialize agent:', Style.FG_YELLOW)} {e}")
         return 1
 
+    # Optionally clear all saved sessions before proceeding
+    try:
+        if clear_sessions:
+            _ = await agent.memory.clear_all_sessions()
+    except Exception:
+        pass
+
+    # Determine default session behavior: if session_id is 'default' or 'latest',
+    # switch to the most recently updated session, creating a new dated one if none exists.
+    try:
+        if session_id in {None, "", "default", "latest"}:  # type: ignore[comparison-overlap]
+            latest = await agent.memory.get_latest_session()
+            if latest:
+                session_id = latest.get("session_id", "default")
+            else:
+                # Create a new dated session id
+                from datetime import datetime
+
+                new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+                await agent.memory.create_session(new_id)
+                session_id = new_id
+    except Exception:
+        pass
+
     # Show a friendly ready message with clean banner
     tools_count = len(agent.tools.list_specs())
 
@@ -233,6 +267,22 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
         colorize("/help", Style.FG_CYAN),
         colorize("for commands.", Style.FG_GREEN),
     )
+
+    # Show recent sessions (top 5) to help users resume
+    try:
+        recent = await agent.memory.list_sessions(limit=5)
+        if recent:
+            labels = []
+            for s in recent:
+                sid = s.get("session_id")
+                mc = s.get("message_count", 0)
+                mark = "(current)" if sid == session_id else ""
+                labels.append(f"{sid} [{mc}] {mark}".strip())
+            print(colorize("Recent sessions:", Style.FG_GRAY))
+            print("  " + ", ".join(labels))
+            print(colorize("Use /sessions to view/switch.", Style.FG_GRAY))
+    except Exception:
+        pass
     print()
 
     # Subtle status strip with quick hints
@@ -253,10 +303,14 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
             Style.FG_GRAY,
         )
     )
+    # Defer history rendering until helpers below are defined
     print()
 
     # Command helpers
-    MAX_CONTEXT_MSGS = 80  # reasonable working window before auto-compaction
+    try:
+        MAX_CONTEXT_MSGS = int(os.getenv("SAM_MAX_CONTEXT_MSGS", "80"))
+    except Exception:
+        MAX_CONTEXT_MSGS = 80  # reasonable working window before auto-compaction
 
     def model_short() -> str:
         try:
@@ -297,6 +351,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                 "search_pairs",
                 "get_solana_pair",
             ],
+            "🧠 Smart Trader": ["smart_buy", "smart_sell"],
             "🚀 Pump.fun": [
                 "pump_fun_buy",
                 "pump_fun_sell",
@@ -321,7 +376,6 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
     def show_config():
         print(colorize(hr(), Style.FG_GRAY))
         print(colorize("Configuration", Style.BOLD))
-        from .config.settings import Settings
 
         print(f" LLM Provider: {Settings.LLM_PROVIDER}")
         if Settings.LLM_PROVIDER == "openai":
@@ -379,6 +433,101 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
         line = f"model:{model_short()} • ctx:{pct}% ({context_length}/{MAX_CONTEXT_MSGS}) • wallet:{wallet_short()}"
         print(colorize(f"  {line}", Style.DIM, Style.FG_GRAY))
 
+    def _format_history_entry(msg: dict) -> Optional[str]:
+        role = msg.get("role")
+        # Hide internal system notes
+        if role == "system":
+            return None
+        if role == "tool":
+            name = msg.get("name", "tool")
+            content = msg.get("content", "")
+            status = "done"
+            try:
+                import json as _json
+
+                parsed = _json.loads(content) if isinstance(content, str) else content
+                if isinstance(parsed, dict):
+                    if parsed.get("success") is True:
+                        status = "ok"
+                    elif parsed.get("error"):
+                        err = parsed.get("error")
+                        status = f"error: {str(err)[:60]}"
+            except Exception:
+                pass
+            return f"🔧 {name}: {status}"
+        # user/assistant
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            return None
+        if role == "user":
+            return f"You: {content}"
+        if role == "assistant":
+            return f"Assistant: {content}"
+        return f"{role}: {content}"
+
+    async def show_history(limit: Optional[int] = None):
+        try:
+            ctx = await agent.memory.load_session(session_id)
+        except Exception as e:
+            print(colorize(f"Failed to load history: {e}", Style.FG_YELLOW))
+            return
+        if not ctx:
+            print(colorize("No prior messages in this session.", Style.FG_YELLOW))
+            return
+        # Update session stats context length for status line accuracy
+        try:
+            agent.session_stats["context_length"] = len(ctx) + 1
+        except Exception:
+            pass
+        print(colorize(hr(), Style.FG_GRAY))
+        title = "Conversation" if limit is None else f"History (last {limit})"
+        print(colorize(title, Style.BOLD))
+        to_show = ctx if limit is None else ctx[-limit:]
+        for m in to_show:
+            line = _format_history_entry(m)
+            if not line:
+                continue
+            if line.startswith("Assistant:"):
+                print(colorize("Assistant:", Style.FG_CYAN), end=" ")
+                print(wrap(line[len("Assistant:") + 1 :], width_offset=4))
+            elif line.startswith("You:"):
+                print(colorize("You:", Style.FG_GREEN), end=" ")
+                print(wrap(line[len("You:") + 1 :], width_offset=4))
+            else:
+                print(colorize(line, Style.FG_GRAY))
+        print(colorize(hr(), Style.FG_GRAY))
+
+    async def list_and_maybe_switch_session():
+        nonlocal session_id
+        try:
+            sessions = await agent.memory.list_sessions(limit=25)
+        except Exception as e:
+            print(colorize(f"Failed to list sessions: {e}", Style.FG_YELLOW))
+            return
+        if not sessions:
+            print(colorize("No stored sessions found.", Style.FG_YELLOW))
+            return
+        print(colorize(hr(), Style.FG_GRAY))
+        print(colorize("Sessions (newest first):", Style.BOLD))
+        for i, s in enumerate(sessions, 1):
+            sid = s.get("session_id")
+            mark = " (current)" if sid == session_id else ""
+            print(f" {i:2d}. {sid}  msgs:{s.get('message_count',0)}  updated:{s.get('updated_at','')}" + mark)
+        print(colorize(hr(), Style.FG_GRAY))
+        # Offer interactive switch if inquirer available
+        if _ensure_inquirer():
+            try:
+                choice = _INQ.list_input(
+                    "Switch to session? (ESC to cancel)",
+                    choices=[s.get("session_id") for s in sessions],
+                )
+                if choice:
+                    session_id = choice
+                    print(colorize(f"Switched to session: {session_id}", Style.FG_GREEN))
+                    await show_history(limit=None)
+            except Exception:
+                pass
+
     # Unified interactive helpers (inquirer when available)
     try:
         pass  # local alias to avoid top imports noise
@@ -402,6 +551,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                 "Interactive menu requires 'inquirer'. Type commands or run /help.", Style.FG_YELLOW
             )
         )
+        print(colorize("Tip: install with `uv add inquirer`", Style.FG_GRAY))
         return None
 
     def interactive_text(title: str, default: str = ""):
@@ -418,6 +568,12 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
         prompt += ": "
         val = input(prompt).strip()
         return val or default
+
+    # Now that helpers are defined, show the full conversation once on startup
+    try:
+        await show_history(limit=None)
+    except Exception:
+        pass
 
     def interactive_confirm(title: str, default: bool = False) -> bool:
         if _ensure_inquirer():
@@ -443,8 +599,10 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                     ctx_len = int(agent.session_stats.get("context_length", 0) or 0)
                     if ctx_len >= MAX_CONTEXT_MSGS and ctx_len != last_compacted_at:
                         async with Spinner("Auto-compacting conversation"):
-                            msg = await agent.compact_conversation(session_id)
+                            msg = await agent.compact_conversation(session_id, keep_recent=0)
                         print(colorize(f"📋 {msg}", Style.FG_GREEN))
+                        # Show the now-clean summary-only conversation
+                        await show_history(limit=None)
                         # Update marker to avoid repeated compaction in same state
                         last_compacted_at = int(
                             agent.session_stats.get("context_length", 0) or ctx_len
@@ -475,6 +633,47 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                 if user_input in ("/config",):
                     show_config()
                     continue
+                if user_input in ("/sessions",):
+                    await list_and_maybe_switch_session()
+                    continue
+                if user_input in ("/clear-sessions",):
+                    ok = interactive_confirm("Delete ALL saved sessions? This cannot be undone.", False)
+                    if ok:
+                        try:
+                            deleted = await agent.memory.clear_all_sessions()
+                            from datetime import datetime
+                            new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+                            await agent.memory.create_session(new_id)
+                            session_id = new_id
+                            print(colorize(f"Deleted {deleted} sessions. Started new session: {session_id}", Style.FG_GREEN))
+                            await show_history(limit=None)
+                        except Exception as e:
+                            print(colorize(f"Failed to clear sessions: {e}", Style.FG_YELLOW))
+                    continue
+                if user_input in ("/new",):
+                    from datetime import datetime
+                    new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+                    try:
+                        await agent.memory.create_session(new_id)
+                        session_id = new_id
+                        print(colorize(f"Created new session: {session_id}", Style.FG_GREEN))
+                    except Exception as e:
+                        print(colorize(f"Failed to create session: {e}", Style.FG_YELLOW))
+                    continue
+                if user_input.startswith("/history"):
+                    parts = user_input.split()
+                    if len(parts) == 1:
+                        await show_history(limit=None)
+                    else:
+                        if parts[1].lower() in {"all", "full", "*"}:
+                            await show_history(limit=None)
+                        else:
+                            try:
+                                n = int(parts[1])
+                                await show_history(limit=max(1, min(1000, n)))
+                            except Exception:
+                                await show_history(limit=None)
+                    continue
                 if user_input in ("/settings",):
                     from .interactive_settings import run_interactive_settings
 
@@ -494,6 +693,8 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                         [
                             ("🔧 List tools", "tools"),
                             ("⚙️  Show configuration", "config"),
+                            ("🗂️  Sessions", "sessions"),
+                            ("🧨 Clear all sessions", "clear_sessions"),
                             ("🛠️  Interactive settings", "settings"),
                             ("📡 Provider actions", "providers"),
                             ("🧹 Clear screen", "clear"),
@@ -510,6 +711,21 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
 
                     if selection == "tools":
                         await show_tools()
+                    elif selection == "sessions":
+                        await list_and_maybe_switch_session()
+                    elif selection == "clear_sessions":
+                        ok = interactive_confirm("Delete ALL saved sessions? This cannot be undone.", False)
+                        if ok:
+                            try:
+                                deleted = await agent.memory.clear_all_sessions()
+                                from datetime import datetime
+                                new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+                                await agent.memory.create_session(new_id)
+                                session_id = new_id
+                                print(colorize(f"Deleted {deleted} sessions. Started new session: {session_id}", Style.FG_GREEN))
+                                await show_history(limit=None)
+                            except Exception as e:
+                                print(colorize(f"Failed to clear sessions: {e}", Style.FG_YELLOW))
                     elif selection == "config":
                         show_config()
                     elif selection == "settings":
@@ -569,8 +785,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                         print(colorize("✨ " + result, Style.FG_GREEN))
                     elif selection == "compact":
                         async with Spinner("Compacting conversation"):
-                            result = await agent.compact_conversation(session_id)
+                            result = await agent.compact_conversation(session_id, keep_recent=0)
                         print(colorize("📋 " + result, Style.FG_GREEN))
+                        await show_history(limit=None)
                     elif selection == "wallet":
                         w = getattr(agent, "_solana_tools", None)
                         addr = getattr(w, "wallet_address", None) if w else None
@@ -656,8 +873,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False):
                     continue
                 if user_input in ("/compact",):
                     async with Spinner("Compacting conversation"):
-                        result = await agent.compact_conversation(session_id)
+                        result = await agent.compact_conversation(session_id, keep_recent=0)
                     print(colorize("📋 " + result, Style.FG_GREEN))
+                    await show_history(limit=None)
                     continue
                 # Diagnostics: /wallet and /balance [address]
                 if user_input in ("/wallet",):
@@ -804,6 +1022,7 @@ def print_help():
     print(f"  {colorize('/settings', Style.FG_GREEN)}       Interactive settings editor")
     print(f"  {colorize('/clear', Style.FG_GREEN)}         Clear screen")
     print(f"  {colorize('/clear-context', Style.FG_GREEN)} Clear conversation context")
+    print(f"  {colorize('/clear-sessions', Style.FG_GREEN)} Delete ALL saved sessions")
     print(f"  {colorize('/compact', Style.FG_GREEN)}       Compact conversation history")
     print(f"  {colorize('exit', Style.FG_GREEN)}           Exit SAM")
     print()
@@ -817,6 +1036,7 @@ def print_help():
     print("   • buy 0.01 sol of [token_address]")
     print("   • show trending pairs")
     print("   • search for BONK pairs")
+    print("   • /history 10  # show last 10 messages")
     print()
 
 
@@ -877,6 +1097,11 @@ async def main():
     )
     run_parser.add_argument(
         "--no-animation", action="store_true", help="Skip startup animation for faster loading"
+    )
+    run_parser.add_argument(
+        "--clear-sessions",
+        action="store_true",
+        help="Delete all saved conversation sessions before starting",
     )
 
     # Key management
@@ -1130,7 +1355,7 @@ async def main():
         Settings.log_config()
         session_id = getattr(args, "session", "default")
         no_animation = getattr(args, "no_animation", False)
-        return await run_interactive_session(session_id, no_animation)
+        return await run_interactive_session(session_id, no_animation, clear_sessions=getattr(args, "clear_sessions", False))
 
     return 1
 

@@ -29,7 +29,33 @@ class SolanaTools:
         if private_key:
             try:
                 # Derive keypair from private key
-                private_key_bytes = base58.b58decode(private_key)
+                # Accept base58 string or JSON array of 64 bytes
+                private_key_bytes = None
+
+                # Try base58 first
+                try:
+                    private_key_bytes = base58.b58decode(private_key)
+                except Exception:
+                    private_key_bytes = None
+
+                # If not base58, try JSON array format
+                if private_key_bytes is None:
+                    try:
+                        import json as _json
+
+                        arr = _json.loads(private_key)
+                        if isinstance(arr, list) and all(isinstance(i, int) for i in arr):
+                            # Typical Solana secret key export is 64 numbers
+                            if len(arr) in (64, 32):
+                                private_key_bytes = bytes(arr)
+                    except Exception:
+                        private_key_bytes = None
+
+                if private_key_bytes is None:
+                    raise ValueError(
+                        "Unsupported private key format. Provide base58 string or JSON array of bytes."
+                    )
+
                 self.keypair = Keypair.from_bytes(private_key_bytes)
                 self.wallet_address = str(self.keypair.pubkey())
                 logger.info(f"Initialized Solana tools with wallet: {self.wallet_address}")
@@ -353,11 +379,32 @@ class SolanaTools:
                             "mutable": asset.get("mutable", False),
                             "burnt": asset.get("burnt", False),
                         }
-                    else:
-                        return {"error": f"Asset not found for mint: {mint_address}"}
-                else:
-                    error_text = await response.text()
-                    return {"error": f"RPC error {response.status}: {error_text}"}
+                    # Fall through to fallback if no result
+
+                # Non-Helius or error: fallback to standard RPC supply lookup
+                try:
+                    pubkey = Pubkey.from_string(mint_address)
+                    client = await self._get_client()
+                    supply_resp = await client.get_token_supply(pubkey)
+                    if getattr(supply_resp, "value", None):
+                        v = supply_resp.value
+                        # UiTokenAmount has amount (str), decimals (int)
+                        return {
+                            "mint": mint_address,
+                            "name": "Unknown",
+                            "symbol": "Unknown",
+                            "description": "",
+                            "image": "",
+                            "supply": {
+                                "amount": getattr(v, "amount", None),
+                                "decimals": getattr(v, "decimals", None),
+                            },
+                            "source": "rpc_token_supply",
+                        }
+                except Exception as fb_err:
+                    logger.warning(f"Fallback token supply lookup failed: {fb_err}")
+
+                return {"error": f"Asset not found for mint: {mint_address}"}
 
         except Exception as e:
             logger.error(f"Failed to get token metadata: {e}")
@@ -436,7 +483,7 @@ def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
         result = await solana_tools.transfer_sol(args["to_address"], args["amount"])
 
         # Invalidate balance cache after transfer
-        if agent and "success" in result:
+        if agent and isinstance(result, dict) and result.get("success") is True:
             agent.invalidate_balance_cache()
 
         return result

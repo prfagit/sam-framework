@@ -39,12 +39,54 @@ async def close_agent() -> None:
     """
     global _agent_singleton
     try:
+        # Attempt graceful agent.close if available
+        if _agent_singleton and hasattr(_agent_singleton, "close"):
+            try:
+                await asyncio.wait_for(_agent_singleton.close(), timeout=1.0)
+            except Exception:
+                pass
         await cleanup_agent_fast()
     except Exception:
         # Swallow cleanup errors to avoid crashing callers
         pass
     finally:
         _agent_singleton = None
+
+
+async def list_sessions(limit: int = 20):
+    """List recent sessions via the agent's memory manager."""
+    agent = await get_agent()
+    try:
+        return await agent.memory.list_sessions(limit=limit)
+    except Exception:
+        return []
+
+
+async def get_default_session_id() -> str:
+    """Return the latest session id or create a new dated one."""
+    agent = await get_agent()
+    latest = await agent.memory.get_latest_session()
+    if latest:
+        return latest.get("session_id", "default")
+    from datetime import datetime
+    new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+    await agent.memory.create_session(new_id)
+    return new_id
+
+
+async def new_session_id() -> str:
+    """Create a new dated session and return its id."""
+    agent = await get_agent()
+    from datetime import datetime
+    new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
+    await agent.memory.create_session(new_id)
+    return new_id
+
+
+async def clear_all_sessions() -> int:
+    """Delete all sessions; returns deleted count."""
+    agent = await get_agent()
+    return await agent.memory.clear_all_sessions()
 
 
 def run_once(prompt: str, session_id: str = "default") -> str:

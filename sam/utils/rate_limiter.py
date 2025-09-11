@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import os
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from collections import OrderedDict
@@ -32,8 +33,15 @@ class RateLimiter:
         # In-memory storage for request history with LRU ordering
         self.request_history: OrderedDict[str, List[RequestRecord]] = OrderedDict()
         self.lock = asyncio.Lock()
-        self.max_keys = max_keys
-        self.cleanup_interval = cleanup_interval
+        # Allow environment overrides for tuning without code changes
+        try:
+            self.max_keys = int(os.getenv("SAM_RL_MAX_KEYS", str(max_keys)))
+        except Exception:
+            self.max_keys = max_keys
+        try:
+            self.cleanup_interval = int(os.getenv("SAM_RL_CLEANUP_INTERVAL", str(cleanup_interval)))
+        except Exception:
+            self.cleanup_interval = cleanup_interval
         self._cleanup_task: Optional[asyncio.Task] = None
         self._shutdown = False
 
@@ -53,13 +61,24 @@ class RateLimiter:
             "default": RateLimit(requests=60, window=60, burst=10),
         }
 
-        logger.info(f"Initialized optimized rate limiter (max_keys: {max_keys})")
+        logger.info(f"Initialized optimized rate limiter (max_keys: {self.max_keys})")
 
         # Start cleanup task
-        self._start_cleanup_task()
+        # Only attempt to start if running in an event loop
+        try:
+            asyncio.get_running_loop()
+            self._start_cleanup_task()
+        except RuntimeError:
+            # No running loop; caller may start later when appropriate
+            pass
 
     def _start_cleanup_task(self):
         """Start the cleanup task."""
+        # Only start if a running loop exists (tests may construct without loop)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
         if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._cleanup_old_records())
 
