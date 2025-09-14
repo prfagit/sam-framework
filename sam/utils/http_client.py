@@ -68,11 +68,12 @@ class SharedHTTPClient:
             enable_cleanup_closed=True,
         )
 
-        timeout = aiohttp.ClientTimeout(
-            total=60,  # Total timeout
-            connect=10,  # Connection timeout
-            sock_read=30,  # Socket read timeout
-        )
+        # Shorter defaults in test mode to avoid long hangs
+        import os as _os
+        if _os.getenv("SAM_TEST_MODE") == "1":
+            timeout = aiohttp.ClientTimeout(total=20, connect=5, sock_read=10)
+        else:
+            timeout = aiohttp.ClientTimeout(total=60, connect=10, sock_read=30)
 
         self._session = aiohttp.ClientSession(
             connector=connector,

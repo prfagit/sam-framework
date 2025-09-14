@@ -71,7 +71,7 @@ class TestPriceService:
         assert service.COMMON_TOKENS["USDC"] == "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
     @pytest.mark.asyncio
-    @patch("sam.utils.price_service.get_session")
+    @patch("sam.utils.price_service.get_session", new_callable=AsyncMock)
     async def test_get_sol_price_usd_jupiter_success(self, mock_get_session):
         """Test successful SOL price fetch from Jupiter."""
         service = PriceService()
@@ -107,7 +107,7 @@ class TestPriceService:
             assert service._price_cache["SOL"].source == "jupiter"
 
     @pytest.mark.asyncio
-    @patch("sam.utils.price_service.get_session")
+    @patch("sam.utils.price_service.get_session", new_callable=AsyncMock)
     async def test_get_sol_price_usd_dexscreener_success(self, mock_get_session):
         """Test successful SOL price fetch from DexScreener."""
         service = PriceService()
@@ -142,7 +142,7 @@ class TestPriceService:
             assert service._price_cache["SOL"].source == "dexscreener"
 
     @pytest.mark.asyncio
-    @patch("sam.utils.price_service.get_session")
+    @patch("sam.utils.price_service.get_session", new_callable=AsyncMock)
     async def test_get_sol_price_usd_auto_fallback(self, mock_get_session):
         """Test auto provider with Jupiter failing and DexScreener succeeding."""
         service = PriceService()
@@ -183,7 +183,7 @@ class TestPriceService:
             assert price == 205.50
             assert service._price_cache["SOL"].source == "dexscreener"
 
-    @patch("sam.utils.price_service.get_session")
+    @patch("sam.utils.price_service.get_session", new_callable=AsyncMock)
     async def test_get_sol_price_usd_cache_hit(self, mock_get_session):
         """Test using cached SOL price."""
         service = PriceService()
@@ -200,7 +200,7 @@ class TestPriceService:
         assert price == 220.0
         mock_get_session.assert_not_called()
 
-    @patch("sam.utils.price_service.get_session")
+    @patch("sam.utils.price_service.get_session", new_callable=AsyncMock)
     async def test_get_sol_price_usd_stale_cache(self, mock_get_session):
         """Test using stale cache when API fails."""
         service = PriceService()
@@ -211,11 +211,20 @@ class TestPriceService:
             source="stale"
         )
 
-        # Mock API failure
-        mock_session = AsyncMock()
+        # Mock API failure with async context manager wrapper
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 500
-        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        class _ACM:
+            def __init__(self, resp):
+                self.resp = resp
+            async def __aenter__(self):
+                return self.resp
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        mock_session.get.return_value = _ACM(mock_response)
         mock_get_session.return_value = mock_session
 
         with patch.object(service, "_get_fallback_sol_price", return_value=215.0):
@@ -223,12 +232,30 @@ class TestPriceService:
 
             assert price == 215.0  # Should use fallback, not stale cache
 
-    async def test_get_sol_price_usd_fallback_to_estimate(self):
+    @pytest.mark.asyncio
+    @patch("sam.utils.price_service.get_session", new_callable=AsyncMock)
+    async def test_get_sol_price_usd_fallback_to_estimate(self, mock_get_session):
         """Test fallback to estimated price."""
         service = PriceService()
 
         # Clear cache and mock API failures
         service._price_cache.clear()
+
+        # Force Jupiter call to fail fast via mocked session returning 500
+        mock_session = MagicMock()
+        mock_response = AsyncMock()
+        mock_response.status = 500
+
+        class _ACM:
+            def __init__(self, resp):
+                self.resp = resp
+            async def __aenter__(self):
+                return self.resp
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        mock_session.get.return_value = _ACM(mock_response)
+        mock_get_session.return_value = mock_session
 
         with patch.object(service, "_get_fallback_sol_price", return_value=215.0) as mock_fallback:
             price = await service.get_sol_price_usd()
@@ -236,6 +263,7 @@ class TestPriceService:
             assert price == 215.0
             mock_fallback.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_get_fallback_sol_price_with_stale_cache(self):
         """Test fallback price using stale cache."""
         service = PriceService()
@@ -250,6 +278,7 @@ class TestPriceService:
 
         assert price == 208.0
 
+    @pytest.mark.asyncio
     async def test_get_fallback_sol_price_estimate(self):
         """Test fallback price using hardcoded estimate."""
         service = PriceService()
@@ -468,4 +497,3 @@ class TestGlobalPriceService:
 
 if __name__ == "__main__":
     pytest.main([__file__])
-

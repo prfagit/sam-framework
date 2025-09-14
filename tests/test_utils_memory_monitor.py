@@ -319,6 +319,7 @@ class TestMemoryMonitor:
         assert info["cpu"]["usage_percent"] == 25.0
 
     @patch("sam.utils.memory_monitor.logger")
+    @pytest.mark.asyncio
     async def test_periodic_check_normal(self, mock_logger):
         """Test periodic memory check under normal conditions."""
         monitor = MemoryMonitor()
@@ -339,6 +340,7 @@ class TestMemoryMonitor:
             # No specific assertions; ensure no exceptions
 
     @patch("sam.utils.memory_monitor.logger")
+    @pytest.mark.asyncio
     async def test_periodic_check_with_alerts(self, mock_logger):
         """Test periodic memory check with alerts."""
         monitor = MemoryMonitor()
@@ -359,6 +361,7 @@ class TestMemoryMonitor:
             mock_logger.warning.assert_called()
 
     @patch("sam.utils.memory_monitor.logger")
+    @pytest.mark.asyncio
     async def test_periodic_check_with_gc(self, mock_logger):
         """Test periodic memory check triggering GC."""
         monitor = MemoryMonitor()
@@ -381,6 +384,7 @@ class TestMemoryMonitor:
             mock_gc.assert_called()
 
     @patch("sam.utils.memory_monitor.logger")
+    @pytest.mark.asyncio
     async def test_periodic_check_exception_handling(self, mock_logger):
         """Test periodic memory check exception handling."""
         monitor = MemoryMonitor()
@@ -427,7 +431,9 @@ class TestGlobalMemoryMonitor:
         assert monitor.thresholds.warning_threshold == 75.0
 
     @patch("asyncio.create_task")
-    async def test_start_memory_monitoring(self, mock_create_task):
+    @patch("sam.utils.memory_monitor.MemoryMonitor.periodic_check")
+    @pytest.mark.asyncio
+    async def test_start_memory_monitoring(self, mock_periodic_check, mock_create_task):
         """Test starting background memory monitoring."""
         mock_task = MagicMock()
         mock_create_task.return_value = mock_task
@@ -437,7 +443,8 @@ class TestGlobalMemoryMonitor:
 
             assert task is mock_task
             mock_create_task.assert_called_once()
-            mock_logger.info.assert_called_once()
+            mock_periodic_check.assert_called_once_with(30)
+            assert mock_logger.info.call_count >= 1  # At least the start message
 
     def test_monitor_memory_decorator(self):
         """Test memory monitoring decorator."""

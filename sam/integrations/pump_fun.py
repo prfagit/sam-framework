@@ -45,7 +45,8 @@ class PumpFunTools:
 
             # Try sending with skip preflight first for better success rate on pump.fun
             try:
-                result = await self.solana_tools.client.send_transaction(
+                client = await self.solana_tools._get_client()
+                result = await client.send_transaction(
                     signed_tx, opts=TxOpts(skip_preflight=True, max_retries=2)
                 )
             except Exception as first_attempt_error:
@@ -60,7 +61,8 @@ class PumpFunTools:
                         f"Preflight skip failed, retrying with preflight: {first_attempt_error}"
                     )
                     # If that fails, try with preflight enabled
-                    result = await self.solana_tools.client.send_transaction(
+                    client = await self.solana_tools._get_client()
+                    result = await client.send_transaction(
                         signed_tx, opts=TxOpts(skip_preflight=False, max_retries=1)
                     )
 

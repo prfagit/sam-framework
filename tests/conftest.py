@@ -74,8 +74,58 @@ def event_loop():
     """Create an instance of the default event loop for the test session."""
     import asyncio
     loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+    try:
+        yield loop
+    finally:
+        # Proactively cancel any pending tasks to avoid hangs
+        try:
+            # Collect tasks bound to this loop from within the loop context
+            async def _gather_pending():
+                cur = asyncio.current_task()
+                return [t for t in asyncio.all_tasks() if t is not cur and not t.done()]
+
+            pending = loop.run_until_complete(_gather_pending())
+            for t in pending:
+                t.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except Exception:
+            pass
+        loop.close()
+
+
+@pytest.fixture(autouse=True, scope="session")
+async def cleanup_background_services():
+    """Ensure background tasks started by globals are shut down at session end.
+
+    Some modules start background asyncio tasks (metrics collector, rate limiter)
+    that can keep the event loop alive after tests finish. This fixture cleans them up.
+    """
+    yield
+    try:
+        # Cleanup metrics collector if started
+        from sam.utils.monitoring import cleanup_metrics_collector
+        await cleanup_metrics_collector()
+    except Exception:
+        pass
+    try:
+        # Cleanup global rate limiter if created
+        from sam.utils.rate_limiter import cleanup_rate_limiter
+        await cleanup_rate_limiter()
+    except Exception:
+        pass
+    try:
+        # Cleanup global price service (clears cache, resets singleton)
+        from sam.utils.price_service import cleanup_price_service
+        await cleanup_price_service()
+    except Exception:
+        pass
+    try:
+        # Cleanup shared HTTP client to ensure aiohttp session is closed
+        from sam.utils.http_client import cleanup_http_client
+        await cleanup_http_client()
+    except Exception:
+        pass
 
 
 # Disable logging to reduce noise during tests

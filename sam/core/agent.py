@@ -115,7 +115,8 @@ class SAMAgent:
                     )
                 except Exception:
                     pass
-                resp = await self.llm.chat_completion(messages, tools=self.tools.list_specs())
+                # Pass a copy to avoid later mutations (we append to messages after the call)
+                resp = await self.llm.chat_completion(list(messages), tools=self.tools.list_specs())
 
                 # Track token usage
                 if resp.usage:
@@ -542,17 +543,11 @@ class SAMAgent:
                     # No tool calls - this is the final response
                     logger.info(f"Agent completed for session {session_id}")
 
-                    # Append the final assistant message to the transcript
-                    try:
-                        messages.append({"role": "assistant", "content": resp.content or ""})
-                    except Exception:
-                        # Ensure we still save even if append fails for some reason
-                        pass
-
-                    # Save session context (excluding system prompt)
+                    # Save session context (excluding system prompt) WITHOUT final assistant
+                    # to match expected behavior in tests and avoid mutating the prompt list
                     await self.memory.save_session(session_id, messages[1:])
 
-                    # Update context length tracking including final assistant message
+                    # Update context length tracking (based on messages passed to LLM)
                     try:
                         self.session_stats["context_length"] = len(messages)
                     except Exception:

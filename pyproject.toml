@@ -83,12 +83,8 @@ dev = [
     "streamlit>=1.36.0",
 ]
 
-[tool.pytest.ini_options]
-addopts = "-q"
-asyncio_mode = "auto"
-markers = [
-    "performance: marks tests as performance tests",
-]
+## Note: uv currently doesn't support a [tool.uv.scripts] table.
+## Use the Makefile targets or run commands directly via `uv run ...`.
 
 [tool.ruff]
 line-length = 100

@@ -48,7 +48,9 @@ class DatabasePool:
 
         for attempt in range(max_retries):
             try:
-                conn = await aiosqlite.connect(self.db_path, timeout=30.0, check_same_thread=False)
+                import os as _os
+                _timeout = 10.0 if _os.getenv("SAM_TEST_MODE") == "1" else 30.0
+                conn = await aiosqlite.connect(self.db_path, timeout=_timeout, check_same_thread=False)
 
                 # Optimize performance with error handling
                 try:
@@ -56,13 +58,13 @@ class DatabasePool:
                     await conn.execute("PRAGMA synchronous=NORMAL")
                     await conn.execute("PRAGMA cache_size=10000")
                     await conn.execute("PRAGMA temp_store=memory")
-                    await conn.execute("PRAGMA busy_timeout=30000")
+                    # Keep busy timeout conservative; shorter in test mode to prevent hangs
+                    import os as _os
+                    busy_ms = 2000 if _os.getenv("SAM_TEST_MODE") == "1" else 5000
+                    await conn.execute(f"PRAGMA busy_timeout={busy_ms}")
                     await conn.execute("PRAGMA wal_autocheckpoint=1000")
-                    # Skip mmap for better compatibility with temp files
-                    if (
-                        not self.db_path.startswith("/tmp")
-                        and "/TemporaryItems/" not in self.db_path
-                    ):
+                    # Enable mmap only when explicitly requested; safer default across OS/sandboxes
+                    if _os.getenv("SAM_SQLITE_ENABLE_MMAP") == "1":
                         await conn.execute("PRAGMA mmap_size=268435456")  # 256MB
                     await conn.commit()
                 except Exception as e:
@@ -105,7 +107,9 @@ class DatabasePool:
         # Check if connection is still alive with retry
         try:
             # Simple validation with timeout
-            await asyncio.wait_for(conn.execute("SELECT 1"), timeout=5.0)
+            import os as _os
+            _vto = 1.0 if _os.getenv("SAM_TEST_MODE") == "1" else 5.0
+            await asyncio.wait_for(conn.execute("SELECT 1"), timeout=_vto)
             try:
                 await conn.commit()
             except Exception:
