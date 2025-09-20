@@ -1,6 +1,6 @@
 import pytest
 import os
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 from sam.commands.onboard import run_onboarding
 
 

@@ -63,7 +63,7 @@ else:
 
     default_index = 0
     try:
-        current_label = next(l for l, sid in sid_map.items() if sid == current_sid)
+        current_label = next(label for label, sid in sid_map.items() if sid == current_sid)
         default_index = labels.index(current_label)
     except Exception:
         pass

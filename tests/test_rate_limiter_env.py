@@ -1,4 +1,3 @@
-import os
 from sam.utils.rate_limiter import RateLimiter
 
 

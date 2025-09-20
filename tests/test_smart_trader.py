@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 
 from sam.integrations.smart_trader import SmartTrader, WSOL_MINT
 

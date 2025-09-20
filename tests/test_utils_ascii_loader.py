@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock, call
+from unittest.mock import patch, MagicMock, AsyncMock
 from sam.utils.ascii_loader import (
     ASCIILoader,
     supports_ansi,
@@ -162,7 +162,7 @@ class TestASCIILoader:
 
         loader = ASCIILoader("Test Title", "Test Subtitle")
 
-        with patch("asyncio.sleep") as mock_sleep:
+        with patch("asyncio.sleep"):
             asyncio.run(loader.show_wave_effect(duration=0.1))
 
             # Should call show_static_art as fallback
@@ -195,7 +195,7 @@ class TestASCIILoader:
 
         loader = ASCIILoader("Test Title", "Test Subtitle")
 
-        with patch("asyncio.sleep") as mock_sleep:
+        with patch("asyncio.sleep"):
             asyncio.run(loader.show_glitch_intro(duration=0.1))
 
             # Should call show_static_art as fallback

@@ -163,6 +163,35 @@ class InteractiveSettingsManager:
                 setting_type=SettingType.PASSWORD,
                 sensitive=True,
             ),
+            # Aster Futures Settings
+            SettingDefinition(
+                key="ASTER_API_KEY",
+                display_name="Aster API Key",
+                description="REST API key from your Aster account",
+                setting_type=SettingType.PASSWORD,
+                sensitive=True,
+            ),
+            SettingDefinition(
+                key="ASTER_API_SECRET",
+                display_name="Aster API Secret",
+                description="REST API secret from your Aster account",
+                setting_type=SettingType.PASSWORD,
+                sensitive=True,
+            ),
+            SettingDefinition(
+                key="ASTER_BASE_URL",
+                display_name="Aster Base URL",
+                description="Base endpoint for Aster futures API",
+                setting_type=SettingType.TEXT,
+                default_value="https://fapi.asterdex.com",
+            ),
+            SettingDefinition(
+                key="ASTER_DEFAULT_RECV_WINDOW",
+                display_name="Aster recvWindow (ms)",
+                description="Default recvWindow value for signed Aster requests",
+                setting_type=SettingType.INTEGER,
+                default_value=5000,
+            ),
             # Tool Toggle Settings
             SettingDefinition(
                 key="ENABLE_SOLANA_TOOLS",
@@ -198,6 +227,13 @@ class InteractiveSettingsManager:
                 description="Enable web search and news search tools",
                 setting_type=SettingType.BOOLEAN,
                 default_value=True,
+            ),
+            SettingDefinition(
+                key="ENABLE_ASTER_FUTURES_TOOLS",
+                display_name="Enable Aster Futures Tools",
+                description="Enable Aster futures trading and account tools",
+                setting_type=SettingType.BOOLEAN,
+                default_value=False,
             ),
             # Safety & Limits Settings
             SettingDefinition(
@@ -275,7 +311,7 @@ class InteractiveSettingsManager:
         for setting in self.settings_definitions:
             if setting.key == "LLM_PROVIDER":
                 categories["🤖 LLM Provider"].append(setting)
-            elif setting.key.endswith("_API_KEY"):
+            elif setting.key.endswith("_API_KEY") or setting.key.endswith("_API_SECRET"):
                 categories["🔑 API Keys"].append(setting)
             elif setting.key.startswith("ENABLE_"):
                 categories["⚡ Tool Toggles"].append(setting)
@@ -284,6 +320,7 @@ class InteractiveSettingsManager:
                 "DEFAULT_SLIPPAGE",
                 "SAM_FERNET_KEY",
                 "RATE_LIMITING_ENABLED",
+                "ASTER_DEFAULT_RECV_WINDOW",
             ]:
                 categories["🔐 Security & Limits"].append(setting)
             elif setting.key in [
@@ -292,6 +329,7 @@ class InteractiveSettingsManager:
                 "SAM_DB_PATH",
                 "OPENAI_BASE_URL",
                 "LOCAL_LLM_BASE_URL",
+                "ASTER_BASE_URL",
             ]:
                 categories["🌐 Network & Storage"].append(setting)
             else:

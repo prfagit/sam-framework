@@ -52,6 +52,15 @@ class Settings:
     ENABLE_DEXSCREENER_TOOLS: bool = os.getenv("ENABLE_DEXSCREENER_TOOLS", "true").lower() == "true"
     ENABLE_JUPITER_TOOLS: bool = os.getenv("ENABLE_JUPITER_TOOLS", "true").lower() == "true"
     ENABLE_SEARCH_TOOLS: bool = os.getenv("ENABLE_SEARCH_TOOLS", "true").lower() == "true"
+    ENABLE_ASTER_FUTURES_TOOLS: bool = (
+        os.getenv("ENABLE_ASTER_FUTURES_TOOLS", "false").lower() == "true"
+    )
+
+    # Aster futures configuration
+    ASTER_BASE_URL: str = os.getenv("ASTER_BASE_URL", "https://fapi.asterdex.com")
+    ASTER_API_KEY: Optional[str] = os.getenv("ASTER_API_KEY")
+    ASTER_API_SECRET: Optional[str] = os.getenv("ASTER_API_SECRET")
+    ASTER_DEFAULT_RECV_WINDOW: int = int(os.getenv("ASTER_DEFAULT_RECV_WINDOW", "5000"))
 
     # Encryption Configuration
     SAM_FERNET_KEY: Optional[str] = os.getenv("SAM_FERNET_KEY")
@@ -111,6 +120,14 @@ class Settings:
         )
         cls.ENABLE_JUPITER_TOOLS = os.getenv("ENABLE_JUPITER_TOOLS", "true").lower() == "true"
         cls.ENABLE_SEARCH_TOOLS = os.getenv("ENABLE_SEARCH_TOOLS", "true").lower() == "true"
+        cls.ENABLE_ASTER_FUTURES_TOOLS = (
+            os.getenv("ENABLE_ASTER_FUTURES_TOOLS", "false").lower() == "true"
+        )
+
+        cls.ASTER_BASE_URL = os.getenv("ASTER_BASE_URL", "https://fapi.asterdex.com")
+        cls.ASTER_API_KEY = os.getenv("ASTER_API_KEY")
+        cls.ASTER_API_SECRET = os.getenv("ASTER_API_SECRET")
+        cls.ASTER_DEFAULT_RECV_WINDOW = int(os.getenv("ASTER_DEFAULT_RECV_WINDOW", "5000"))
 
         # Encryption
         cls.SAM_FERNET_KEY = os.getenv("SAM_FERNET_KEY")
@@ -189,6 +206,13 @@ class Settings:
             "On" if cls.ENABLE_JUPITER_TOOLS else "Off",
             "On" if cls.ENABLE_SEARCH_TOOLS else "Off",
         )
+        logger.info("  Aster Futures Tools: %s", "On" if cls.ENABLE_ASTER_FUTURES_TOOLS else "Off")
+        if cls.ENABLE_ASTER_FUTURES_TOOLS:
+            logger.info("    Aster Base URL: %s", cls.ASTER_BASE_URL)
+            logger.info(
+                "    Aster API Key: %s",
+                "configured" if cls.ASTER_API_KEY else "missing",
+            )
         logger.info(f"  Max Transaction: {cls.MAX_TRANSACTION_SOL} SOL")
         logger.info(f"  Default Slippage: {cls.DEFAULT_SLIPPAGE}%")
         logger.info(f"  Log Level: {cls.LOG_LEVEL}")

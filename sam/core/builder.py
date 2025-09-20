@@ -25,6 +25,7 @@ from ..integrations.pump_fun import PumpFunTools, create_pump_fun_tools
 from ..integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
 from ..integrations.jupiter import JupiterTools, create_jupiter_tools
 from ..integrations.search import SearchTools, create_search_tools
+from ..integrations.aster_futures import AsterFuturesClient, create_aster_futures_tools
 from ..integrations.smart_trader import SmartTrader, create_smart_trader_tools
 from .plugins import load_plugins
 
@@ -368,6 +369,37 @@ class AgentBuilder:
             for tool in create_search_tools(search_tools):
                 tools.register(tool)
 
+        aster_client: Optional[AsterFuturesClient] = None
+        if Settings.ENABLE_ASTER_FUTURES_TOOLS:
+            aster_api_key = secure_storage.get_api_key("aster_api")
+            if not aster_api_key and Settings.ASTER_API_KEY:
+                if secure_storage.store_api_key("aster_api", Settings.ASTER_API_KEY):
+                    aster_api_key = Settings.ASTER_API_KEY
+                else:
+                    aster_api_key = Settings.ASTER_API_KEY
+
+            aster_api_secret = secure_storage.get_private_key("aster_api_secret")
+            if not aster_api_secret and Settings.ASTER_API_SECRET:
+                if secure_storage.store_private_key("aster_api_secret", Settings.ASTER_API_SECRET):
+                    aster_api_secret = Settings.ASTER_API_SECRET
+                else:
+                    aster_api_secret = Settings.ASTER_API_SECRET
+
+            if aster_api_key and aster_api_secret:
+                aster_client = AsterFuturesClient(
+                    base_url=Settings.ASTER_BASE_URL,
+                    api_key=aster_api_key,
+                    api_secret=aster_api_secret,
+                    default_recv_window=Settings.ASTER_DEFAULT_RECV_WINDOW,
+                )
+                for tool in create_aster_futures_tools(aster_client):
+                    tools.register(tool)
+            else:
+                logger.warning(
+                    "Aster futures tools enabled but API key/secret are missing. "
+                    "Set ASTER_API_KEY and ASTER_API_SECRET or store them via secure storage."
+                )
+
         # Optional plugin discovery (entry points or env var SAM_PLUGINS)
         try:
             load_plugins(tools, agent=agent)
@@ -388,6 +420,7 @@ class AgentBuilder:
         setattr(agent, "_dex_tools", dex_tools)
         setattr(agent, "_jupiter_tools", jupiter_tools)
         setattr(agent, "_search_tools", search_tools)
+        setattr(agent, "_aster_client", aster_client)
         setattr(agent, "_llm", llm)
 
         logger.info(f"Agent built with {len(tools.list_specs())} tools")

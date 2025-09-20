@@ -1,8 +1,10 @@
 """Pytest configuration and fixtures for SAM Framework tests."""
 
+import logging
 import os
+import sys
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -129,12 +131,7 @@ async def cleanup_background_services():
 
 
 # Disable logging to reduce noise during tests
-import logging
 logging.getLogger().setLevel(logging.ERROR)
-
-# Mock dotenv loading to prevent .env file issues
-import sys
-from unittest.mock import MagicMock, patch
 
 # Mock any potential import-time side effects
 sys.modules['dotenv'] = MagicMock()

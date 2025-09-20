@@ -1,8 +1,7 @@
 import pytest
 import asyncio
 import time
-import psutil
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 from sam.utils.memory_monitor import (
     MemoryStats,
     MemoryThresholds,

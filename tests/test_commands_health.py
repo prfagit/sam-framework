@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
 from sam.commands.health import run_health_check
 
@@ -201,13 +200,19 @@ class TestHealthCheck:
 
     def test_health_check_imports(self):
         """Test that all required imports are available."""
-        try:
-            from sam.utils.error_handling import get_health_checker, get_error_tracker
-            from sam.utils.secure_storage import get_secure_storage
-            from sam.utils.rate_limiter import get_rate_limiter
-            from sam.core.memory import MemoryManager
-        except ImportError as e:
-            pytest.fail(f"Missing import: {e}")
+        import importlib.util
+
+        required_modules = [
+            "sam.utils.error_handling",
+            "sam.utils.secure_storage",
+            "sam.utils.rate_limiter",
+            "sam.core.memory"
+        ]
+
+        for module_name in required_modules:
+            spec = importlib.util.find_spec(module_name)
+            if spec is None:
+                pytest.fail(f"Missing import: {module_name}")
 
 
 if __name__ == "__main__":

@@ -88,6 +88,12 @@ TOOL_DISPLAY_NAMES = {
     "search_news": "📰 Searching news",
     "smart_buy": "🧠 Smart buy",
     "smart_sell": "🧠 Smart sell",
+    "aster_account_balance": "💰 Checking Aster balance",
+    "aster_account_info": "📊 Getting Aster account info",
+    "aster_position_check": "📈 Checking Aster positions",
+    "aster_trade_history": "📜 Getting Aster trade history",
+    "aster_open_long": "⚡ Opening long position",
+    "aster_close_position": "📉 Closing position",
 }
 
 
@@ -361,6 +367,14 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
             "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap"],
             "📈 Market Data": ["get_trending_pairs"],
             "🌐 Web Search": ["search_web", "search_news"],
+            "⚡ Aster Futures": [
+                "aster_account_balance",
+                "aster_account_info",
+                "aster_position_check",
+                "aster_trade_history",
+                "aster_open_long",
+                "aster_close_position",
+            ],
         }
 
         for category, tool_names in categories.items():
@@ -686,136 +700,6 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                     except Exception as e:
                         print(f"❌ Error with interactive settings: {e}")
                     continue
-                # Slash command palette (unified style)
-                if user_input.strip() == "/":
-                    selection = interactive_select(
-                        "Select a command:",
-                        [
-                            ("🔧 List tools", "tools"),
-                            ("⚙️  Show configuration", "config"),
-                            ("🗂️  Sessions", "sessions"),
-                            ("🧨 Clear all sessions", "clear_sessions"),
-                            ("🛠️  Interactive settings", "settings"),
-                            ("📡 Provider actions", "providers"),
-                            ("🧹 Clear screen", "clear"),
-                            ("🧠 Clear conversation context", "clear_context"),
-                            ("🗜️  Compact conversation", "compact"),
-                            ("👛 Show wallet", "wallet"),
-                            ("💰 Check balance", "balance"),
-                            ("❓ Help", "help"),
-                            ("🚪 Exit", "exit"),
-                        ],
-                    )
-                    if not selection:
-                        continue
-
-                    if selection == "tools":
-                        await show_tools()
-                    elif selection == "sessions":
-                        await list_and_maybe_switch_session()
-                    elif selection == "clear_sessions":
-                        ok = interactive_confirm("Delete ALL saved sessions? This cannot be undone.", False)
-                        if ok:
-                            try:
-                                deleted = await agent.memory.clear_all_sessions()
-                                from datetime import datetime
-                                new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
-                                await agent.memory.create_session(new_id)
-                                session_id = new_id
-                                print(colorize(f"Deleted {deleted} sessions. Started new session: {session_id}", Style.FG_GREEN))
-                                await show_history(limit=None)
-                            except Exception as e:
-                                print(colorize(f"Failed to clear sessions: {e}", Style.FG_YELLOW))
-                    elif selection == "config":
-                        show_config()
-                    elif selection == "settings":
-                        try:
-                            from .interactive_settings import run_interactive_settings
-
-                            if run_interactive_settings():
-                                print(
-                                    "Settings saved! Please restart SAM for changes to take effect."
-                                )
-                                print("Use: Ctrl+C to exit, then run 'uv run sam' again")
-                            else:
-                                print("No changes made.")
-                        except Exception as e:
-                            print(f"❌ Error with interactive settings: {e}")
-                    elif selection == "providers":
-                        sel2 = interactive_select(
-                            "Provider actions:",
-                            [
-                                ("📡 List providers", "list"),
-                                ("🔎 Show current provider", "current"),
-                                ("🧪 Test provider", "test"),
-                                ("🔄 Switch provider", "switch"),
-                            ],
-                        )
-                        if sel2 == "list":
-                            cmd_list_providers()
-                        elif sel2 == "current":
-                            cmd_show_current_provider()
-                        elif sel2 == "test":
-                            await cmd_test_provider(None)
-                        elif sel2 == "switch":
-                            name = interactive_select(
-                                "Switch to provider:",
-                                [
-                                    ("openai", "openai"),
-                                    ("anthropic", "anthropic"),
-                                    ("xai", "xai"),
-                                    ("openai_compat", "openai_compat"),
-                                    ("local", "local"),
-                                ],
-                            )
-                            if name:
-                                result = cmd_switch_provider(name)
-                                if result == 0:
-                                    print(
-                                        colorize(
-                                            "🔄 Restart SAM to use the new provider",
-                                            Style.FG_YELLOW,
-                                        )
-                                    )
-                    elif selection == "clear":
-                        clear_screen()
-                    elif selection == "clear_context":
-                        async with Spinner("Clearing conversation context"):
-                            result = await agent.clear_context(session_id)
-                        print(colorize("✨ " + result, Style.FG_GREEN))
-                    elif selection == "compact":
-                        async with Spinner("Compacting conversation"):
-                            result = await agent.compact_conversation(session_id, keep_recent=0)
-                        print(colorize("📋 " + result, Style.FG_GREEN))
-                        await show_history(limit=None)
-                    elif selection == "wallet":
-                        w = getattr(agent, "_solana_tools", None)
-                        addr = getattr(w, "wallet_address", None) if w else None
-                        if addr:
-                            print(colorize(hr(), Style.FG_GRAY))
-                            print(f" Wallet: {addr}")
-                            print(colorize(hr(), Style.FG_GRAY))
-                        else:
-                            print(colorize("No wallet configured.", Style.FG_YELLOW))
-                    elif selection == "balance":
-                        w = getattr(agent, "_solana_tools", None)
-                        if not w:
-                            print(colorize("Solana tools unavailable.", Style.FG_YELLOW))
-                        else:
-                            addr_in = interactive_text(
-                                "Address (leave blank for default wallet):", ""
-                            )
-                            async with Spinner("Querying balance"):
-                                result = await w.get_balance(addr_in or None)
-                            print(colorize(hr(), Style.FG_GRAY))
-                            print(wrap(str(result)))
-                            print(colorize(hr(), Style.FG_GRAY))
-                    elif selection == "help":
-                        print_help()
-                    elif selection == "exit":
-                        print("👋 Goodbye!")
-                        break
-                    continue
                 if user_input in ("/provider", "/providers"):
                     sel = interactive_select(
                         "Provider actions:",
@@ -1029,7 +913,6 @@ def print_help():
     print(colorize("⌨️  Shortcuts", Style.BOLD, Style.FG_CYAN))
     print("  • ESC: interrupt current agent run")
     print("  • Ctrl+C: exit immediately")
-    print("  • '/': show commands")
     print()
     print(colorize("💡 Try saying:", Style.BOLD, Style.FG_CYAN))
     print("   • check balance")

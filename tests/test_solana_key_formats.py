@@ -1,6 +1,5 @@
 import json
 import base58
-import pytest
 
 from sam.integrations.solana.solana_tools import SolanaTools
 
