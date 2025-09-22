@@ -60,7 +60,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 | Category | Description | Tools |
 |----------|-------------|-------|
 | 🤖 **Agent Engine** | Multi-LLM orchestration with advanced tool calling | OpenAI, Anthropic, xAI, Local |
-| 🛠️ **Tool Registry** | Production-ready integrations with middleware | 18+ tools |
+| 🛠️ **Tool Registry** | Production-ready integrations with middleware | 26+ tools |
 | 📡 **Event System** | Async pub/sub messaging for component communication | Real-time streaming |
 | 🔌 **Plugin SDK** | Extensible architecture for custom tools | Entry point discovery |
 | 💾 **Memory System** | Persistent conversation context with compression | SQLite-based |
@@ -68,9 +68,10 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 
 ### Use Cases
 
-- **Automated Trading**: Execute trades on Pump.fun and Jupiter DEX
-- **Portfolio Management**: Monitor balances and transaction history
-- **Market Research**: Real-time data from DexScreener
+- **Automated Trading**: Execute trades on Pump.fun, Jupiter DEX, and Aster Futures
+- **Portfolio Management**: Monitor balances, positions, and transaction history
+- **Market Research**: Real-time data from DexScreener and Polymarket analytics
+- **Prediction Markets**: Analyze and trade prediction market opportunities
 - **Web Intelligence**: Search and news aggregation
 - **Transaction Automation**: Safety-controlled blockchain operations
 
@@ -92,7 +93,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 ### 🛠️ Tool Ecosystem
 | Feature | Description |
 |---------|-------------|
-| **18+ Production Tools** | Complete Solana ecosystem coverage |
+| **26+ Production Tools** | Complete DeFi ecosystem coverage |
 | **Plugin Architecture** | Extensible with entry point discovery |
 | **Middleware Pipeline** | Configurable logging, rate limiting, retries |
 | **SDK Integration** | Programmatic agent construction |
@@ -220,8 +221,15 @@ uv run streamlit run examples/streamlit_app/app.py
 - `/settings` - Interactive configuration editor
 - `/clear-context` - Clear conversation context
 - `/compact` - Compact conversation history
+- `/clear-sessions` - Clear all sessions and reset to default
 - ESC - Interrupt current operation
 - Ctrl+C - Exit
+
+**Session Management:**
+- Persistent conversation contexts across runs
+- Automatic session creation and management
+- Session statistics and performance tracking
+- Database-backed session storage with indexing
 
 ---
 
@@ -246,12 +254,30 @@ SAM provides 18+ production-ready tools organized by category:
 | `get_pump_token_info` | Detailed token information | `mint` |
 | `get_token_trades` | View trading activity | `mint` |
 
+### 🧠 Smart Trading
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `smart_buy` | Buy with fallback (Pump.fun → Jupiter) | `token`, `amount` |
+| `smart_sell` | Sell with fallback (Pump.fun → Jupiter) | `token`, `percentage` |
+
 ### 🌌 Jupiter DEX
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `get_swap_quote` | Get swap quotes | `input_mint`, `output_mint`, `amount` |
 | `jupiter_swap` | Execute token swaps | Quote parameters |
+
+### ⚡ Aster Futures
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `aster_account_info` | Account information and trading status | - |
+| `aster_account_balance` | Account balance and margin details | - |
+| `aster_trade_history` | Recent trade history and performance | `limit` |
+| `aster_open_long` | Open long position with leverage | `symbol`, `quantity`, `leverage`, `price` |
+| `aster_close_position` | Close existing position | `symbol`, `quantity`, `position_side` |
+| `aster_position_check` | Check current positions and PnL | - |
 
 ### 📊 Market Data
 
@@ -285,6 +311,9 @@ SAM provides 18+ production-ready tools organized by category:
 "Get swap quote for 1 SOL to USDC on Jupiter"
 "Check my wallet balance"
 "Show trending pairs on DexScreener"
+"Find prediction market opportunities on Polymarket"
+"Open a long position on BTC futures with 5x leverage"
+"Check my account balance on Aster Futures"
 ```
 
 ---
@@ -308,6 +337,8 @@ sam/
 │   ├── jupiter.py       # Jupiter aggregator integration
 │   ├── dexscreener.py   # Market data provider
 │   ├── polymarket.py    # Prediction market analytics
+│   ├── aster_futures.py # Futures trading on Aster DEX
+│   ├── smart_trader.py  # Smart trading with fallbacks
 │   └── search.py        # Web search via Brave API
 ├── config/               # Configuration management
 │   ├── settings.py      # Environment and settings
@@ -319,11 +350,13 @@ sam/
 │   ├── validators.py    # Input validation and safety
 │   ├── rate_limiter.py  # Request throttling
 │   └── connection_pool.py # RPC connection management
-└── commands/             # CLI command modules
-    ├── onboard.py       # Interactive setup wizard
-    ├── providers.py     # LLM provider management
-    ├── health.py        # System diagnostics
-    └── maintenance.py   # Database maintenance
+├── commands/             # CLI command modules
+│   ├── onboard.py       # Interactive setup wizard
+│   ├── providers.py     # LLM provider management
+│   ├── health.py        # System diagnostics
+│   └── maintenance.py   # Database maintenance
+└── web/                 # Web interface components
+    └── session.py       # Web session management
 ```
 
 ### Design Patterns
@@ -333,6 +366,9 @@ sam/
 - **Middleware Pipeline**: Configurable tool execution pipeline
 - **Builder Pattern**: Modular agent construction
 - **Repository Pattern**: Data access abstraction
+- **Connection Pooling**: Shared database and HTTP client connections
+- **Circuit Breaker**: API resilience with automatic failure recovery
+- **Session Management**: Persistent conversation contexts with indexing
 
 ---
 
@@ -357,6 +393,14 @@ SAM supports multiple configuration methods with automatic loading priority:
 | **Local** | `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL` | Ollama, LM Studio |
 | **OpenAI Compat** | `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL` | Custom endpoints |
 
+### Integration Configuration
+
+| Integration | Environment Variables | Description |
+|-------------|----------------------|-------------|
+| **Polymarket** | - | No API key required (public API) |
+| **Aster Futures** | `ASTER_API_KEY`, `ASTER_API_SECRET`, `ASTER_BASE_URL`, `ASTER_DEFAULT_RECV_WINDOW` | Futures trading credentials |
+| **Brave Search** | `BRAVE_API_KEY` | Web search and news aggregation |
+
 ### TOML Configuration
 
 ```toml
@@ -374,6 +418,8 @@ enable_solana_tools = true
 enable_pump_fun_tools = true
 enable_jupiter_tools = true
 enable_dexscreener_tools = true
+enable_polymarket_tools = true
+enable_aster_futures_tools = false
 enable_search_tools = false
 ```
 
@@ -500,17 +546,32 @@ sam key generate  # Generate encryption keys
 
 ### Testing
 
+SAM includes comprehensive testing infrastructure with 25+ test files covering all major components:
+
 ```bash
-# Run test suite
+# Run complete test suite
 uv run pytest tests/ -v
 
-# Run specific tests
-uv run pytest tests/test_tools.py
-uv run pytest tests/test_integration.py
-
-# Run with coverage
+# Run with coverage reporting
 uv run pytest tests/ --cov=sam --cov-report=html
+
+# Run specific test categories
+uv run pytest tests/test_integration.py     # Integration tests
+uv run pytest tests/test_tools.py          # Tool registry tests
+uv run pytest tests/test_polymarket.py     # Polymarket integration
+uv run pytest tests/test_aster_futures.py  # Futures trading tests
+
+# Run async tests with proper configuration
+uv run pytest tests/ --asyncio-mode=auto
 ```
+
+### Test Infrastructure Features
+
+- **Comprehensive Coverage**: Unit, integration, and end-to-end tests
+- **Async Testing**: Full asyncio support with pytest-asyncio
+- **Mock Frameworks**: Extensive mocking for external API dependencies
+- **Environment Testing**: Test-specific configurations and fixtures
+- **Performance Validation**: API resilience and error handling tests
 
 ### Code Quality
 
@@ -525,15 +586,34 @@ uv run ruff check --fix
 uv run mypy sam/
 ```
 
-### Development Commands
+### Development Workflow
 
 ```bash
-# Interactive development
+# Setup and development
+uv sync                                    # Install dependencies
+make install                             # Alternative setup via Makefile
+
+# Code quality (via Makefile)
+make format                              # Format code with ruff
+make lint                                # Check style and fix issues
+make typecheck                           # Run mypy type checking
+make test                                # Run complete test suite
+
+# Individual commands
 sam debug                    # Show plugins and middleware
 sam provider test           # Test LLM provider
 sam health                  # System diagnostics
 sam settings               # Runtime configuration
+sam maintenance             # Database maintenance operations
 ```
+
+### Development Infrastructure
+
+- **Makefile**: Standardized development targets for common operations
+- **Enhanced Testing**: 25+ test files with comprehensive coverage
+- **Async Optimization**: uvloop integration for performance
+- **Connection Pooling**: Shared database and HTTP client connections
+- **Circuit Breakers**: API resilience with automatic recovery
 
 ### SDK Usage
 
@@ -577,7 +657,14 @@ asyncio.run(main())
 
 ## 📄 License
 
-**MIT License** - See [LICENSE](LICENSE) for details.
+**MIT License** with SAM Framework Additional Terms - See [LICENSE](LICENSE) for complete licensing details.
+
+### Key Requirements for Building on SAM
+
+- **Contact Requirement**: Must contact @prfa before releasing tools built on SAM Framework
+- **$SAM Token Benefits**: Tools must provide benefits to $SAM token holders
+- **Ecosystem Participation**: Active participation in the $SAM ecosystem rewards program
+- **Transparency**: Clear disclosure of SAM Framework usage and token holder benefits
 
 ## 🤝 Contributing
 
