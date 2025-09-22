@@ -60,7 +60,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 | Category | Description | Tools |
 |----------|-------------|-------|
 | 🤖 **Agent Engine** | Multi-LLM orchestration with advanced tool calling | OpenAI, Anthropic, xAI, Local |
-| 🛠️ **Tool Registry** | Production-ready integrations with middleware | 15+ tools |
+| 🛠️ **Tool Registry** | Production-ready integrations with middleware | 18+ tools |
 | 📡 **Event System** | Async pub/sub messaging for component communication | Real-time streaming |
 | 🔌 **Plugin SDK** | Extensible architecture for custom tools | Entry point discovery |
 | 💾 **Memory System** | Persistent conversation context with compression | SQLite-based |
@@ -92,7 +92,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 ### 🛠️ Tool Ecosystem
 | Feature | Description |
 |---------|-------------|
-| **15+ Production Tools** | Complete Solana ecosystem coverage |
+| **18+ Production Tools** | Complete Solana ecosystem coverage |
 | **Plugin Architecture** | Extensible with entry point discovery |
 | **Middleware Pipeline** | Configurable logging, rate limiting, retries |
 | **SDK Integration** | Programmatic agent construction |
@@ -227,7 +227,7 @@ uv run streamlit run examples/streamlit_app/app.py
 
 ## 🛠️ Tool Ecosystem
 
-SAM provides 15+ production-ready tools organized by category:
+SAM provides 18+ production-ready tools organized by category:
 
 ### 💰 Wallet Operations
 
@@ -261,6 +261,14 @@ SAM provides 15+ production-ready tools organized by category:
 | `get_token_pairs` | Get pairs for token | `address` |
 | `get_solana_pair` | Detailed pair information | `pair_address` |
 | `get_trending_pairs` | Trending pairs by volume | `chain` |
+
+### 🎯 Prediction Markets
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `polymarket_list_markets` | Discover active Polymarket markets | `limit`, `category`, `tag`, `series_slug` |
+| `polymarket_opportunity_scan` | Rank markets by ROI/liquidity heuristics | `limit`, `min_volume_24h`, `max_entry_price`, `tag` |
+| `polymarket_strategy_brief` | Generate entry/exit strategy summaries | `count`, `max_entry_price`, `category`, `tag` |
 
 ### 🌐 Web Intelligence
 
@@ -299,6 +307,7 @@ sam/
 │   ├── pump_fun.py      # Pump.fun trading interface
 │   ├── jupiter.py       # Jupiter aggregator integration
 │   ├── dexscreener.py   # Market data provider
+│   ├── polymarket.py    # Prediction market analytics
 │   └── search.py        # Web search via Brave API
 ├── config/               # Configuration management
 │   ├── settings.py      # Environment and settings

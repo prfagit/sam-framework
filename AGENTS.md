@@ -4,7 +4,7 @@
 - `sam/`: core package
   - `cli.py`: CLI entrypoint (`uv run sam`)
   - `core/`: agent orchestration, LLM, memory, tools registry
-  - `integrations/`: Solana, Pump.fun, Jupiter, DexScreener, web search
+  - `integrations/`: Solana, Pump.fun, Jupiter, DexScreener, Polymarket, web search
   - `utils/`: crypto, secure storage, validators, rate limiting
   - `config/`: prompts and settings
 - `tests/`: unit/integration tests mirroring `sam/`
@@ -44,4 +44,3 @@
 
 ## Adding a Tool (Quick Path)
 1) Implement handler in `sam/integrations/...`  2) add spec to tools registry  3) expose in `cli.py`  4) add tests  5) update docs.
-

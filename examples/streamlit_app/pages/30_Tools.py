@@ -27,6 +27,7 @@ with st.form("tools_form"):
     t_pump = st.checkbox("Pump.fun Tools", value=bool(Settings.ENABLE_PUMP_FUN_TOOLS))
     t_dex = st.checkbox("DexScreener Tools", value=bool(Settings.ENABLE_DEXSCREENER_TOOLS))
     t_jup = st.checkbox("Jupiter Tools", value=bool(Settings.ENABLE_JUPITER_TOOLS))
+    t_poly = st.checkbox("Polymarket Tools", value=bool(Settings.ENABLE_POLYMARKET_TOOLS))
     t_search = st.checkbox("Web Search Tools", value=bool(Settings.ENABLE_SEARCH_TOOLS))
     saved = st.form_submit_button("Save")
     if saved:
@@ -44,6 +45,7 @@ with st.form("tools_form"):
                 "ENABLE_PUMP_FUN_TOOLS": "true" if t_pump else "false",
                 "ENABLE_DEXSCREENER_TOOLS": "true" if t_dex else "false",
                 "ENABLE_JUPITER_TOOLS": "true" if t_jup else "false",
+                "ENABLE_POLYMARKET_TOOLS": "true" if t_poly else "false",
                 "ENABLE_SEARCH_TOOLS": "true" if t_search else "false",
             }
         )

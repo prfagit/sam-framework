@@ -229,6 +229,13 @@ class InteractiveSettingsManager:
                 default_value=True,
             ),
             SettingDefinition(
+                key="ENABLE_POLYMARKET_TOOLS",
+                display_name="Enable Polymarket Tools",
+                description="Enable Polymarket market discovery and strategy tools",
+                setting_type=SettingType.BOOLEAN,
+                default_value=True,
+            ),
+            SettingDefinition(
                 key="ENABLE_ASTER_FUTURES_TOOLS",
                 display_name="Enable Aster Futures Tools",
                 description="Enable Aster futures trading and account tools",

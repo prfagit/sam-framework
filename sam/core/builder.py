@@ -25,6 +25,7 @@ from ..integrations.pump_fun import PumpFunTools, create_pump_fun_tools
 from ..integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
 from ..integrations.jupiter import JupiterTools, create_jupiter_tools
 from ..integrations.search import SearchTools, create_search_tools
+from ..integrations.polymarket import PolymarketTools, create_polymarket_tools
 from ..integrations.aster_futures import AsterFuturesClient, create_aster_futures_tools
 from ..integrations.smart_trader import SmartTrader, create_smart_trader_tools
 from .plugins import load_plugins
@@ -369,6 +370,11 @@ class AgentBuilder:
             for tool in create_search_tools(search_tools):
                 tools.register(tool)
 
+        polymarket_tools = PolymarketTools()
+        if Settings.ENABLE_POLYMARKET_TOOLS:
+            for tool in create_polymarket_tools(polymarket_tools):
+                tools.register(tool)
+
         aster_client: Optional[AsterFuturesClient] = None
         if Settings.ENABLE_ASTER_FUTURES_TOOLS:
             aster_api_key = secure_storage.get_api_key("aster_api")
@@ -420,6 +426,7 @@ class AgentBuilder:
         setattr(agent, "_dex_tools", dex_tools)
         setattr(agent, "_jupiter_tools", jupiter_tools)
         setattr(agent, "_search_tools", search_tools)
+        setattr(agent, "_polymarket_tools", polymarket_tools)
         setattr(agent, "_aster_client", aster_client)
         setattr(agent, "_llm", llm)
 

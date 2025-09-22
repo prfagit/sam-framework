@@ -52,6 +52,9 @@ class Settings:
     ENABLE_DEXSCREENER_TOOLS: bool = os.getenv("ENABLE_DEXSCREENER_TOOLS", "true").lower() == "true"
     ENABLE_JUPITER_TOOLS: bool = os.getenv("ENABLE_JUPITER_TOOLS", "true").lower() == "true"
     ENABLE_SEARCH_TOOLS: bool = os.getenv("ENABLE_SEARCH_TOOLS", "true").lower() == "true"
+    ENABLE_POLYMARKET_TOOLS: bool = (
+        os.getenv("ENABLE_POLYMARKET_TOOLS", "true").lower() == "true"
+    )
     ENABLE_ASTER_FUTURES_TOOLS: bool = (
         os.getenv("ENABLE_ASTER_FUTURES_TOOLS", "false").lower() == "true"
     )
@@ -120,6 +123,9 @@ class Settings:
         )
         cls.ENABLE_JUPITER_TOOLS = os.getenv("ENABLE_JUPITER_TOOLS", "true").lower() == "true"
         cls.ENABLE_SEARCH_TOOLS = os.getenv("ENABLE_SEARCH_TOOLS", "true").lower() == "true"
+        cls.ENABLE_POLYMARKET_TOOLS = (
+            os.getenv("ENABLE_POLYMARKET_TOOLS", "true").lower() == "true"
+        )
         cls.ENABLE_ASTER_FUTURES_TOOLS = (
             os.getenv("ENABLE_ASTER_FUTURES_TOOLS", "false").lower() == "true"
         )

@@ -171,17 +171,18 @@ class TestSetupStatus:
             with patch.object(
                 Settings, "SAM_SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"
             ):
-                with patch("os.path.exists", return_value=False):
-                    with patch("sam.utils.cli_helpers.get_secure_storage") as mock_get_storage:
-                        mock_storage = MagicMock()
-                        mock_storage.get_private_key.return_value = None
-                        mock_get_storage.return_value = mock_storage
+                with patch.object(Settings, "SAM_WALLET_PRIVATE_KEY", None):
+                    with patch("os.path.exists", return_value=False):
+                        with patch("sam.utils.cli_helpers.get_secure_storage") as mock_get_storage:
+                            mock_storage = MagicMock()
+                            mock_storage.get_private_key.return_value = None
+                            mock_get_storage.return_value = mock_storage
 
-                        status = check_setup_status()
+                            status = check_setup_status()
 
-                        assert status["openai_api_key"] is False
-                        assert status["wallet_configured"] is False
-                        assert len(status["issues"]) >= 2  # Should have multiple issues
+                            assert status["openai_api_key"] is False
+                            assert status["wallet_configured"] is False
+                            assert len(status["issues"]) >= 2  # Should have multiple issues
 
     def test_is_first_run(self):
         """Test first run detection."""

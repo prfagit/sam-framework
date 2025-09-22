@@ -94,6 +94,9 @@ TOOL_DISPLAY_NAMES = {
     "aster_trade_history": "📜 Getting Aster trade history",
     "aster_open_long": "⚡ Opening long position",
     "aster_close_position": "📉 Closing position",
+    "polymarket_list_markets": "🎯 Listing Polymarket markets",
+    "polymarket_opportunity_scan": "🎯 Scanning Polymarket opportunities",
+    "polymarket_strategy_brief": "🧠 Crafting Polymarket strategy",
 }
 
 
@@ -366,6 +369,11 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
             ],
             "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap"],
             "📈 Market Data": ["get_trending_pairs"],
+            "🎯 Polymarket": [
+                "polymarket_list_markets",
+                "polymarket_opportunity_scan",
+                "polymarket_strategy_brief",
+            ],
             "🌐 Web Search": ["search_web", "search_news"],
             "⚡ Aster Futures": [
                 "aster_account_balance",
@@ -423,6 +431,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
             f"  - Pump.fun:  {'On' if Settings.ENABLE_PUMP_FUN_TOOLS else 'Off'}\n"
             f"  - DexScreen: {'On' if Settings.ENABLE_DEXSCREENER_TOOLS else 'Off'}\n"
             f"  - Jupiter:   {'On' if Settings.ENABLE_JUPITER_TOOLS else 'Off'}\n"
+            f"  - Polymarket: {'On' if Settings.ENABLE_POLYMARKET_TOOLS else 'Off'}\n"
             f"  - Search:    {'On' if Settings.ENABLE_SEARCH_TOOLS else 'Off'}"
         )
         brave_set = "Yes" if os.environ.get("BRAVE_API_KEY") else "No"

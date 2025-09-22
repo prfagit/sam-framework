@@ -149,6 +149,7 @@ class TestSettings:
             assert Settings.ENABLE_DEXSCREENER_TOOLS is True
             assert Settings.ENABLE_JUPITER_TOOLS is True
             assert Settings.ENABLE_SEARCH_TOOLS is True
+            assert Settings.ENABLE_POLYMARKET_TOOLS is True
 
     @patch.dict(
         os.environ,
@@ -182,6 +183,7 @@ class TestSettings:
                 "ENABLE_DEXSCREENER_TOOLS": "False",
                 "ENABLE_JUPITER_TOOLS": "false",
                 "ENABLE_SEARCH_TOOLS": "true",
+                "ENABLE_POLYMARKET_TOOLS": "false",
             },
             clear=False,
         ):
@@ -191,6 +193,7 @@ class TestSettings:
             assert Settings.ENABLE_DEXSCREENER_TOOLS is False
             assert Settings.ENABLE_JUPITER_TOOLS is False
             assert Settings.ENABLE_SEARCH_TOOLS is True
+            assert Settings.ENABLE_POLYMARKET_TOOLS is False
 
     def test_settings_refresh_from_env(self):
         """Test refresh_from_env method."""
