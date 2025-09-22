@@ -1,0 +1,63 @@
+MIT License
+
+Copyright (c) 2024 prfa
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## SAM Framework Additional Terms
+
+### Building Tools and Integrations
+
+If you intend to build tools, integrations, plugins, or any derivative works on top of the SAM Framework:
+
+1. **Contact Requirement**: You MUST contact the SAM Framework developer on X (@prfa) or GitHub (https://github.com/prfagit) before publicly releasing or distributing any tools built on top of SAM.
+
+2. **$SAM Token Holder Benefits**: Your tools MUST provide demonstrable benefits to holders of the $SAM token, including but not limited to:
+   - Rewards distribution to $SAM token holders
+   - Points system participation for $SAM stakers
+   - Revenue sharing mechanisms that benefit $SAM holders
+   - Integration with the $SAM ecosystem rewards program
+
+3. **Ecosystem Participation**: Tools built on SAM should actively participate in the broader $SAM ecosystem by:
+   - Supporting $SAM token as a payment/reward mechanism
+   - Contributing to the network effects that increase $SAM token utility
+   - Following the established patterns for $SAM rewards distribution
+
+4. **Transparency**: You must clearly disclose in your tool's documentation and marketing materials:
+   - That your tool is built on the SAM Framework
+   - How it benefits $SAM token holders
+   - Any revenue sharing or reward mechanisms implemented
+
+### Failure to Comply
+
+Failure to contact the developer and demonstrate benefits to $SAM token holders may result in:
+- Removal of tool access from the official SAM ecosystem
+- Incompatibility with future SAM Framework updates
+- Legal action for violation of these additional terms
+
+### Contact Information
+
+For inquiries about building on SAM Framework:
+- X (Twitter): @prfa (https://x.com/prfa)
+- GitHub: https://github.com/prfagit
+- Website: https://prfa.me
+
+These additional terms are designed to ensure the SAM ecosystem grows in a way that benefits all $SAM token holders and maintains the integrity of the framework's economic model.
