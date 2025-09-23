@@ -24,6 +24,7 @@ except ImportError:
 from .core.agent import SAMAgent
 from .core.builder import AgentBuilder, cleanup_agent_fast
 from .config.settings import Settings, setup_logging
+from .config.plugin_policy import PluginPolicy, load_allowlist_document
 
 # crypto helpers are used in commands; CLI no longer needs them directly
 # secure storage used in subcommands; not needed at CLI top-level anymore
@@ -41,9 +42,14 @@ from .commands.providers import (
     test_provider as cmd_test_provider,
 )
 from .commands.onboard import run_onboarding
-from .commands.keys import import_private_key as cmd_import_key, generate_key as cmd_generate_key
+from .commands.keys import (
+    import_private_key as cmd_import_key,
+    generate_key as cmd_generate_key,
+    rotate_key as cmd_rotate_key,
+)
 from .commands.maintenance import run_maintenance as cmd_run_maintenance
 from .commands.health import run_health_check as cmd_run_health
+from .commands.plugins import run_plugins_command as cmd_run_plugins
 from .utils.env_files import find_env_path
 from .utils.ascii_loader import show_sam_intro
 # Note: integrations are now wired inside AgentBuilder
@@ -1001,6 +1007,21 @@ async def main():
     key_subparsers = key_parser.add_subparsers(dest="key_action")
     key_subparsers.add_parser("import", help="Import private key securely")
     key_subparsers.add_parser("generate", help="Generate new encryption key")
+    rotate_parser = key_subparsers.add_parser(
+        "rotate", help="Rotate Fernet encryption key and re-encrypt secrets"
+    )
+    rotate_parser.add_argument(
+        "--new-key",
+        dest="new_key",
+        help="Optional base64 key to rotate to (otherwise a new key is generated)",
+    )
+    rotate_parser.add_argument(
+        "--yes",
+        "-y",
+        dest="assume_yes",
+        action="store_true",
+        help="Skip interactive confirmation",
+    )
 
     # Provider management
     provider_parser = subparsers.add_parser("provider", help="LLM provider management")
@@ -1019,6 +1040,21 @@ async def main():
     subparsers.add_parser("maintenance", help="Database maintenance and cleanup")
     subparsers.add_parser("onboard", help="Run onboarding setup")
     subparsers.add_parser("debug", help="Show runtime plugins and middleware")
+
+    plugins_parser = subparsers.add_parser(
+        "plugins", help="Manage plugin trust policy and allowlist"
+    )
+    plugins_subparsers = plugins_parser.add_subparsers(dest="plugins_action")
+    trust_parser = plugins_subparsers.add_parser(
+        "trust", help="Compute hash and record plugin module in allowlist"
+    )
+    trust_parser.add_argument("module", help="Importable module path for plugin")
+    trust_parser.add_argument(
+        "--entry-point", dest="entry_point", help="Optional entry point name to map"
+    )
+    trust_parser.add_argument(
+        "--label", dest="label", help="Optional friendly name stored in allowlist"
+    )
 
     # Global arguments
     parser.add_argument(
@@ -1049,8 +1085,12 @@ async def main():
                 return cmd_import_key()
             elif args.key_action == "generate":
                 return cmd_generate_key()
+            elif args.key_action == "rotate":
+                return cmd_rotate_key(
+                    getattr(args, "new_key", None), assume_yes=getattr(args, "assume_yes", False)
+                )
         else:
-            print("Usage: sam key {import|generate}")
+            print("Usage: sam key {import|generate|rotate}")
             return 1
 
     if args.command == "provider":
@@ -1145,6 +1185,9 @@ async def main():
     if args.command == "onboard":
         return await run_onboarding()
 
+    if args.command == "plugins":
+        return cmd_run_plugins(args)
+
     if args.command == "debug":
         # Build agent to introspect configured middlewares and registered tools
         from importlib.metadata import entry_points
@@ -1152,6 +1195,23 @@ async def main():
 
         agent = await AgentBuilder().build()
         print(colorize("🔌 Plugins", Style.BOLD, Style.FG_CYAN))
+        policy = PluginPolicy.from_env()
+        status = "enabled" if policy.enabled else "disabled"
+        print(f" Policy: {status} (allow unverified: {'on' if policy.allow_unverified else 'off'})")
+        print(f" Allowlist: {policy.allowlist_path}")
+        doc = load_allowlist_document(policy.allowlist_path)
+        modules = doc.get("modules", {})
+        if modules:
+            print(" Trusted modules:")
+            for name, meta in list(modules.items())[:10]:
+                digest = meta.get("sha256", "<missing>") if isinstance(meta, dict) else str(meta)
+                label = meta.get("label") if isinstance(meta, dict) else None
+                note = f" ({label})" if label else ""
+                print(f"  - {name}{note} :: {digest[:12]}…")
+            if len(modules) > 10:
+                print(f"    … {len(modules) - 10} more")
+        else:
+            print(" Trusted modules: none recorded")
         try:
             eps_tools = [e.name for e in entry_points(group="sam.plugins")]
         except Exception:

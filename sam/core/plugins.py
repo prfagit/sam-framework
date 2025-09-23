@@ -1,13 +1,15 @@
 import logging
 import os
+from importlib import import_module
 from typing import Any, Callable, Optional
 
+from ..config.plugin_policy import PluginPolicy
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 
-def _call_plugin_register(fn: Callable, registry: ToolRegistry, agent: Optional[Any]) -> None:
+def _call_plugin_register(fn: Callable[..., Any], registry: ToolRegistry, agent: Optional[Any]) -> None:
     try:
         # Try common signatures in order
         try:
@@ -32,7 +34,12 @@ def _call_plugin_register(fn: Callable, registry: ToolRegistry, agent: Optional[
         logger.warning(f"Plugin register callable failed: {e}")
 
 
-def load_plugins(registry: ToolRegistry, agent: Optional[Any] = None) -> None:
+def load_plugins(
+    registry: ToolRegistry,
+    agent: Optional[Any] = None,
+    *,
+    policy: Optional[PluginPolicy] = None,
+) -> None:
     """Discover and load external plugins.
 
     Supports two mechanisms (both optional):
@@ -41,13 +48,23 @@ def load_plugins(registry: ToolRegistry, agent: Optional[Any] = None) -> None:
     - Environment variable: SAM_PLUGINS — comma-separated module paths.
       Each module may expose a 'register' or 'register_tools' callable.
     """
+    policy = policy or PluginPolicy.from_env()
+
+    if not policy.enabled:
+        logger.info("Plugin loading disabled by policy")
+        return
+
     # 1) Python entry points
     try:
         from importlib.metadata import entry_points
 
-        eps = entry_points(group="sam.plugins")  # type: ignore[arg-type]
+        eps = entry_points(group="sam.plugins")
         for ep in eps:
             try:
+                metadata = policy.resolve_metadata(ep.module)
+                if not policy.permits(metadata=metadata, entry_point=ep.name):
+                    continue
+
                 plugin = ep.load()
                 _call_plugin_register(plugin, registry, agent)
                 logger.info(f"Loaded plugin from entry point: {ep.name}")
@@ -64,7 +81,11 @@ def load_plugins(registry: ToolRegistry, agent: Optional[Any] = None) -> None:
 
     for mod_path in [m.strip() for m in modules.split(",") if m.strip()]:
         try:
-            module = __import__(mod_path, fromlist=["register", "register_tools"])
+            metadata = policy.resolve_metadata(mod_path)
+            if not policy.permits(metadata=metadata, entry_point=None):
+                continue
+
+            module = import_module(mod_path)
             register_fn = getattr(module, "register", None) or getattr(
                 module, "register_tools", None
             )

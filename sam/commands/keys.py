@@ -111,3 +111,57 @@ def generate_key() -> int:
         print(f"❌ Failed to generate key: {e}")
         print("Manual fallback: Add SAM_FERNET_KEY to your .env file")
         return 1
+
+
+def rotate_key(new_key: str | None = None, *, assume_yes: bool = False) -> int:
+    """Rotate SAM_FERNET_KEY and re-encrypt stored secrets."""
+    print("🔄 Rotating SAM_FERNET_KEY")
+
+    secure_storage = get_secure_storage()
+    if not secure_storage.fernet:
+        print("❌ Encryption not initialized; cannot rotate key")
+        return 1
+
+    if not assume_yes:
+        confirm = input(
+            "This will generate a new key and re-encrypt stored secrets. Proceed? (y/N): "
+        ).strip().lower()
+        if confirm != "y":
+            print("❌ Rotation cancelled")
+            return 1
+
+    result = secure_storage.rotate_encryption_key(new_key)
+
+    if not result.get("success"):
+        failures = ", ".join(result.get("failures", [])) or "unknown error"
+        print(f"❌ Rotation failed. Problematic secrets: {failures}")
+        return 1
+
+    try:
+        env_path = find_env_path()
+        write_env_file(env_path, {"SAM_FERNET_KEY": secure_storage.current_key_str or ""})
+        print(f"✅ Updated {env_path} with rotated key")
+    except Exception as exc:  # pragma: no cover - filesystem edge
+        print(f"⚠️  Rotated key generated but failed to update .env automatically: {exc}")
+
+    rotated = len(result.get("rotated", []))
+    print(f"🔒 Re-encrypted {rotated} secret{'s' if rotated != 1 else ''}")
+
+    fallback_promoted = result.get("fallback_promoted", [])
+    if fallback_promoted:
+        print(
+            "⚠️  The encrypted fallback vault now holds copies of: "
+            + ", ".join(fallback_promoted)
+        )
+        print("   Restore system keyring access and rerun rotation to migrate them back.")
+
+    stale = result.get("failures", [])
+    if stale:
+        print("⚠️  Some secrets could not be rotated; check logs for details.")
+
+    fingerprint = result.get("fingerprint")
+    if fingerprint:
+        print(f"🔏 Active key fingerprint: {fingerprint}")
+
+    print("✅ SAM_FERNET_KEY rotated successfully. Restart agents to apply changes.")
+    return 0

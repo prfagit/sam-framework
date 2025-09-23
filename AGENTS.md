@@ -41,6 +41,14 @@
 - Never commit secrets. Use OS keyring and `.env` locally.
 - Required env: `SAM_FERNET_KEY`, LLM provider keys, `SAM_SOLANA_RPC_URL`.
 - Storage paths: DB at `.sam/sam_memory.db`. Validate addresses and set slippage carefully (`DEFAULT_SLIPPAGE`).
+- Rotate the Fernet key with `uv run sam key rotate --yes` after audits or credential changes to re-encrypt stored secrets.
+
+## Plugin Trust Policy
+- Plugins execute arbitrary code; they remain disabled unless `SAM_ENABLE_PLUGINS=true`.
+- Trust is governed by `sam/config/plugin_allowlist.json` (override with `SAM_PLUGIN_ALLOWLIST_FILE`).
+- Record module digests via `uv run sam plugins trust <module> [--entry-point name] [--label friendly]` after reviewing the source.
+- Keep `SAM_PLUGIN_ALLOW_UNVERIFIED=false` except during audits; strict mode blocks unknown or tampered packages.
+- `uv run sam debug` surfaces current plugin environment and trusted entries—check it before shipping builds.
 
 ## Adding a Tool (Quick Path)
 1) Implement handler in `sam/integrations/...`  2) add spec to tools registry  3) expose in `cli.py`  4) add tests  5) update docs.

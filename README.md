@@ -485,6 +485,26 @@ export SAM_PLUGINS="my_package.tools,vendor.tools"
 export SAM_MEMORY_BACKEND="my_package.memory:create_backend"
 ```
 
+### Trust Policy
+
+SAM loads third-party plugins only when they are explicitly trusted.
+
+```bash
+# Enable plugin loading (disabled by default)
+export SAM_ENABLE_PLUGINS=true
+
+# Optional settings
+export SAM_PLUGIN_ALLOWLIST_FILE=./sam/config/plugin_allowlist.json
+export SAM_PLUGIN_ALLOW_UNVERIFIED=false  # keep strict mode
+
+# Record a plugin module fingerprint
+uv run sam plugins trust my_package.tools --entry-point my-tools --label "Vendor Tools"
+```
+
+- The allowlist stores module SHA-256 digests to prevent supply-chain tampering.
+- Run `sam debug` to review the trusted set and environment state.
+- When upgrading a plugin, re-run `sam plugins trust …` to refresh the recorded hash.
+
 ---
 
 ## Security
@@ -519,6 +539,7 @@ LOG_LEVEL=WARNING
 # Key management
 sam key import  # Secure key import
 sam key generate  # Generate encryption keys
+sam key rotate --yes  # Rotate SAM_FERNET_KEY and re-encrypt stored secrets
 ```
 
 ---

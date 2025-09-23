@@ -24,7 +24,24 @@ async def run_health_check() -> int:
         async def secure_storage_health():
             storage = get_secure_storage()
             test_results = storage.test_keyring_access()
-            return test_results
+            diagnostics = storage.diagnostics()
+
+            status = "healthy"
+            if not test_results.get("keyring_available"):
+                status = "degraded"
+            if diagnostics.get("stale_cipher_blobs"):
+                status = "attention"
+
+            details = {
+                "keyring_available": test_results.get("keyring_available"),
+                "fallback_active": diagnostics.get("fallback_active"),
+                "fallback_keys": diagnostics.get("fallback_keys"),
+                "stale_keys": diagnostics.get("stale_keys"),
+                "tracked_keys": diagnostics.get("tracked_keys"),
+                "fallback_path": diagnostics.get("fallback_path"),
+            }
+
+            return {"status": status, "details": details}
 
         async def rate_limiter_health():
             limiter = await get_rate_limiter()
