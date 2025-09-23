@@ -1,27 +1,8 @@
-# 🤖 SAM Framework
+# SAM Framework
 
 <div align="center">
 
-```
-⠀⠀⠀⢘⠀⡂⢠⠆⠀⡰⠀⡀⢀⣠⣶⣦⣶⣶⣶⣶⣾⣿⣿⡿⢀⠈⢐⠈⠀⠀
-⠀⠀⠀⡁⢄⡀⣞⡇⢰⠃⣼⣇⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⠛⣰⣻⡀⢸⠀⠀⠀
-⠀⠀⠀⣠⠁⣛⣽⣇⠘⢸⣿⣿⣷⣾⣿⣿⣿⣿⣿⣿⠟⢡⣾⣿⢿⡇⠀⡃⠀⠀
-⠀⠀⢀⠐⠀⢳⣿⡯⡞⣾⣿⣿⣿⣿⣿⣿⢿⣿⠟⢁⣴⣿⣿⣿⡜⢷⠀⢘⠄⠀
-⠀⠀⠀⡊⢸⡆⠙⠛⡵⣿⣿⣿⣿⣿⡿⠤⠛⣠⣴⣿⣿⠿⣟⣟⠟⢿⡆⢳⠀⠀
-⠀⠀⠘⡁⢸⡾⠁⠀⠀⠀⠀⠉⠉⠉⠈⣠⡌⢁⠄⡛⠡⠉⠍⠙⢳⢾⠁⢸⠀⠀
-⠀⠀⠀⠂⢨⠌⠀⠀⠀⠀⠀⠀⠀⠀⢀⣤⣷⡎⠙⢬⣳⣪⡯⢜⣷⢸⠂⡈⠄⠀
-⠀⠀⠀⠆⣰⢣⠀⠀⠀⠀⠀⠀⠀⣴⣿⣾⣷⢿⢻⣅⣌⡯⢛⣿⣿⡞⠠⡁⠂⠀
-⠀⠀⠀⠄⢲⢉⡀⠀⠀⢀⡠⠤⠼⣇⣳⣿⣿⣟⡜⣿⣿⣿⣿⣿⣿⡇⠸⠡⠀⠀
-⠀⠀⡀⠁⠹⠃⢀⡀⣿⡹⠗⢀⠛⠥⣺⣿⣿⡝⢹⣸⣿⣿⣿⣿⡏⠠⠰⠈⠐⠀
-⠠⠈⠀⠄⣀⠀⠀⠸⠻⠦⠀⠀⠀⠀⠀⠉⠐⠀⠘⠻⢹⣿⡿⠃⠀⡀⠕⣈⠡⡄
-⠀⠀⣴⡀⣬⠁⠀⠀⡁⠂⠀⣀⣀⠔⠌⠤⣀⡀⠀⠀⡈⢸⠪⠀⠀⡌⠤⠈⡀⣠
-⠀⠀⣿⣿⣾⡇⠀⠀⠀⣴⢫⣾⠃⠠⢰⣶⣴⠶⣿⣦⠀⠀⠀⢄⣂⠀⠀⠰⠀⠙
-⠀⠀⠉⠛⠛⠀⢀⣴⣿⢗⡟⠡⣄⣀⡀⠀⢀⣤⠞⡅⠀⠁⠀⡾⠀⠀⠠⡗⠀⢀
-⠀⠀⠀⠀⠀⣴⡿⢋⠔⠃⠀⠀⠍⠙⠉⠈⠑⠁⠂⠀⠀⠀⡡⡁⣠⡼⣸⠅⠀⠘
-⠀⠀⠀⣼⠛⢡⠔⠁⠐⣆⠀⠀⠀⠀⠀⠀⠀⠀⠁⢀⡔⡞⢛⣿⡿⠃⠏⠀⠀⢠
-⠀⠀⠀⠈⠗⠀⠀⠀⠀⠘⣷⣀⢀⣀⣀⠀⡀⢀⣌⡧⠂⠀⡞⠛⡟⠀⠀⠀⡠⠜
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠓⠈⠙⠙⠋⠉⠁⠀⠀⠀⠀⠀⠀⠀⡂⠠⠤⢶
-```
+![SAM Framework](https://www.getsam.xyz/assets/img/sam-og.jpg)
 
 **Solana Agent Middleware** - Production-ready AI agent framework for blockchain operations
 
@@ -30,28 +11,28 @@
 [![PyPI](https://img.shields.io/pypi/v/sam-framework)](https://pypi.org/project/sam-framework/)
 [![Tests](https://img.shields.io/badge/Tests-Passing-green.svg)](tests/)
 
-*Framework for building autonomous AI agents that interact with the Solana blockchain ecosystem*
+Framework for building autonomous AI agents that interact with the Solana blockchain ecosystem
 
 </div>
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [🔍 Overview](#-overview)
-- [⚡ Key Features](#-key-features)
-- [🚀 Quick Start](#-quick-start)
-- [🛠️ Tool Ecosystem](#-tool-ecosystem)
-- [🏗️ Architecture](#-architecture)
-- [🔧 Configuration](#-configuration)
-- [🔌 Plugin System](#-plugin-system)
-- [🛡️ Security](#-security)
-- [📊 Development](#-development)
-- [📚 Documentation](#-documentation)
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Quick Start](#quick-start)
+- [Tool Ecosystem](#tool-ecosystem)
+- [Architecture](#architecture)
+- [Configuration](#configuration)
+- [Plugin System](#plugin-system)
+- [Security](#security)
+- [Development](#development)
+- [Documentation](#documentation)
 
 ---
 
-## 🔍 Overview
+## Overview
 
 SAM Framework provides a production-ready infrastructure for building AI agents that interact with the Solana blockchain ecosystem. The framework implements an event-driven architecture with plugin support, enabling automated trading, portfolio management, market data analysis, and web research capabilities.
 
@@ -59,12 +40,12 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 
 | Category | Description | Tools |
 |----------|-------------|-------|
-| 🤖 **Agent Engine** | Multi-LLM orchestration with advanced tool calling | OpenAI, Anthropic, xAI, Local |
-| 🛠️ **Tool Registry** | Production-ready integrations with middleware | 26+ tools |
-| 📡 **Event System** | Async pub/sub messaging for component communication | Real-time streaming |
-| 🔌 **Plugin SDK** | Extensible architecture for custom tools | Entry point discovery |
-| 💾 **Memory System** | Persistent conversation context with compression | SQLite-based |
-| 🔒 **Security Layer** | Encrypted key management and validation | Fernet + OS keyring |
+| **Agent Engine** | Multi-LLM orchestration with advanced tool calling | OpenAI, Anthropic, xAI, Local |
+| **Tool Registry** | Production-ready integrations with middleware | 26+ tools |
+| **Event System** | Async pub/sub messaging for component communication | Real-time streaming |
+| **Plugin SDK** | Extensible architecture for custom tools | Entry point discovery |
+| **Memory System** | Persistent conversation context with compression | SQLite-based |
+| **Security Layer** | Encrypted key management and validation | Fernet + OS keyring |
 
 ### Use Cases
 
@@ -77,11 +58,11 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 
 ---
 
-## ⚡ Key Features
+## Key Features
 
 <div align="center">
 
-### 🤖 Agent Architecture
+### Agent Architecture
 | Feature | Description |
 |---------|-------------|
 | **Multi-LLM Support** | OpenAI, Anthropic, xAI, and local models |
@@ -90,7 +71,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 | **Session Persistence** | SQLite-based conversation context |
 | **Async Optimization** | uvloop integration for performance |
 
-### 🛠️ Tool Ecosystem
+### Tool Ecosystem
 | Feature | Description |
 |---------|-------------|
 | **26+ Production Tools** | Complete DeFi ecosystem coverage |
@@ -99,7 +80,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 | **SDK Integration** | Programmatic agent construction |
 | **Error Handling** | Structured error responses and recovery |
 
-### 🔒 Security & Safety
+### Security & Safety
 | Feature | Description |
 |---------|-------------|
 | **Fernet Encryption** | AES-128 encryption for sensitive data |
@@ -112,7 +93,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -125,7 +106,7 @@ uv sync
 ### Setup Options
 
 <details>
-<summary><strong>🎯 Interactive Onboarding (Recommended)</strong></summary>
+<summary><strong>Interactive Onboarding (Recommended)</strong></summary>
 
 ```bash
 uv run sam onboard
@@ -140,7 +121,7 @@ uv run sam onboard
 </details>
 
 <details>
-<summary><strong>⚙️ Manual Configuration</strong></summary>
+<summary><strong>Manual Configuration</strong></summary>
 
 Create `.env` file:
 ```bash
@@ -162,7 +143,7 @@ BRAVE_API_KEY=your-brave-search-key
 </details>
 
 <details>
-<summary><strong>🔄 Provider Management</strong></summary>
+<summary><strong>Provider Management</strong></summary>
 
 ```bash
 # List available providers
@@ -188,7 +169,7 @@ sam run --session trading_session
 ```
 
 <details>
-<summary><strong>🌐 Web Interface (Streamlit)</strong></summary>
+<summary><strong>Web Interface (Streamlit)</strong></summary>
 
 ```bash
 # Launch the web interface
@@ -233,11 +214,11 @@ uv run streamlit run examples/streamlit_app/app.py
 
 ---
 
-## 🛠️ Tool Ecosystem
+## Tool Ecosystem
 
 SAM provides 18+ production-ready tools organized by category:
 
-### 💰 Wallet Operations
+### Wallet Operations
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -245,7 +226,7 @@ SAM provides 18+ production-ready tools organized by category:
 | `transfer_sol` | Send SOL between addresses | `to_address`, `amount` |
 | `get_token_data` | Token metadata and supply | `address` |
 
-### 🚀 Pump.fun Trading
+### Pump.fun Trading
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -254,21 +235,21 @@ SAM provides 18+ production-ready tools organized by category:
 | `get_pump_token_info` | Detailed token information | `mint` |
 | `get_token_trades` | View trading activity | `mint` |
 
-### 🧠 Smart Trading
+### Smart Trading
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `smart_buy` | Buy with fallback (Pump.fun → Jupiter) | `token`, `amount` |
 | `smart_sell` | Sell with fallback (Pump.fun → Jupiter) | `token`, `percentage` |
 
-### 🌌 Jupiter DEX
+### Jupiter DEX
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `get_swap_quote` | Get swap quotes | `input_mint`, `output_mint`, `amount` |
 | `jupiter_swap` | Execute token swaps | Quote parameters |
 
-### ⚡ Aster Futures
+### Aster Futures
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -279,7 +260,7 @@ SAM provides 18+ production-ready tools organized by category:
 | `aster_close_position` | Close existing position | `symbol`, `quantity`, `position_side` |
 | `aster_position_check` | Check current positions and PnL | - |
 
-### 📊 Market Data
+### Market Data
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -288,7 +269,7 @@ SAM provides 18+ production-ready tools organized by category:
 | `get_solana_pair` | Detailed pair information | `pair_address` |
 | `get_trending_pairs` | Trending pairs by volume | `chain` |
 
-### 🎯 Prediction Markets
+### Prediction Markets
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -296,7 +277,7 @@ SAM provides 18+ production-ready tools organized by category:
 | `polymarket_opportunity_scan` | Rank markets by ROI/liquidity heuristics | `limit`, `min_volume_24h`, `max_entry_price`, `tag` |
 | `polymarket_strategy_brief` | Generate entry/exit strategy summaries | `count`, `max_entry_price`, `category`, `tag` |
 
-### 🌐 Web Intelligence
+### Web Intelligence
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
@@ -318,7 +299,7 @@ SAM provides 18+ production-ready tools organized by category:
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 sam/
@@ -372,7 +353,7 @@ sam/
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
 SAM supports multiple configuration methods with automatic loading priority:
 
@@ -448,7 +429,7 @@ enable_search_tools = false
 
 ---
 
-## 🔌 Plugin System
+## Plugin System
 
 SAM supports external tools via Python entry points:
 
@@ -506,7 +487,7 @@ export SAM_MEMORY_BACKEND="my_package.memory:create_backend"
 
 ---
 
-## 🛡️ Security
+## Security
 
 ### Key Management
 
@@ -542,7 +523,7 @@ sam key generate  # Generate encryption keys
 
 ---
 
-## 📊 Development
+## Development
 
 ### Testing
 
@@ -637,15 +618,15 @@ asyncio.run(main())
 
 ---
 
-## 📚 Documentation
+## Documentation
 
-- **[📖 Architecture Guide](https://sam.prfa.me/docs/architecture)** - System design and components
-- **[🛠️ Tools Reference](https://sam.prfa.me/docs/tools)** - Complete tool documentation
-- **[🔧 Configuration Guide](https://sam.prfa.me/docs/configuration)** - Setup and configuration options
-- **[📋 CLI Reference](https://sam.prfa.me/docs/cli-reference)** - Command-line interface documentation
-- **[🛡️ Security Guide](https://sam.prfa.me/docs/security)** - Security features and best practices
-- **[🚀 Getting Started](https://sam.prfa.me/docs/getting-started)** - Step-by-step setup guide
-- **[📊 API Reference](https://sam.prfa.me/docs/api-reference)** - SDK and API documentation
+- **[Architecture Guide](https://www.getsam.xyz/docs/architecture)** - System design and components
+- **[Tools Reference](https://www.getsam.xyz/docs/tools)** - Complete tool documentation
+- **[Configuration Guide](https://www.getsam.xyz/docs/configuration)** - Setup and configuration options
+- **[CLI Reference](https://www.getsam.xyz/docs/cli-reference)** - Command-line interface documentation
+- **[Security Guide](https://www.getsam.xyz/docs/security)** - Security features and best practices
+- **[Getting Started](https://www.getsam.xyz/docs/getting-started)** - Step-by-step setup guide
+- **[API Reference](https://www.getsam.xyz/docs/api-reference)** - SDK and API documentation
 
 ### Examples
 
@@ -655,7 +636,7 @@ asyncio.run(main())
 
 ---
 
-## 📄 License
+## License
 
 **MIT License** with SAM Framework Additional Terms - See [LICENSE](LICENSE) for complete licensing details.
 
@@ -666,13 +647,13 @@ asyncio.run(main())
 - **Ecosystem Participation**: Active participation in the $SAM ecosystem rewards program
 - **Transparency**: Clear disclosure of SAM Framework usage and token holder benefits
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## 👥 Authors
+## Authors
 
-**[@prfa](https://twitter.com/prfa)** • **[@prfagit](https://github.com/prfagit)** • **[prfa.me](https://prfa.me)**
+**[@prfa](https://twitter.com/prfa)** • **[@prfagit](https://github.com/prfagit)** • **[getsam.xyz](https://www.getsam.xyz)**
 
 ---
 
@@ -681,8 +662,8 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 **SAM Framework** - Production-ready AI agent infrastructure for Solana blockchain operations.
 
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-black.svg)](https://github.com/prfagit/sam-framework)
-[![Documentation](https://img.shields.io/badge/Documentation-Complete-blue.svg)](https://sam.prfa.me/docs/)
+[![Documentation](https://img.shields.io/badge/Documentation-Complete-blue.svg)](https://www.getsam.xyz/docs/)
 
-*Built for developers who value technical excellence and production reliability.*
+Built for developers who value technical excellence and production reliability.
 
 </div>
