@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![SAM Framework](https://www.getsam.xyz/assets/img/sam-og.jpg)
+![SAM Framework](sam-og.jpg)
 
 **Solana Agent Middleware** - Production-ready AI agent framework for blockchain operations
 
