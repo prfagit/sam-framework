@@ -7,8 +7,15 @@ from .middleware import ToolContext
 from .llm_provider import LLMProvider
 from .memory import MemoryManager
 from .events import EventBus, get_event_bus
+from .context import RequestContext
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_user_id(user_id: Optional[str]) -> str:
+    if isinstance(user_id, str) and user_id.strip():
+        return user_id.strip()
+    return "default"
 
 
 class SAMAgent:
@@ -44,34 +51,46 @@ class SAMAgent:
         }
 
     async def run(
-        self, user_input: str, session_id: str, *, publish_final_event: bool = True
+        self,
+        user_input: str,
+        session_id: str,
+        *,
+        publish_final_event: bool = True,
+        context: Optional[RequestContext] = None,
     ) -> str:
         """Main agent execution loop."""
         logger.info(f"Starting agent run for session {session_id}")
+
+        user_id = _normalize_user_id(context.user_id if context else None)
 
         # Signal run start for UIs
         try:
             await self.events.publish(
                 "agent.status",
-                {"session_id": session_id, "state": "start", "message": "Starting"},
+                {
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "state": "start",
+                    "message": "Starting",
+                },
             )
         except Exception:
             pass
 
         # Load session context
-        context = await self.memory.load_session(session_id)
+        history = await self.memory.load_session(session_id, user_id=user_id)
 
         # Build message chain with system prompt
         messages = (
             [{"role": "system", "content": self.system_prompt}]
-            + context
+            + history
             + [{"role": "user", "content": user_input}]
         )
 
         # Guard against repetitive greetings/responses
         try:
             prior_assistant = next(
-                (m for m in reversed(context) if m.get("role") == "assistant"),
+                (m for m in reversed(history) if m.get("role") == "assistant"),
                 None,
             )
             if prior_assistant and prior_assistant.get("content"):
@@ -108,6 +127,7 @@ class SAMAgent:
                         "agent.status",
                         {
                             "session_id": session_id,
+                            "user_id": user_id,
                             "state": "thinking",
                             "message": "Thinking",
                             "iteration": iteration,
@@ -135,6 +155,7 @@ class SAMAgent:
                             "llm.usage",
                             {
                                 "session_id": session_id,
+                                "user_id": user_id,
                                 "usage": resp.usage,
                                 "context_length": self.session_stats.get("context_length", 0),
                             },
@@ -284,6 +305,7 @@ class SAMAgent:
                                 "tool.called",
                                 {
                                     "session_id": session_id,
+                                    "user_id": user_id,
                                     "name": tool_name,
                                     "args": tool_args,
                                     "tool_call_id": tool_call_id,
@@ -298,6 +320,7 @@ class SAMAgent:
                                 "agent.status",
                                 {
                                     "session_id": session_id,
+                                    "user_id": user_id,
                                     "state": "tool_call",
                                     "name": tool_name,
                                     "message": f"Calling {tool_name}",
@@ -334,6 +357,7 @@ class SAMAgent:
                                         "agent.status",
                                         {
                                             "session_id": session_id,
+                                            "user_id": user_id,
                                             "state": "fallback",
                                             "message": "pump.fun failed — trying Jupiter",
                                         },
@@ -358,6 +382,7 @@ class SAMAgent:
                                         "tool.called",
                                         {
                                             "session_id": session_id,
+                                            "user_id": user_id,
                                             "name": "jupiter_swap",
                                             "args": jup_args,
                                             "tool_call_id": f"fallback-{tool_call_id}",
@@ -395,6 +420,7 @@ class SAMAgent:
                                             "tool.succeeded",
                                             {
                                                 "session_id": session_id,
+                                                "user_id": user_id,
                                                 "name": "jupiter_swap",
                                                 "args": jup_args,
                                                 "result": jup_res,
@@ -406,6 +432,7 @@ class SAMAgent:
                                             "tool.failed",
                                             {
                                                 "session_id": session_id,
+                                                "user_id": user_id,
                                                 "name": "jupiter_swap",
                                                 "args": jup_args,
                                                 "result": jup_res,
@@ -426,6 +453,7 @@ class SAMAgent:
                                     "tool.failed",
                                     {
                                         "session_id": session_id,
+                                        "user_id": user_id,
                                         "name": tool_name,
                                         "args": tool_args,
                                         "result": result,
@@ -503,6 +531,7 @@ class SAMAgent:
                                     "tool.succeeded",
                                     {
                                         "session_id": session_id,
+                                        "user_id": user_id,
                                         "name": tool_name,
                                         "args": tool_args,
                                         "result": result,
@@ -517,6 +546,7 @@ class SAMAgent:
                                     "agent.status",
                                     {
                                         "session_id": session_id,
+                                        "user_id": user_id,
                                         "state": "tool_done",
                                         "name": tool_name,
                                         "message": f"{tool_name} done",
@@ -545,7 +575,9 @@ class SAMAgent:
 
                     # Save session context (excluding system prompt) WITHOUT final assistant
                     # to match expected behavior in tests and avoid mutating the prompt list
-                    await self.memory.save_session(session_id, messages[1:])
+                    await self.memory.save_session(
+                        session_id, messages[1:], user_id=user_id
+                    )
 
                     # Update context length tracking (based on messages passed to LLM)
                     try:
@@ -555,7 +587,12 @@ class SAMAgent:
                     try:
                         await self.events.publish(
                             "agent.status",
-                            {"session_id": session_id, "state": "finish", "message": "Finished"},
+                            {
+                                "session_id": session_id,
+                                "user_id": user_id,
+                                "state": "finish",
+                                "message": "Finished",
+                            },
                         )
                     except Exception:
                         pass
@@ -566,6 +603,7 @@ class SAMAgent:
                                 "agent.message",
                                 {
                                     "session_id": session_id,
+                                    "user_id": user_id,
                                     "content": resp.content or "",
                                     "usage": dict(self.session_stats),
                                 },
@@ -583,9 +621,10 @@ class SAMAgent:
         logger.warning(f"Agent hit max iterations ({max_iterations}) for session {session_id}")
         return "I've reached the maximum number of processing steps. Please try rephrasing your request."
 
-    async def clear_context(self, session_id: str) -> str:
+    async def clear_context(self, session_id: str, user_id: Optional[str] = None) -> str:
         """Clear conversation context for a session."""
-        await self.memory.clear_session(session_id)
+        uid = _normalize_user_id(user_id)
+        await self.memory.clear_session(session_id, user_id=uid)
 
         # Reset stats
         self.session_stats = {
@@ -596,10 +635,12 @@ class SAMAgent:
             "context_length": 0,
         }
 
-        logger.info(f"Cleared context for session {session_id}")
+        logger.info(f"Cleared context for session {session_id} (user {uid})")
         return "Context cleared! Starting fresh conversation."
 
-    async def compact_conversation(self, session_id: str, keep_recent: int = 4) -> str:
+    async def compact_conversation(
+        self, session_id: str, keep_recent: int = 4, user_id: Optional[str] = None
+    ) -> str:
         """Compact the conversation by summarizing older messages.
 
         Args:
@@ -607,15 +648,16 @@ class SAMAgent:
             keep_recent: Number of most recent messages to retain after the summary
                           (default 4). Set to 0 to keep only the summary.
         """
-        context = await self.memory.load_session(session_id)
+        uid = _normalize_user_id(user_id)
+        history = await self.memory.load_session(session_id, user_id=uid)
 
-        if len(context) <= max(keep_recent + 2, 6):  # small conversations are already compact
+        if len(history) <= max(keep_recent + 2, 6):  # small conversations are already compact
             return "Conversation is already compact (≤6 messages)."
 
         # Keep the last N messages and summarize the rest
         k = max(0, int(keep_recent))
-        recent_messages = context[-k:] if k > 0 else []
-        old_messages = context[:-k] if k > 0 else context
+        recent_messages = history[-k:] if k > 0 else []
+        old_messages = history[:-k] if k > 0 else history
 
         if not old_messages:
             return "Nothing to compact."
@@ -638,13 +680,13 @@ Respond with just the bullet points, no preamble."""
         ] + recent_messages
 
         # Save compacted context
-        await self.memory.save_session(session_id, compact_context)
+        await self.memory.save_session(session_id, compact_context, user_id=uid)
 
         # Update context length
         self.session_stats["context_length"] = len(compact_context) + 1  # +1 for system prompt
 
         logger.info(
-            f"Compacted session {session_id}: {len(old_messages)} → summary + {len(recent_messages)} messages"
+            f"Compacted session {session_id} (user {uid}): {len(old_messages)} → summary + {len(recent_messages)} messages"
         )
         return f"Conversation compacted! Summarized {len(old_messages)} old messages, kept {len(recent_messages)} recent ones."
 

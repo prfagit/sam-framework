@@ -8,7 +8,13 @@ _PAGES_DIR = Path(__file__).resolve().parent
 _APP_DIR = _PAGES_DIR.parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
-from ui_shared import inject_css, ensure_env_loaded, agent_ready_marker, run_sync  # noqa: E402
+from ui_shared import (  # noqa: E402
+    inject_css,
+    ensure_env_loaded,
+    agent_ready_marker,
+    run_sync,
+    get_local_context,
+)
 from sam.config.settings import Settings  # noqa: E402
 from sam.web.session import close_agent  # noqa: E402
 
@@ -137,6 +143,6 @@ with st.form("agent_form"):
         st.success("Saved. Click 'Reset Agent' to apply.")
 
 if st.button("Reset Agent", use_container_width=False):
-    run_sync(close_agent())
+    run_sync(close_agent(get_local_context()))
     st.cache_resource.clear()
     st.success("Agent reset. Return to Chat.")

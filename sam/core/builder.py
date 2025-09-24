@@ -9,6 +9,7 @@ from .llm_provider import create_llm_provider
 from .memory_provider import create_memory_manager
 from .tools import ToolRegistry
 from .middleware import LoggingMiddleware, RateLimitMiddleware, RetryMiddleware
+from .context import RequestContext
 from ..config.prompts import SOLANA_AGENT_PROMPT
 from ..config.settings import Settings
 from ..config.config_loader import load_middleware_config
@@ -47,11 +48,13 @@ class AgentBuilder:
     ) -> None:
         self.system_prompt = system_prompt or SOLANA_AGENT_PROMPT
 
-    async def build(self) -> SAMAgent:
+    async def build(self, context: Optional[RequestContext] = None) -> SAMAgent:
         """Build and return a fully configured SAMAgent.
 
         Mirrors previous CLI setup behavior to remain non-breaking.
         """
+        ctx = context or RequestContext()
+        _ = ctx  # Maintains compatibility until context-aware overrides land
         # LLM
         llm = create_llm_provider()
 

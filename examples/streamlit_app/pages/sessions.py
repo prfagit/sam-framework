@@ -1,6 +1,12 @@
 import streamlit as st
 
-from ui_shared import inject_css, ensure_env_loaded, ensure_session_init, run_sync
+from ui_shared import (
+    inject_css,
+    ensure_env_loaded,
+    ensure_session_init,
+    run_sync,
+    get_local_context,
+)
 from sam.web.session import list_sessions, new_session_id, clear_all_sessions
 
 
@@ -16,7 +22,7 @@ st.caption("Manage and switch between saved conversations")
 
 # Fetch sessions
 try:
-    data = run_sync(list_sessions(limit=100))
+    data = run_sync(list_sessions(limit=100, context=get_local_context()))
 except Exception:
     data = []
 
@@ -26,7 +32,7 @@ colA, colB, colC = st.columns([1, 1, 3])
 with colA:
     if st.button("🆕 New Session"):
         try:
-            sid = run_sync(new_session_id())
+            sid = run_sync(new_session_id(get_local_context()))
             st.session_state["session_id"] = sid
         except Exception:
             pass
@@ -36,8 +42,8 @@ with colA:
 with colB:
     if st.button("🧨 Clear All Sessions"):
         try:
-            _ = run_sync(clear_all_sessions())
-            sid = run_sync(new_session_id())
+            _ = run_sync(clear_all_sessions(get_local_context()))
+            sid = run_sync(new_session_id(get_local_context()))
             st.session_state["session_id"] = sid
         except Exception:
             pass
@@ -81,4 +87,3 @@ else:
                 st.rerun()
     with c2:
         st.caption("Tip: go back to the Chat page to continue the conversation.")
-

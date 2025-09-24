@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from sam.web.session import get_agent
+from sam.core.context import RequestContext
 from sam.config.settings import Settings
 
 
@@ -32,7 +33,9 @@ def ensure_session_init():
         try:
             from sam.web.session import get_default_session_id
 
-            st.session_state["session_id"] = run_sync(get_default_session_id())
+            st.session_state["session_id"] = run_sync(
+                get_default_session_id(get_local_context())
+            )
         except Exception:
             # Fallback to a generated id if web adapter fails
             from uuid import uuid4
@@ -55,10 +58,16 @@ def run_sync(coro):
         return loop.run_until_complete(coro)
 
 
+def get_local_context() -> RequestContext:
+    """Return a request context suitable for local Streamlit usage."""
+
+    return RequestContext(user_id="local-streamlit")
+
+
 @st.cache_resource(show_spinner=False)
 def agent_ready_marker() -> bool:
     async def _build():
-        await get_agent()
+        await get_agent(get_local_context())
 
     run_sync(_build())
     return True

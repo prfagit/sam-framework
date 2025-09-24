@@ -210,14 +210,38 @@ class TestMemoryMonitor:
         """Test GC trigger based on operation count."""
         monitor = MemoryMonitor(MemoryThresholds(gc_frequency=5))
 
-        # Should not trigger initially
-        assert not monitor.should_run_gc()
+        with patch("psutil.virtual_memory") as mock_virtual_memory:
+            mock_system_mem = MagicMock()
+            mock_system_mem.percent = 50.0
+            mock_system_mem.total = 1024**3
+            mock_virtual_memory.return_value = mock_system_mem
+
+            with patch("psutil.Process") as mock_process_class:
+                mock_process = MagicMock()
+                mock_process.memory_percent.return_value = 1.0
+                mock_process.memory_info.return_value = MagicMock(rss=0, vms=0)
+                mock_process_class.return_value = mock_process
+
+                # Should not trigger initially
+                assert not monitor.should_run_gc()
 
         # Trigger after reaching frequency
         for _ in range(3):
             monitor._operation_count += 1
 
-        assert monitor.should_run_gc()
+        with patch("psutil.virtual_memory") as mock_virtual_memory:
+            mock_system_mem = MagicMock()
+            mock_system_mem.percent = 50.0
+            mock_system_mem.total = 1024**3
+            mock_virtual_memory.return_value = mock_system_mem
+
+            with patch("psutil.Process") as mock_process_class:
+                mock_process = MagicMock()
+                mock_process.memory_percent.return_value = 1.0
+                mock_process.memory_info.return_value = MagicMock(rss=0, vms=0)
+                mock_process_class.return_value = mock_process
+
+                assert monitor.should_run_gc()
 
     def test_should_run_gc_time_based(self):
         """Test GC trigger based on time interval."""
@@ -233,11 +257,18 @@ class TestMemoryMonitor:
         """Test GC trigger based on memory usage."""
         mock_system_mem = MagicMock()
         mock_system_mem.percent = 85.0  # Above warning threshold
+        mock_system_mem.total = 1024**3
         mock_virtual_memory.return_value = mock_system_mem
 
-        monitor = MemoryMonitor()
+        with patch("psutil.Process") as mock_process_class:
+            mock_process = MagicMock()
+            mock_process.memory_percent.return_value = 1.0
+            mock_process.memory_info.return_value = MagicMock(rss=0, vms=0)
+            mock_process_class.return_value = mock_process
 
-        assert monitor.should_run_gc()
+            monitor = MemoryMonitor()
+
+            assert monitor.should_run_gc()
 
     @patch("gc.get_objects")
     @patch("gc.collect")
@@ -500,4 +531,3 @@ class TestGlobalMemoryMonitor:
 
 if __name__ == "__main__":
     pytest.main([__file__])
-

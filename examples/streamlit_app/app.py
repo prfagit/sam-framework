@@ -2,11 +2,7 @@ import streamlit as st
 import sys
 from pathlib import Path
 
-from sam.web.session import (
-    run_with_events,
-    run_once,
-    get_agent,
-)
+from sam.web.session import run_with_events, run_once, get_agent
 
 # Ensure local module imports work when run via `streamlit run`
 _APP_DIR = Path(__file__).resolve().parent
@@ -18,6 +14,7 @@ from ui_shared import (  # noqa: E402
     ensure_session_init,
     agent_ready_marker,
     run_sync,
+    get_local_context,
 )
 
 
@@ -47,8 +44,11 @@ def render_chat():
             async def _clear():
                 from sam.web.session import get_agent
 
-                agent = await get_agent()
-                await agent.clear_context(st.session_state["session_id"])  # type: ignore
+                agent = await get_agent(get_local_context())
+                await agent.clear_context(
+                    st.session_state["session_id"],
+                    user_id=get_local_context().user_id,
+                )  # type: ignore
 
             try:
                 run_sync(_clear())
@@ -69,8 +69,11 @@ def render_chat():
         async def _load_history():
             from sam.web.session import get_agent
 
-            agent = await get_agent()
-            msgs = await agent.memory.load_session(st.session_state["session_id"])  # type: ignore
+            agent = await get_agent(get_local_context())
+            msgs = await agent.memory.load_session(  # type: ignore
+                st.session_state["session_id"],
+                user_id=get_local_context().user_id,
+            )
             # Convert stored context to chat-friendly subset
             ui_msgs = []
             for m in msgs:
@@ -138,7 +141,9 @@ def render_chat():
                             unsafe_allow_html=True,
                         )
                         async with run_with_events(
-                            current_input, st.session_state["session_id"]
+                            current_input,
+                            st.session_state["session_id"],
+                            context=get_local_context(),
                         ) as events:
                             async for evt in events:
                                 name = evt.get("event")
@@ -186,7 +191,11 @@ def render_chat():
                     try:
                         reply = run_sync(_do_stream())
                     except Exception:
-                        reply = run_once(current_input, st.session_state["session_id"])  # type: ignore
+                        reply = run_once(
+                            current_input,
+                            st.session_state["session_id"],
+                            context=get_local_context(),
+                        )  # type: ignore
 
                     # Update the message in state with the final response
                     if reply is not None:
@@ -235,22 +244,25 @@ def render_chat():
     if user_input.strip().startswith("/"):
         cmd = user_input.strip().lstrip("/").lower()
         if cmd in {"settings", "config"}:
-            st.switch_page("pages/10_Settings.py")
+            st.switch_page("pages/settings.py")
             return
         if cmd in {"wallet"}:
-            st.switch_page("pages/20_Wallet.py")
+            st.switch_page("pages/wallet.py")
             return
         if cmd in {"tools"}:
-            st.switch_page("pages/30_Tools.py")
+            st.switch_page("pages/tools.py")
             return
         if cmd in {"sessions", "session"}:
-            st.switch_page("pages/15_Sessions.py")
+            st.switch_page("pages/sessions.py")
             return
         if cmd in {"clear", "new", "reset"}:
             # Clear conversation context (DB + UI)
             async def _clear():
                 agent = await get_agent()
-                await agent.clear_context(st.session_state["session_id"])  # type: ignore
+                await agent.clear_context(
+                    st.session_state["session_id"],
+                    user_id=get_local_context().user_id,
+                )  # type: ignore
 
             try:
                 run_sync(_clear())

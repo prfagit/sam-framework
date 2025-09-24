@@ -117,8 +117,8 @@ async def test_memory_integration():
         ]
 
         # Save and load session
-        await memory.save_session(session_id, test_messages)
-        loaded_messages = await memory.load_session(session_id)
+        await memory.save_session(session_id, test_messages, user_id="user1")
+        loaded_messages = await memory.load_session(session_id, user_id="user1")
         assert loaded_messages == test_messages
 
         # Test preferences

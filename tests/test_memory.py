@@ -21,10 +21,13 @@ async def test_memory_roundtrip():
         ]
 
         # Save and load
-        await memory.save_session(session_id, messages)
-        loaded_messages = await memory.load_session(session_id)
+        await memory.save_session(session_id, messages, user_id="userA")
+        loaded_messages = await memory.load_session(session_id, user_id="userA")
 
         assert loaded_messages == messages
+
+        # Ensure other users cannot see the session
+        assert await memory.load_session(session_id, user_id="userB") == []
 
 
 @pytest.mark.asyncio
@@ -38,7 +41,7 @@ async def test_memory_empty_session():
         memory = MemoryManager(db_path)
         await memory.initialize()
 
-        loaded_messages = await memory.load_session("non_existent")
+        loaded_messages = await memory.load_session("non_existent", user_id="userA")
         assert loaded_messages == []
 
         # Clean up after test

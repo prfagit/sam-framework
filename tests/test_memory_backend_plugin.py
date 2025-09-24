@@ -15,6 +15,6 @@ async def test_memory_backend_env_override(monkeypatch):
     # Save and load a session
     sid = "test_session"
     messages = [{"role": "user", "content": "hello"}]
-    await mm.save_session(sid, messages)
-    loaded = await mm.load_session(sid)
+    await mm.save_session(sid, messages, user_id="plugin-user")
+    loaded = await mm.load_session(sid, user_id="plugin-user")
     assert loaded == messages

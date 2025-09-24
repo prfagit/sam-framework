@@ -7,7 +7,13 @@ _PAGES_DIR = Path(__file__).resolve().parent
 _APP_DIR = _PAGES_DIR.parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
-from ui_shared import inject_css, ensure_env_loaded, agent_ready_marker, run_sync  # noqa: E402
+from ui_shared import (  # noqa: E402
+    inject_css,
+    ensure_env_loaded,
+    agent_ready_marker,
+    run_sync,
+    get_local_context,
+)
 from sam.web.session import get_agent  # noqa: E402
 from sam.config.settings import Settings  # noqa: E402
 from sam.utils.env_files import find_env_path, write_env_file  # noqa: E402
@@ -54,7 +60,7 @@ with st.form("tools_form"):
 
 st.divider()
 
-agent = run_sync(get_agent())
+agent = run_sync(get_agent(get_local_context()))
 specs = agent.tools.list_specs()
 st.subheader("Registered Tools")
 for s in sorted(specs, key=lambda x: x.get("name", "")):

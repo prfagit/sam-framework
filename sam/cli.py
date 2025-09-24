@@ -22,7 +22,9 @@ except ImportError:
     pass  # Fallback to standard asyncio
 
 from .core.agent import SAMAgent
-from .core.builder import AgentBuilder, cleanup_agent_fast
+from .core.builder import cleanup_agent_fast
+from .core.agent_factory import get_default_factory
+from .core.context import RequestContext
 from .config.settings import Settings, setup_logging
 from .config.plugin_policy import PluginPolicy, load_allowlist_document
 
@@ -72,6 +74,11 @@ def _ensure_inquirer() -> bool:
         return True
     except Exception:
         return False
+
+
+# CLI request context + shared factory for agent reuse
+CLI_CONTEXT = RequestContext(user_id="cli-default")
+CLI_FACTORY = get_default_factory()
 
 
 # Tool name mappings for friendly display
@@ -212,16 +219,18 @@ async def setup_agent() -> SAMAgent:
 
     Delegates to core.AgentBuilder for modular construction.
     """
-    builder = AgentBuilder()
-    return await builder.build()
+    return await CLI_FACTORY.get_agent(CLI_CONTEXT)
 
 
 async def cleanup_agent(agent):
     """Clean up agent resources quickly (delegated)."""
     try:
         if agent and hasattr(agent, "close"):
-            # Give agent a chance to close owned resources
-            await asyncio.wait_for(agent.close(), timeout=1.0)
+            try:
+                await asyncio.wait_for(agent.close(), timeout=1.0)
+            except Exception:
+                pass
+        await CLI_FACTORY.clear(CLI_CONTEXT)
     except Exception:
         pass
     # Also run shared cleanup (HTTP client, DB pool, rate limiter, price service)
@@ -247,7 +256,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
     # Optionally clear all saved sessions before proceeding
     try:
         if clear_sessions:
-            _ = await agent.memory.clear_all_sessions()
+            _ = await agent.memory.clear_all_sessions(user_id=CLI_CONTEXT.user_id)
     except Exception:
         pass
 
@@ -255,7 +264,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
     # switch to the most recently updated session, creating a new dated one if none exists.
     try:
         if session_id in {None, "", "default", "latest"}:  # type: ignore[comparison-overlap]
-            latest = await agent.memory.get_latest_session()
+            latest = await agent.memory.get_latest_session(user_id=CLI_CONTEXT.user_id)
             if latest:
                 session_id = latest.get("session_id", "default")
             else:
@@ -263,7 +272,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                 from datetime import datetime
 
                 new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
-                await agent.memory.create_session(new_id)
+                await agent.memory.create_session(new_id, user_id=CLI_CONTEXT.user_id)
                 session_id = new_id
     except Exception:
         pass
@@ -285,7 +294,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
 
     # Show recent sessions (top 5) to help users resume
     try:
-        recent = await agent.memory.list_sessions(limit=5)
+        recent = await agent.memory.list_sessions(limit=5, user_id=CLI_CONTEXT.user_id)
         if recent:
             labels = []
             for s in recent:
@@ -496,7 +505,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
 
     async def show_history(limit: Optional[int] = None):
         try:
-            ctx = await agent.memory.load_session(session_id)
+            ctx = await agent.memory.load_session(session_id, user_id=CLI_CONTEXT.user_id)
         except Exception as e:
             print(colorize(f"Failed to load history: {e}", Style.FG_YELLOW))
             return
@@ -529,7 +538,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
     async def list_and_maybe_switch_session():
         nonlocal session_id
         try:
-            sessions = await agent.memory.list_sessions(limit=25)
+            sessions = await agent.memory.list_sessions(
+                limit=25, user_id=CLI_CONTEXT.user_id
+            )
         except Exception as e:
             print(colorize(f"Failed to list sessions: {e}", Style.FG_YELLOW))
             return
@@ -628,7 +639,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                     ctx_len = int(agent.session_stats.get("context_length", 0) or 0)
                     if ctx_len >= MAX_CONTEXT_MSGS and ctx_len != last_compacted_at:
                         async with Spinner("Auto-compacting conversation"):
-                            msg = await agent.compact_conversation(session_id, keep_recent=0)
+                            msg = await agent.compact_conversation(
+                                session_id, keep_recent=0, user_id=CLI_CONTEXT.user_id
+                            )
                         print(colorize(f"📋 {msg}", Style.FG_GREEN))
                         # Show the now-clean summary-only conversation
                         await show_history(limit=None)
@@ -669,10 +682,14 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                     ok = interactive_confirm("Delete ALL saved sessions? This cannot be undone.", False)
                     if ok:
                         try:
-                            deleted = await agent.memory.clear_all_sessions()
+                            deleted = await agent.memory.clear_all_sessions(
+                                user_id=CLI_CONTEXT.user_id
+                            )
                             from datetime import datetime
                             new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
-                            await agent.memory.create_session(new_id)
+                            await agent.memory.create_session(
+                                new_id, user_id=CLI_CONTEXT.user_id
+                            )
                             session_id = new_id
                             print(colorize(f"Deleted {deleted} sessions. Started new session: {session_id}", Style.FG_GREEN))
                             await show_history(limit=None)
@@ -683,7 +700,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                     from datetime import datetime
                     new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
                     try:
-                        await agent.memory.create_session(new_id)
+                        await agent.memory.create_session(new_id, user_id=CLI_CONTEXT.user_id)
                         session_id = new_id
                         print(colorize(f"Created new session: {session_id}", Style.FG_GREEN))
                     except Exception as e:
@@ -862,7 +879,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                 async with Spinner("🤔 Thinking — press ESC to interrupt") as spinner:
                     current_spinner = spinner
                     agent.tool_callback = tool_callback
-                    task = asyncio.create_task(agent.run(user_input, session_id))
+                    task = asyncio.create_task(
+                        agent.run(user_input, session_id, context=CLI_CONTEXT)
+                    )
                     esc_task = asyncio.create_task(_listen_for_escape(task))
                     try:
                         response = await task
@@ -1191,9 +1210,9 @@ async def main():
     if args.command == "debug":
         # Build agent to introspect configured middlewares and registered tools
         from importlib.metadata import entry_points
-        from .core.builder import AgentBuilder
 
-        agent = await AgentBuilder().build()
+        debug_ctx = RequestContext(user_id="cli-debug")
+        agent = await CLI_FACTORY.get_agent(debug_ctx)
         print(colorize("🔌 Plugins", Style.BOLD, Style.FG_CYAN))
         policy = PluginPolicy.from_env()
         status = "enabled" if policy.enabled else "disabled"
@@ -1261,6 +1280,7 @@ async def main():
                 label = f"{label} ({vers})"
             print(f"  - {label}")
 
+        await CLI_FACTORY.clear(debug_ctx)
         return 0
 
     if args.command == "run":

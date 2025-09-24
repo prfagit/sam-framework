@@ -688,3 +688,24 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 Built for developers who value technical excellence and production reliability.
 
 </div>
+
+### Secure Storage
+
+SAM encrypts sensitive data (wallet keys, API credentials, wallet configs) using Fernet and the OS keyring by default. The storage layer is now pluggable:
+
+- **Base interface**: `sam.utils.secure_storage.BaseSecretStore` defines the required methods. The built-in `SecureStorage` implementation handles keyring/Fernet encryption with an encrypted file fallback.
+- **Plugins**: Provide your own secret store by exposing an entry point in the `sam.secure_storage` group or by calling `configure_secure_storage(custom_store)`. See `examples/plugins/secure_storage_dummy` for a simple in-memory example.
+- **Key rotation**: `SecureStorage.rotate_encryption_key()` migrates stored secrets to a new Fernet key; custom stores should implement similar behavior when possible.
+
+### Event Schema
+
+Agent and tool events are published via the async event bus. API adapters can import typed payload definitions from `sam/core/event_payloads.py` to ensure compatibility. Available payload types include:
+
+- `AgentStatusPayload`
+- `LLMUsagePayload`
+- `ToolCalledPayload`
+- `ToolResultPayload` / `ToolFailedPayload`
+- `AgentDeltaPayload`
+- `AgentMessagePayload`
+
+Every payload includes both `session_id` and `user_id`, enabling multi-tenant streaming adapters to filter by caller.

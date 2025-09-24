@@ -5,13 +5,47 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Protocol, runtime_checkable
 
 import keyring
 from cryptography.fernet import Fernet
 from importlib.metadata import entry_points
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class BaseSecretStore(Protocol):
+    """Protocol describing the secure storage API used by SAM."""
+
+    current_key_str: Optional[str]
+
+    def store_private_key(self, user_id: str, private_key: str) -> bool:
+        ...
+
+    def get_private_key(self, user_id: str) -> Optional[str]:
+        ...
+
+    def delete_private_key(self, user_id: str) -> bool:
+        ...
+
+    def store_api_key(self, service: str, api_key: str) -> bool:
+        ...
+
+    def get_api_key(self, service: str) -> Optional[str]:
+        ...
+
+    def store_wallet_config(self, user_id: str, config: Dict[str, Any]) -> bool:
+        ...
+
+    def get_wallet_config(self, user_id: str) -> Optional[Dict[str, Any]]:
+        ...
+
+    def test_keyring_access(self) -> Dict[str, bool]:
+        ...
+
+    def rotate_encryption_key(self, new_key: Optional[str] = None) -> Dict[str, Any]:
+        ...
 
 
 class EncryptedFileVault:
@@ -149,7 +183,7 @@ class EncryptedFileVault:
         with self._lock:
             return self._meta.get(key, default)
 
-class SecureStorage:
+class SecureStorage(BaseSecretStore):
     """Secure storage for sensitive data using system keyring and encryption.
 
     Improvements:
@@ -451,7 +485,7 @@ class SecureStorage:
         logger.debug(f"No API key found for service: {service}")
         return None
 
-    def store_wallet_config(self, user_id: str, config: Dict) -> bool:
+    def store_wallet_config(self, user_id: str, config: Dict[str, Any]) -> bool:
         """Store wallet configuration securely."""
         if not self.fernet:
             logger.error("No encryption available for wallet config storage")
@@ -479,7 +513,7 @@ class SecureStorage:
                 f"wallet_config_{user_id}", encrypted_config_str
             )
 
-    def get_wallet_config(self, user_id: str) -> Optional[Dict]:
+    def get_wallet_config(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve and decrypt wallet configuration."""
         if not self.fernet:
             logger.error("No decryption available for wallet config retrieval")
@@ -720,40 +754,65 @@ class SecureStorage:
 
 
 # Global secure storage instance
-_secure_storage: Optional[SecureStorage] = None
+_secure_storage: Optional[BaseSecretStore] = None
 
 
-def get_secure_storage() -> SecureStorage:
-    """Get the global secure storage instance."""
+def configure_secure_storage(store: BaseSecretStore) -> None:
+    """Override the global secure storage provider (primarily for tests/plugins)."""
+
     global _secure_storage
-    # If env key changed since last use, recreate to avoid stale Fernet
+    _secure_storage = store
+
+
+def _load_plugin_storage() -> Optional[BaseSecretStore]:
+    try:
+        eps = entry_points(group="sam.secure_storage")  # type: ignore[arg-type]
+    except Exception as exc:
+        logger.debug("Failed to load secure storage entry points: %s", exc)
+        return None
+
+    for ep in eps:
+        try:
+            factory = ep.load()
+            candidate = factory()
+            if candidate is None:
+                continue
+            if isinstance(candidate, BaseSecretStore):
+                logger.info("Loaded secure storage via plugin: %s", ep.name)
+                return candidate
+            logger.warning(
+                "Secure storage plugin '%s' does not implement BaseSecretStore; ignoring",
+                ep.name,
+            )
+        except Exception as exc:
+            logger.warning("Failed loading secure storage plugin %s: %s", ep.name, exc)
+    return None
+
+
+def get_secure_storage() -> BaseSecretStore:
+    """Get the global secure storage instance."""
+
+    global _secure_storage
     env_key = os.getenv("SAM_FERNET_KEY")
+
     if _secure_storage is None:
-        # Try plugin backend first
-        try:
-            eps = entry_points(group="sam.secure_storage")  # type: ignore[arg-type]
-            for ep in eps:
-                # We only support a single secure storage plugin; pick the first
-                try:
-                    factory = ep.load()
-                    inst = factory()  # expected to return SecureStorage-like object
-                    _secure_storage = inst if inst is not None else SecureStorage()
-                    logger.info(f"Loaded secure storage via plugin: {ep.name}")
-                    break
-                except Exception as e:
-                    logger.warning(f"Failed loading secure storage plugin {ep.name}: {e}")
-            if _secure_storage is None:
-                _secure_storage = SecureStorage()
-        except Exception:
-            _secure_storage = SecureStorage()
+        store = _load_plugin_storage()
+        if store is None:
+            store = SecureStorage()
+        _secure_storage = store
     else:
-        try:
-            if getattr(_secure_storage, "current_key_str", None) != env_key and env_key is not None:
-                logger.info("SAM_FERNET_KEY changed in environment; reinitializing secure storage")
+        current_key = getattr(_secure_storage, "current_key_str", None)
+        if isinstance(_secure_storage, SecureStorage):
+            if current_key != env_key and env_key is not None:
+                logger.info(
+                    "SAM_FERNET_KEY changed in environment; reinitializing secure storage"
+                )
                 _secure_storage = SecureStorage()
-        except Exception:
-            # Best-effort safeguard
-            _secure_storage = SecureStorage()
+        elif env_key is not None and current_key and current_key != env_key:
+            logger.warning(
+                "Active secure storage plugin uses a different encryption key; restart with matching SAM_FERNET_KEY"
+            )
+
     return _secure_storage
 
 

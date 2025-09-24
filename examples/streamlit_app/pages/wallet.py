@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import sys
 from pathlib import Path
 import streamlit as st
@@ -7,7 +9,13 @@ _PAGES_DIR = Path(__file__).resolve().parent
 _APP_DIR = _PAGES_DIR.parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
-from ui_shared import inject_css, ensure_env_loaded, agent_ready_marker, run_sync  # noqa: E402
+from ui_shared import (
+    inject_css,
+    ensure_env_loaded,
+    agent_ready_marker,
+    run_sync,
+    get_local_context,
+)  # noqa: E402
 from sam.web.session import get_agent  # noqa: E402
 
 
@@ -20,7 +28,7 @@ st.title("👛 Wallet")
 st.caption("Current wallet and balances")
 
 try:
-    agent = run_sync(get_agent())
+    agent = run_sync(get_agent(get_local_context()))
 except Exception as e:
     agent = None
     st.error(f"Failed to initialize agent: {e}")

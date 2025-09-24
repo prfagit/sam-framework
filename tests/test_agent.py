@@ -1,7 +1,7 @@
 import pytest
 import tempfile
 import os
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, ANY
 from sam.core.agent import SAMAgent
 from sam.core.tools import ToolRegistry, ToolSpec
 from sam.core.memory import MemoryManager
@@ -86,7 +86,10 @@ class TestSAMAgent:
         assert call_args[1]["content"] == "Hello"
 
         # Verify session was saved
-        mock_memory.save_session.assert_called_once_with(session_id, call_args[1:])
+        mock_memory.load_session.assert_awaited_once_with(session_id, user_id="default")
+        mock_memory.save_session.assert_awaited_once_with(
+            session_id, call_args[1:], user_id="default"
+        )
 
         # Verify stats were updated
         assert agent.session_stats["total_tokens"] == 15
@@ -150,6 +153,9 @@ class TestSAMAgent:
         # Verify LLM was called twice
         assert mock_llm.chat_completion.call_count == 2
 
+        mock_memory.load_session.assert_awaited_once_with(session_id, user_id="default")
+        assert mock_memory.save_session.await_count >= 1
+
         # Verify tool was called
         # (This would need to be verified by checking the messages passed to the second LLM call)
 
@@ -169,7 +175,7 @@ class TestSAMAgent:
         assert "Context cleared" in result
 
         # Verify memory was called
-        mock_memory.clear_session.assert_called_once_with(session_id)
+        mock_memory.clear_session.assert_awaited_once_with(session_id, user_id="default")
 
         # Verify stats were reset
         assert agent.session_stats["total_tokens"] == 0
@@ -212,8 +218,10 @@ class TestSAMAgent:
         assert "compacted" in result.lower() or "summarized" in result.lower()
 
         # Verify memory operations
-        mock_memory.load_session.assert_called_once_with(session_id)
-        mock_memory.save_session.assert_called_once()
+        mock_memory.load_session.assert_awaited_once_with(session_id, user_id="default")
+        mock_memory.save_session.assert_awaited_once_with(
+            session_id, ANY, user_id="default"
+        )
 
         # Verify LLM was called for summary
         mock_llm.chat_completion.assert_called_once()
@@ -238,6 +246,7 @@ class TestSAMAgent:
         assert "compact" in result.lower()
 
         # Should not save anything
+        mock_memory.load_session.assert_awaited_once_with(session_id, user_id="default")
         mock_memory.save_session.assert_not_called()
 
     def test_balance_cache_operations(self, agent):

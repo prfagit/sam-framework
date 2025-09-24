@@ -191,8 +191,10 @@ class TestMemoryManagerWithPooling:
             await manager.initialize()
 
             # Test basic operations
-            await manager.save_session("test_session", [{"role": "user", "content": "test"}])
-            messages = await manager.load_session("test_session")
+            await manager.save_session(
+                "test_session", [{"role": "user", "content": "test"}], user_id="user1"
+            )
+            messages = await manager.load_session("test_session", user_id="user1")
 
             assert len(messages) == 1
             assert messages[0]["content"] == "test"
@@ -213,8 +215,12 @@ class TestMemoryManagerWithPooling:
             initial_stats = await manager.get_session_stats()
 
             # Add some test data
-            await manager.save_session("session1", [{"role": "user", "content": "test1"}])
-            await manager.save_session("session2", [{"role": "user", "content": "test2"}])
+            await manager.save_session(
+                "session1", [{"role": "user", "content": "test1"}], user_id="user1"
+            )
+            await manager.save_session(
+                "session2", [{"role": "user", "content": "test2"}], user_id="user1"
+            )
 
             stats = await manager.get_session_stats()
             expected_sessions = initial_stats.get("sessions", 0) + 2
@@ -238,7 +244,9 @@ class TestIntegrationScenarios:
             # Run concurrent operations
             async def save_session(session_id):
                 await manager.save_session(
-                    f"session_{session_id}", [{"role": "user", "content": f"message_{session_id}"}]
+                    f"session_{session_id}",
+                    [{"role": "user", "content": f"message_{session_id}"}],
+                    user_id="concurrent",
                 )
 
             # Create 10 concurrent sessions

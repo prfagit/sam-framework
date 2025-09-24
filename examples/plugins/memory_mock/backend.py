@@ -23,17 +23,30 @@ class InMemoryMemoryManager(MemoryManager):
     def __init__(self, db_path: str = ":memory:"):
         # Reuse the same API but don't use filesystem
         super().__init__(db_path)
-        self._sessions: Dict[str, List[Dict[str, Any]]] = {}
+        self._sessions: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 
     async def initialize(self):
         # Nothing to initialize, keep API compatibility
         return None
 
-    async def save_session(self, session_id: str, messages: List[Dict]):
-        self._sessions[session_id] = list(messages)
+    @staticmethod
+    def _normalize_user(user_id: str | None) -> str:
+        if user_id and user_id.strip():
+            return user_id.strip()
+        return "default"
 
-    async def load_session(self, session_id: str) -> List[Dict]:
-        return list(self._sessions.get(session_id, []))
+    async def save_session(
+        self, session_id: str, messages: List[Dict], user_id: str | None = None
+    ):
+        uid = self._normalize_user(user_id)
+        store = self._sessions.setdefault(uid, {})
+        store[session_id] = list(messages)
+
+    async def load_session(
+        self, session_id: str, user_id: str | None = None
+    ) -> List[Dict]:
+        uid = self._normalize_user(user_id)
+        return list(self._sessions.get(uid, {}).get(session_id, []))
 
 
 def create_backend(db_path: str) -> InMemoryMemoryManager:
