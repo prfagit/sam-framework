@@ -1,16 +1,20 @@
 """Memory monitoring and management utilities."""
 
 import asyncio
+from asyncio import Task
+import functools
 import logging
 import psutil
 import gc
 import sys
-from typing import Dict, Any, Optional
+from typing import Any, Callable, DefaultDict, Dict, Optional, TypeVar, cast
 from dataclasses import dataclass
 from collections import defaultdict
 import time
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 @dataclass
@@ -43,9 +47,9 @@ class MemoryMonitor:
     def __init__(self, thresholds: Optional[MemoryThresholds] = None):
         self.thresholds = thresholds or MemoryThresholds()
         self._operation_count = 0
-        self._cache_sizes: Dict[str, int] = defaultdict(int)
+        self._cache_sizes: DefaultDict[str, int] = defaultdict(int)
         self._last_gc_time = time.time()
-        self._memory_alerts = defaultdict(int)
+        self._memory_alerts: DefaultDict[str, int] = defaultdict(int)
         logger.info(f"Memory monitor initialized with thresholds: {self.thresholds}")
 
     def get_memory_stats(self) -> MemoryStats:
@@ -88,7 +92,7 @@ class MemoryMonitor:
 
         return alerts
 
-    def register_cache_usage(self, cache_name: str, size_bytes: int):
+    def register_cache_usage(self, cache_name: str, size_bytes: int) -> None:
         """Register cache size for monitoring."""
         self._cache_sizes[cache_name] = size_bytes
 
@@ -116,7 +120,7 @@ class MemoryMonitor:
         alerts = self.check_memory_thresholds()
         return "warning" in alerts or "critical" in alerts
 
-    def run_garbage_collection(self):
+    def run_garbage_collection(self) -> Dict[str, int]:
         """Run garbage collection and log results."""
         before_objects = len(gc.get_objects())
         before_mem = psutil.Process().memory_info().rss
@@ -180,7 +184,7 @@ class MemoryMonitor:
             },
         }
 
-    async def periodic_check(self, interval: int = 60):
+    async def periodic_check(self, interval: int = 60) -> None:
         """Run periodic memory checks and cleanup."""
         while True:
             try:
@@ -219,7 +223,7 @@ def get_memory_monitor(thresholds: Optional[MemoryThresholds] = None) -> MemoryM
 
 async def start_memory_monitoring(
     interval: int = 60, thresholds: Optional[MemoryThresholds] = None
-):
+) -> Task[None]:
     """Start background memory monitoring task."""
     monitor = get_memory_monitor(thresholds)
     task = asyncio.create_task(monitor.periodic_check(interval))
@@ -228,23 +232,21 @@ async def start_memory_monitoring(
 
 
 # Decorator for automatic memory monitoring
-def monitor_memory(cache_name: Optional[str] = None):
+def monitor_memory(cache_name: Optional[str] = None) -> Callable[[F], F]:
     """Decorator to monitor memory usage of functions."""
 
-    def decorator(func):
-        def wrapper(*args, **kwargs):
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             monitor = get_memory_monitor()
 
-            # Check if GC is needed before execution
             if monitor.should_run_gc():
                 monitor.run_garbage_collection()
 
             result = func(*args, **kwargs)
 
-            # Register cache usage if specified
             if cache_name and hasattr(result, "__len__"):
                 try:
-                    # Rough estimate of result size
                     size = sys.getsizeof(result)
                     monitor.register_cache_usage(cache_name, size)
                 except (TypeError, AttributeError):
@@ -252,6 +254,6 @@ def monitor_memory(cache_name: Optional[str] = None):
 
             return result
 
-        return wrapper
+        return cast(F, wrapper)
 
     return decorator

@@ -1,11 +1,15 @@
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple
+
 import aiohttp
 import asyncio
 import json
 import logging
-from ..utils.http_client import get_session
-from ..config.settings import Settings
 from importlib.metadata import entry_points
+
+from ..config.settings import Settings
+from ..utils.http_client import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +20,7 @@ class ChatResponse:
         content: str,
         tool_calls: Optional[List[Dict[str, Any]]] = None,
         usage: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> None:
         self.content = content
         self.tool_calls = tool_calls or []
         self.usage = usage or {}
@@ -25,12 +29,12 @@ class ChatResponse:
 class LLMProvider:
     """Abstract-ish base for LLM providers."""
 
-    def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
+    def __init__(self, api_key: str, model: str, base_url: Optional[str] = None) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
 
-    async def close(self):
+    async def close(self) -> None:
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
 
@@ -326,12 +330,14 @@ class AnthropicProvider(LLMProvider):
             )
         return formatted
 
-    def _convert_messages(self, messages: List[Dict[str, Any]]):
+    def _convert_messages(
+        self, messages: List[Dict[str, Any]]
+    ) -> Tuple[Optional[str], List[Dict[str, Any]]]:
         system_parts: List[str] = []
         anth_messages: List[Dict[str, Any]] = []
 
         # Helper to append a message
-        def add_msg(role: str, blocks: List[Dict[str, Any]]):
+        def add_msg(role: str, blocks: List[Dict[str, Any]]) -> None:
             if blocks:
                 anth_messages.append({"role": role, "content": blocks})
 
@@ -562,7 +568,7 @@ def create_llm_provider() -> LLMProvider:
 
     # Try external provider plugins first (entry points)
     try:
-        eps = entry_points(group="sam.llm_providers")  # type: ignore[arg-type]
+        eps = entry_points(group="sam.llm_providers")
         for ep in eps:
             if ep.name == provider:
                 try:

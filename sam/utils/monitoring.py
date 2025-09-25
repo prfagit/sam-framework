@@ -1,15 +1,18 @@
 """Monitoring and metrics utilities for SAM framework."""
 
 import asyncio
+from asyncio import Task
 import functools
 import logging
 import time
 import psutil
 import os
-from typing import Dict, Any, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TypeVar, cast
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 @dataclass
@@ -42,7 +45,7 @@ class ComponentMetric:
 class MetricsCollector:
     """Collect and track performance metrics."""
 
-    def __init__(self, max_metrics: int = 1000, collection_interval: int = 60):
+    def __init__(self, max_metrics: int = 1000, collection_interval: int = 60) -> None:
         self.max_metrics = max_metrics
         self.collection_interval = collection_interval
 
@@ -57,17 +60,17 @@ class MetricsCollector:
         # Performance tracking
         self.slow_operations: List[ComponentMetric] = []
 
-        self._collection_task: Optional[asyncio.Task] = None
+        self._collection_task: Optional[Task[None]] = None
         self._shutdown = False
 
         logger.info(f"Initialized metrics collector (max_metrics: {max_metrics})")
 
-    def start_collection(self):
+    def start_collection(self) -> None:
         """Start automatic metrics collection."""
         if self._collection_task is None or self._collection_task.done():
             self._collection_task = asyncio.create_task(self._collect_system_metrics())
 
-    async def _collect_system_metrics(self):
+    async def _collect_system_metrics(self) -> None:
         """Collect system metrics periodically."""
         while not self._shutdown:
             try:
@@ -115,7 +118,7 @@ class MetricsCollector:
         duration: float,
         success: bool = True,
         error_type: Optional[str] = None,
-    ):
+    ) -> None:
         """Record an operation metric."""
         metric = ComponentMetric(
             component=component,
@@ -250,7 +253,7 @@ class MetricsCollector:
             for op in recent_slow
         ]
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """Shutdown metrics collection."""
         self._shutdown = True
         if self._collection_task and not self._collection_task.done():
@@ -278,7 +281,7 @@ async def get_metrics_collector() -> MetricsCollector:
     return _global_metrics_collector
 
 
-async def cleanup_metrics_collector():
+async def cleanup_metrics_collector() -> None:
     """Cleanup global metrics collector."""
     global _global_metrics_collector
     if _global_metrics_collector:
@@ -292,11 +295,11 @@ def record_operation_metric(
     duration: float,
     success: bool = True,
     error_type: Optional[str] = None,
-):
+) -> None:
     """Convenience function to record operation metrics."""
     try:
         # Create a task to record the metric asynchronously
-        async def _record():
+        async def _record() -> None:
             collector = await get_metrics_collector()
             collector.record_operation(component, operation, duration, success, error_type)
 
@@ -314,44 +317,46 @@ def record_operation_metric(
 
 
 # Performance monitoring decorator
-def monitor_performance(component: str, operation: str):
+def monitor_performance(component: str, operation: str) -> Callable[[F], F]:
     """Decorator to monitor operation performance."""
 
-    def decorator(func):
+    def decorator(func: F) -> F:
+        if asyncio.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                start_time = time.time()
+                success = True
+                error_type: Optional[str] = None
+
+                try:
+                    return await cast(Callable[..., Awaitable[Any]], func)(*args, **kwargs)
+                except Exception as exc:
+                    success = False
+                    error_type = type(exc).__name__
+                    raise
+                finally:
+                    duration = time.time() - start_time
+                    record_operation_metric(component, operation, duration, success, error_type)
+
+            return cast(F, async_wrapper)
+
         @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             start_time = time.time()
             success = True
-            error_type = None
+            error_type: Optional[str] = None
 
             try:
-                result = await func(*args, **kwargs)
-                return result
-            except Exception as e:
+                return func(*args, **kwargs)
+            except Exception as exc:
                 success = False
-                error_type = type(e).__name__
+                error_type = type(exc).__name__
                 raise
             finally:
                 duration = time.time() - start_time
                 record_operation_metric(component, operation, duration, success, error_type)
 
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            start_time = time.time()
-            success = True
-            error_type = None
-
-            try:
-                result = func(*args, **kwargs)
-                return result
-            except Exception as e:
-                success = False
-                error_type = type(e).__name__
-                raise
-            finally:
-                duration = time.time() - start_time
-                record_operation_metric(component, operation, duration, success, error_type)
-
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+        return cast(F, sync_wrapper)
 
     return decorator

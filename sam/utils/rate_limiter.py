@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 import os
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from collections import OrderedDict
 
@@ -42,7 +42,7 @@ class RateLimiter:
             self.cleanup_interval = int(os.getenv("SAM_RL_CLEANUP_INTERVAL", str(cleanup_interval)))
         except Exception:
             self.cleanup_interval = cleanup_interval
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task[None]] = None
         self._shutdown = False
 
         # Default rate limits per endpoint/tool
@@ -72,7 +72,7 @@ class RateLimiter:
             # No running loop; caller may start later when appropriate
             pass
 
-    def _start_cleanup_task(self):
+    def _start_cleanup_task(self) -> None:
         """Start the cleanup task."""
         # Only start if a running loop exists (tests may construct without loop)
         try:
@@ -82,7 +82,7 @@ class RateLimiter:
         if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._cleanup_old_records())
 
-    async def _evict_lru_keys(self, target_count: int):
+    async def _evict_lru_keys(self, target_count: int) -> None:
         """Evict least recently used keys to make room."""
         evicted = 0
         while len(self.request_history) > target_count and evicted < 1000:  # Prevent infinite loop
@@ -96,14 +96,14 @@ class RateLimiter:
         if evicted > 0:
             logger.debug(f"Evicted {evicted} LRU rate limit keys")
 
-    def _touch_key(self, key: str):
+    def _touch_key(self, key: str) -> None:
         """Mark key as recently used by moving it to end of OrderedDict."""
         if key in self.request_history:
             # Move to end (most recently used)
             records = self.request_history.pop(key)
             self.request_history[key] = records
 
-    async def _cleanup_old_records(self):
+    async def _cleanup_old_records(self) -> None:
         """Optimized periodic cleanup with LRU eviction."""
         while not self._shutdown:
             try:
@@ -221,7 +221,7 @@ class RateLimiter:
                     "retry_after": max(0, retry_after),
                 }
 
-    async def reset_rate_limit(self, key: str, limit_type: str = "default"):
+    async def reset_rate_limit(self, key: str, limit_type: str = "default") -> None:
         """Reset rate limit for a specific key."""
         async with self.lock:
             if key in self.request_history:
@@ -259,7 +259,7 @@ class RateLimiter:
                 "reset_time": reset_time,
             }
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """Shutdown the rate limiter and cleanup resources."""
         self._shutdown = True
         if self._cleanup_task and not self._cleanup_task.done():
@@ -303,7 +303,7 @@ async def get_rate_limiter() -> RateLimiter:
     return _global_rate_limiter
 
 
-async def cleanup_rate_limiter():
+async def cleanup_rate_limiter() -> None:
     """Cleanup global rate limiter."""
     global _global_rate_limiter
     if _global_rate_limiter:
@@ -319,7 +319,7 @@ async def check_rate_limit(
     return await limiter.check_rate_limit(identifier, limit_type)
 
 
-async def rate_limited(identifier: str, limit_type: str = "default"):
+async def rate_limited(identifier: str, limit_type: str = "default") -> bool:
     """Check if an identifier is currently rate limited."""
     allowed, info = await check_rate_limit(identifier, limit_type)
     return not allowed

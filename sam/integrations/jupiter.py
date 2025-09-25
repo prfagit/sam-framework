@@ -1,23 +1,40 @@
-import aiohttp
-import logging
-from typing import Dict, Any, List
+from __future__ import annotations
+
 import base64
+import logging
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Sequence, cast
+
+import aiohttp
+from pydantic import BaseModel, Field, field_validator
 
 from ..core.tools import Tool, ToolSpec
+from ..integrations.smart_trader import SolanaTools
 from ..utils.http_client import get_session
-from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class PriceInfo:
+    price_usd: float
+    symbol: str
+    name: str
+    decimals: int
+
+
+RoutePlan = List[Dict[str, Any]]
+QuoteResponse = Dict[str, Any]
+
+
 class JupiterTools:
-    def __init__(self, solana_tools=None):
+    def __init__(self, solana_tools: Optional[SolanaTools] = None) -> None:
         # Jupiter v6 Quote/Swap API base
         self.base_url = "https://quote-api.jup.ag/v6"
         self.price_url = "https://api.jup.ag/price/v3"
         self.solana_tools = solana_tools
 
-    async def close(self):
+    async def close(self) -> None:
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
 
@@ -36,18 +53,27 @@ class JupiterTools:
 
                 data = await response.json()
 
-                if "data" not in data or token_mint not in data["data"]:
+                price_section = _get_mapping(data, "data")
+                token_data = _get_mapping(price_section or {}, token_mint)
+
+                if not token_data:
                     return {"error": f"No price data found for token {token_mint}"}
 
-                token_data = data["data"][token_mint]
+                price = float(token_data.get("price", 0) or 0)
+                info = PriceInfo(
+                    price_usd=price,
+                    symbol=str(token_data.get("symbol", "Unknown")),
+                    name=str(token_data.get("name", "Unknown")),
+                    decimals=int(token_data.get("decimals", 0) or 0),
+                )
 
-                logger.info(f"Got price for {token_mint}: ${token_data.get('price', 0)}")
+                logger.info(f"Got price for {token_mint}: ${info.price_usd}")
                 return {
                     "token_mint": token_mint,
-                    "price_usd": token_data.get("price", 0),
-                    "symbol": token_data.get("symbol", "Unknown"),
-                    "name": token_data.get("name", "Unknown"),
-                    "decimals": token_data.get("decimals", 0),
+                    "price_usd": info.price_usd,
+                    "symbol": info.symbol,
+                    "name": info.name,
+                    "decimals": info.decimals,
                     "source": "jupiter",
                 }
 
@@ -102,14 +128,17 @@ class JupiterTools:
                 logger.info(
                     f"Got quote: {amount} {input_mint} -> {data.get('outAmount', 0)} {output_mint}"
                 )
+                route_plan = data.get("routePlan", [])
+                plan: RoutePlan = route_plan if isinstance(route_plan, list) else []
+
                 return {
                     "quote": data,
                     "input_mint": input_mint,
                     "output_mint": output_mint,
                     "input_amount": amount,
-                    "output_amount": data.get("outAmount", 0),
-                    "price_impact_pct": data.get("priceImpactPct", 0),
-                    "route_plan": data.get("routePlan", []),
+                    "output_amount": int(data.get("outAmount", 0) or 0),
+                    "price_impact_pct": float(data.get("priceImpactPct", 0) or 0),
+                    "route_plan": plan,
                 }
 
         except aiohttp.ClientError as e:
@@ -120,7 +149,7 @@ class JupiterTools:
             return {"error": str(e)}
 
     async def create_swap_transaction(
-        self, user_public_key: str, quote_response: Dict[str, Any], priority_fee: int = 1000
+        self, user_public_key: str, quote_response: QuoteResponse, priority_fee: int = 1000
     ) -> Dict[str, Any]:
         """Create a swap transaction from a quote."""
         try:
@@ -155,26 +184,22 @@ class JupiterTools:
                 # Safely extract priority fee with proper error handling
                 priority_fee_lamports = 0
                 try:
-                    priority_fee_instructions = data.get("priorityFeeInstructions", {})
-                    if isinstance(priority_fee_instructions, dict):
-                        compute_budget_instructions = priority_fee_instructions.get(
-                            "computeBudgetInstructions", []
-                        )
-                        if (
-                            isinstance(compute_budget_instructions, list)
-                            and compute_budget_instructions
-                        ):
-                            first_instruction = compute_budget_instructions[0]
-                            if isinstance(first_instruction, dict):
-                                instruction_data = first_instruction.get("data", {})
-                                if isinstance(instruction_data, dict):
-                                    micro_lamports = instruction_data.get("microLamports", 0)
-                                    if (
-                                        isinstance(micro_lamports, (int, float))
-                                        and micro_lamports > 0
-                                    ):
-                                        priority_fee_lamports = int(micro_lamports) // 1000
-                except (TypeError, KeyError, ValueError, AttributeError) as e:
+                    priority_fee_instructions = _get_mapping(data, "priorityFeeInstructions")
+                    compute_budget_instructions = _get_sequence(
+                        priority_fee_instructions or {}, "computeBudgetInstructions"
+                    )
+                    first_instruction = (
+                        compute_budget_instructions[0]
+                        if compute_budget_instructions
+                        and isinstance(compute_budget_instructions[0], Mapping)
+                        else None
+                    )
+                    if isinstance(first_instruction, Mapping):
+                        instruction_data = _get_mapping(first_instruction, "data") or {}
+                        micro_lamports = instruction_data.get("microLamports")
+                        if isinstance(micro_lamports, (int, float)) and micro_lamports > 0:
+                            priority_fee_lamports = int(micro_lamports) // 1000
+                except Exception as e:  # pragma: no cover - defensive typing
                     logger.warning(f"Could not extract priority fee: {e}")
                     priority_fee_lamports = 0
 
@@ -196,7 +221,7 @@ class JupiterTools:
         self, input_mint: str, output_mint: str, amount: int, slippage_bps: int = 50
     ) -> Dict[str, Any]:
         """Execute a complete swap from quote to transaction."""
-        if not self.solana_tools or not self.solana_tools.keypair:
+        if not self.solana_tools or not getattr(self.solana_tools, "keypair", None):
             return {
                 "error": "No Solana wallet configured for swaps",
                 "help": "Please set up your Solana wallet using the /wallet command or configure a private key in your environment.",
@@ -215,7 +240,14 @@ class JupiterTools:
                 }
 
             # Create swap transaction
-            user_public_key = str(self.solana_tools.keypair.pubkey())
+            keypair = getattr(self.solana_tools, "keypair", None)
+            if keypair is None:
+                return {
+                    "error": "Solana keypair not available",
+                    "help": "Initialize Solana tools with a loaded keypair before executing swaps.",
+                }
+
+            user_public_key = str(keypair.pubkey())
             logger.info(f"Creating swap transaction for wallet {user_public_key[:8]}...")
             swap_result = await self.create_swap_transaction(user_public_key, quote_result["quote"])
 
@@ -251,7 +283,7 @@ class JupiterTools:
                 from solana.rpc.types import TxOpts
 
                 # Get the properly initialized client
-                client = await self.solana_tools._get_client()
+                client = await getattr(self.solana_tools, "_get_client")()
                 tx_hash = await client.send_transaction(
                     signed_tx, opts=TxOpts(skip_preflight=False, max_retries=3)
                 )
@@ -292,22 +324,23 @@ class JupiterTools:
 
                 data = await response.json()
 
-                if "data" not in data:
+                price_section = _get_mapping(data, "data")
+                if not price_section:
                     return {"error": "No price data received"}
 
-                result = {"prices": {}, "missing": []}
+                result: Dict[str, Any] = {"prices": {}, "missing": []}
 
                 for mint in token_mints:
-                    if mint in data["data"]:
-                        token_data = data["data"][mint]
+                    token_data = _get_mapping(price_section, mint)
+                    if token_data:
                         result["prices"][mint] = {
-                            "price_usd": token_data.get("price", 0),
-                            "symbol": token_data.get("symbol", "Unknown"),
-                            "name": token_data.get("name", "Unknown"),
-                            "decimals": token_data.get("decimals", 0),
+                            "price_usd": float(token_data.get("price", 0) or 0),
+                            "symbol": str(token_data.get("symbol", "Unknown")),
+                            "name": str(token_data.get("name", "Unknown")),
+                            "decimals": int(token_data.get("decimals", 0) or 0),
                         }
                     else:
-                        result["missing"].append(mint)
+                        cast(List[str], result["missing"]).append(mint)
 
                 logger.info(
                     f"Got prices for {len(result['prices'])} tokens, {len(result['missing'])} missing"
@@ -471,3 +504,16 @@ def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
     ]
 
     return tools
+def _get_mapping(container: Mapping[str, Any] | Sequence[Any], key: str) -> Optional[Mapping[str, Any]]:
+    if isinstance(container, Mapping):
+        value = container.get(key)
+        if isinstance(value, Mapping):
+            return value
+    return None
+
+
+def _get_sequence(container: Mapping[str, Any], key: str) -> Sequence[Any]:
+    value = container.get(key)
+    if isinstance(value, Sequence):
+        return value
+    return []

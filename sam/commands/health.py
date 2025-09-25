@@ -1,6 +1,11 @@
 """Health check command for SAM CLI."""
 
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
 from ..config.settings import Settings
+from ..utils.secure_storage import BaseSecretStore, get_secure_storage
 
 
 async def run_health_check() -> int:
@@ -9,20 +14,19 @@ async def run_health_check() -> int:
 
     try:
         from ..utils.error_handling import get_health_checker, get_error_tracker
-        from ..utils.secure_storage import get_secure_storage
         from ..utils.rate_limiter import get_rate_limiter
         from ..core.memory import MemoryManager
 
         health_checker = get_health_checker()
 
-        async def database_health():
+        async def database_health() -> Dict[str, Any]:
             memory = MemoryManager(Settings.SAM_DB_PATH)
             await memory.initialize()
             stats = await memory.get_session_stats()
             return {"status": "ok", "stats": stats}
 
-        async def secure_storage_health():
-            storage = get_secure_storage()
+        async def secure_storage_health() -> Dict[str, Any]:
+            storage: BaseSecretStore = get_secure_storage()
             test_results = storage.test_keyring_access()
             diagnostics = storage.diagnostics()
 
@@ -32,7 +36,7 @@ async def run_health_check() -> int:
             if diagnostics.get("stale_cipher_blobs"):
                 status = "attention"
 
-            details = {
+            details: Dict[str, Any] = {
                 "keyring_available": test_results.get("keyring_available"),
                 "fallback_active": diagnostics.get("fallback_active"),
                 "fallback_keys": diagnostics.get("fallback_keys"),
@@ -43,12 +47,12 @@ async def run_health_check() -> int:
 
             return {"status": status, "details": details}
 
-        async def rate_limiter_health():
+        async def rate_limiter_health() -> Dict[str, Any]:
             limiter = await get_rate_limiter()
             num_keys = len(limiter.request_history)
             return {"status": "healthy", "active_keys": num_keys}
 
-        async def error_tracker_health():
+        async def error_tracker_health() -> Dict[str, Any]:
             tracker = await get_error_tracker()
             stats = await tracker.get_error_stats(24)
             return {"recent_errors": stats.get("total_errors", 0)}
@@ -58,7 +62,7 @@ async def run_health_check() -> int:
         health_checker.register_health_check("rate_limiter", rate_limiter_health, 0)
         health_checker.register_health_check("error_tracker", error_tracker_health, 0)
 
-        results = await health_checker.run_health_checks()
+        results: Dict[str, Optional[Dict[str, Any]]] = await health_checker.run_health_checks()
 
         print("\n🔍 Component Health Status:")
         all_healthy = True

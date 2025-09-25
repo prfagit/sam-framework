@@ -1,30 +1,56 @@
-from typing import Dict, Any, Optional
-import logging
+import asyncio
 import base58
+import logging
+from asyncio import AbstractEventLoop
+from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence
 
+from pydantic import BaseModel, Field, field_validator
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TxOpts
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
-from solders.system_program import transfer, TransferParams
+from solders.system_program import TransferParams, transfer
 
 from ...core.tools import Tool, ToolSpec
-from pydantic import BaseModel, Field, field_validator
-from ...utils.http_client import get_session
 from ...utils.error_messages import handle_error_gracefully
+from ...utils.http_client import get_session
 from ...utils.price_service import get_price_service
 
 logger = logging.getLogger(__name__)
 
 
+def _extract_token_info(account: Any) -> Optional[Mapping[str, Any]]:
+    if not isinstance(account, Mapping):
+        return None
+    account_info = account.get("account")
+    if not isinstance(account_info, Mapping):
+        return None
+    data = account_info.get("data")
+    if isinstance(data, Mapping) and "parsed" in data:
+        parsed = data.get("parsed")
+    elif isinstance(data, Sequence) and len(data) >= 1:
+        parsed = data[0]
+    else:
+        parsed = None
+    if not isinstance(parsed, Mapping):
+        return None
+    info = parsed.get("info")
+    if not isinstance(info, Mapping):
+        return None
+    token_amount = info.get("tokenAmount")
+    if not isinstance(token_amount, Mapping):
+        return None
+    return info
+
+
 class SolanaTools:
-    def __init__(self, rpc_url: str, private_key: Optional[str] = None):
+    def __init__(self, rpc_url: str, private_key: Optional[str] = None) -> None:
         self.rpc_url = rpc_url
         # Lazily create AsyncClient to avoid binding to a closed/other loop
         self.client: Optional[AsyncClient] = None
-        self._loop = None
-        self.keypair = None
-        self.wallet_address = None
+        self._loop: Optional[AbstractEventLoop] = None
+        self.keypair: Optional[Keypair] = None
+        self.wallet_address: Optional[str] = None
 
         if private_key:
             try:
@@ -67,37 +93,31 @@ class SolanaTools:
 
     async def _get_client(self) -> AsyncClient:
         """Get or (re)create AsyncClient bound to current loop."""
-        current_loop = None
         try:
-            import asyncio
-
             current_loop = asyncio.get_running_loop()
-        except Exception:
-            pass
+        except RuntimeError:
+            current_loop = None
 
+        loop_closed = self._loop.is_closed() if isinstance(self._loop, AbstractEventLoop) else False
         need_new = (
             self.client is None
-            or self._loop is None
-            or (getattr(self._loop, "is_closed", lambda: False)())
-            or (
-                self._loop is not None
-                and current_loop is not None
-                and self._loop is not current_loop
-            )
+            or loop_closed
+            or (self._loop is not None and current_loop is not None and self._loop is not current_loop)
         )
+
         if need_new:
-            # Close previous client if needed
-            try:
-                if self.client is not None:
+            if self.client is not None:
+                try:
                     await self.client.close()
-            except Exception:
-                pass
+                except Exception:
+                    pass
             self.client = AsyncClient(self.rpc_url)
             self._loop = current_loop
+
         assert self.client is not None
         return self.client
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the Solana client connection."""
         if self.client:
             try:
@@ -110,10 +130,11 @@ class SolanaTools:
 
     async def get_balance(self, address: Optional[str] = None) -> Dict[str, Any]:
         """Get SOL balance and all SPL token balances for an address or the configured wallet."""
+        target_address = address or self.wallet_address
+        if not target_address:
+            return {"error": "No address provided and no wallet configured"}
+
         try:
-            target_address = address or self.wallet_address
-            if not target_address:
-                return {"error": "No address provided and no wallet configured"}
 
             # Convert address string to Pubkey
             pubkey = Pubkey.from_string(target_address)
@@ -144,7 +165,7 @@ class SolanaTools:
             }
 
             session = await get_session()
-            tokens = []
+            tokens: List[Dict[str, Any]] = []
 
             async with session.post(
                 self.rpc_url, json=payload, headers={"Content-Type": "application/json"}
@@ -155,18 +176,20 @@ class SolanaTools:
 
                     # Parse token balances
                     for account in token_accounts:
-                        info = account["account"]["data"]["parsed"]["info"]
-                        if (
-                            float(info["tokenAmount"]["uiAmount"] or 0) > 0
-                        ):  # Only include tokens with balance
-                            tokens.append(
-                                {
-                                    "mint": info["mint"],
-                                    "amount": int(info["tokenAmount"]["amount"]),
-                                    "uiAmount": float(info["tokenAmount"]["uiAmount"] or 0),
-                                    "decimals": info["tokenAmount"]["decimals"],
-                                }
-                            )
+                        info = _extract_token_info(account)
+                        if info is None:
+                            continue
+                        ui_amount = float(info["tokenAmount"].get("uiAmount") or 0)
+                        if ui_amount <= 0:
+                            continue
+                        tokens.append(
+                            {
+                                "mint": info.get("mint", ""),
+                                "amount": int(info["tokenAmount"].get("amount") or 0),
+                                "uiAmount": ui_amount,
+                                "decimals": int(info["tokenAmount"].get("decimals") or 0),
+                            }
+                        )
 
             # Add USD pricing information
             try:
@@ -304,31 +327,32 @@ class SolanaTools:
                 commitment=Commitment("confirmed"),
             )
 
-            accounts = []
+            accounts: List[Dict[str, Any]] = []
             if response.value:
                 for account_info in response.value:
                     try:
-                        # Use jsonParsed data instead of manual byte parsing
-                        account_data = account_info.account.data
-                        if hasattr(account_data, "parsed"):
-                            parsed_data = account_data.parsed
-                        else:
-                            # Handle raw data case
-                            parsed_data = None
-                        if parsed_data and "info" in parsed_data:
-                            info = parsed_data["info"]
-
-                            accounts.append(
-                                {
-                                    "account": str(account_info.pubkey),
-                                    "mint": info.get("mint", ""),
-                                    "amount": int(info.get("tokenAmount", {}).get("amount", 0)),
-                                    "decimals": int(info.get("tokenAmount", {}).get("decimals", 9)),
-                                    "uiAmount": float(
-                                        info.get("tokenAmount", {}).get("uiAmount", 0)
-                                    ),
-                                }
-                            )
+                        info = None
+                        account_data = getattr(account_info.account, "data", None)
+                        parsed_data = getattr(account_data, "parsed", None) if account_data else None
+                        if isinstance(parsed_data, Mapping):
+                            info = parsed_data.get("info")
+                        if info is None:
+                            info = _extract_token_info(account_info.__dict__)
+                        if not isinstance(info, Mapping):
+                            continue
+                        token_amount = info.get("tokenAmount")
+                        if not isinstance(token_amount, Mapping):
+                            continue
+                        ui_amount = float(token_amount.get("uiAmount") or 0)
+                        accounts.append(
+                            {
+                                "account": str(account_info.pubkey),
+                                "mint": info.get("mint", ""),
+                                "amount": int(token_amount.get("amount") or 0),
+                                "decimals": int(token_amount.get("decimals") or 0),
+                                "uiAmount": ui_amount,
+                            }
+                        )
                     except Exception as parse_error:
                         logger.warning(f"Failed to parse token account: {parse_error}")
                         continue
@@ -410,8 +434,26 @@ class SolanaTools:
             logger.error(f"Failed to get token metadata: {e}")
             return {"error": str(e)}
 
+class SolanaAgentProtocol(Protocol):
+    def get_cached_balance(self) -> Optional[Dict[str, Any]]:
+        ...
 
-def create_solana_tools(solana_tools: SolanaTools, agent=None) -> list[Tool]:
+    def cache_balance_data(self, data: Dict[str, Any]) -> None:
+        ...
+
+    def invalidate_balance_cache(self) -> None:
+        ...
+
+    def get_cached_token_metadata(self, mint: str) -> Optional[Dict[str, Any]]:
+        ...
+
+    def cache_token_metadata(self, mint: str, data: Dict[str, Any]) -> None:
+        ...
+
+
+def create_solana_tools(
+    solana_tools: SolanaTools, agent: Optional[SolanaAgentProtocol] = None
+) -> List[Tool]:
     """Create Solana tool instances."""
 
     # Input models for per-tool validation

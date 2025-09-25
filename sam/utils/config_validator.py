@@ -1,12 +1,38 @@
 """Configuration and environment variable validation."""
 
+from __future__ import annotations
+
 import os
 import logging
-from typing import Dict, Any, List, Optional, Union, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, TypedDict, Union
 
 logger = logging.getLogger(__name__)
+
+
+class VersionInfo(TypedDict):
+    current: str
+    required: str
+    met: bool
+
+
+class PlatformInfo(TypedDict):
+    system: str
+    architecture: str
+    supported: bool
+
+
+class MemoryInfo(TypedDict):
+    available_gb: float
+    recommended_gb: float
+    sufficient: bool
+
+
+class SystemRequirements(TypedDict):
+    python_version: VersionInfo
+    platform: PlatformInfo
+    memory: MemoryInfo
 
 
 @dataclass
@@ -177,7 +203,7 @@ def create_sam_config_validator() -> ConfigValidator:
 
 def validate_file_paths(paths: Dict[str, str]) -> Dict[str, str]:
     """Validate file paths and create directories if needed."""
-    validated_paths = {}
+    validated_paths: Dict[str, str] = {}
 
     for name, path_str in paths.items():
         try:
@@ -200,7 +226,7 @@ def validate_file_paths(paths: Dict[str, str]) -> Dict[str, str]:
 
 def validate_numeric_ranges(values: Dict[str, str]) -> Dict[str, Union[int, float]]:
     """Validate numeric values are within expected ranges."""
-    validated_values = {}
+    validated_values: Dict[str, Union[int, float]] = {}
 
     ranges = {
         "MAX_TRANSACTION_SOL": (0.001, 100.0, float),
@@ -227,23 +253,27 @@ def validate_numeric_ranges(values: Dict[str, str]) -> Dict[str, Union[int, floa
     return validated_values
 
 
-def check_system_requirements() -> Dict[str, Any]:
+def check_system_requirements() -> SystemRequirements:
     """Check system requirements and capabilities."""
     import sys
     import platform
 
-    requirements = {
-        "python_version": {
-            "current": f"{sys.version_info.major}.{sys.version_info.minor}",
-            "required": "3.11",
-            "met": sys.version_info >= (3, 11),
-        },
-        "platform": {
-            "system": platform.system(),
-            "architecture": platform.architecture()[0],
-            "supported": platform.system() in ["Darwin", "Linux", "Windows"],
-        },
-        "memory": {"available_gb": 0, "recommended_gb": 2, "sufficient": False},
+    requirements: SystemRequirements = {
+        "python_version": VersionInfo(
+            current=f"{sys.version_info.major}.{sys.version_info.minor}",
+            required="3.11",
+            met=sys.version_info >= (3, 11),
+        ),
+        "platform": PlatformInfo(
+            system=platform.system(),
+            architecture=platform.architecture()[0],
+            supported=platform.system() in ["Darwin", "Linux", "Windows"],
+        ),
+        "memory": MemoryInfo(
+            available_gb=0.0,
+            recommended_gb=2.0,
+            sufficient=False,
+        ),
     }
 
     # Check available memory
@@ -252,8 +282,9 @@ def check_system_requirements() -> Dict[str, Any]:
 
         memory = psutil.virtual_memory()
         available_gb = memory.available / 1024**3
-        requirements["memory"]["available_gb"] = round(available_gb, 1)
-        requirements["memory"]["sufficient"] = available_gb >= 2.0
+        memory_info = requirements["memory"]
+        memory_info["available_gb"] = round(available_gb, 1)
+        memory_info["sufficient"] = available_gb >= memory_info["recommended_gb"]
     except ImportError:
         logger.warning("psutil not available for memory check")
 

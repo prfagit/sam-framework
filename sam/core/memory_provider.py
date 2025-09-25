@@ -1,14 +1,19 @@
-from typing import Optional
-from importlib.metadata import entry_points
+from __future__ import annotations
+
 import importlib
-import os
 import logging
+import os
+from importlib.metadata import EntryPoint, entry_points
+from typing import Callable, Iterable, Optional, cast
 
 from .memory import MemoryManager
-from ..config.settings import Settings
 from ..config.config_loader import load_config
+from ..config.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+MemoryFactory = Callable[[str], MemoryManager]
 
 
 def _get_backend_name() -> str:
@@ -32,14 +37,30 @@ def _load_from_env(db_path: str) -> Optional[MemoryManager]:
         else:
             mod_name, func_name = spec, "create_backend"
         mod = importlib.import_module(mod_name)
-        factory = getattr(mod, func_name, None)
-        if callable(factory):
+        factory_obj = getattr(mod, func_name, None)
+        if callable(factory_obj):
+            factory = cast(MemoryFactory, factory_obj)
             mm = factory(db_path)
-            return mm
+            if isinstance(mm, MemoryManager):
+                return mm
+            logger.warning(
+                "SAM_MEMORY_BACKEND expected MemoryManager, got %s", type(mm).__name__
+            )
         logger.warning(f"SAM_MEMORY_BACKEND callable not found: {spec}")
     except Exception as e:
         logger.warning(f"Failed to load SAM_MEMORY_BACKEND {spec}: {e}")
     return None
+
+
+def _iter_memory_backends() -> Iterable[EntryPoint]:
+    eps = entry_points()
+    select = getattr(eps, "select", None)
+    if callable(select):
+        return cast(Iterable[EntryPoint], select(group="sam.memory_backends"))
+    group = getattr(eps, "get", None)
+    if callable(group):
+        return cast(Iterable[EntryPoint], group("sam.memory_backends", []))
+    return ()
 
 
 def create_memory_manager(db_path: Optional[str] = None) -> MemoryManager:
@@ -58,23 +79,24 @@ def create_memory_manager(db_path: Optional[str] = None) -> MemoryManager:
         return env_mm
 
     # Attempt plugin backend via entry points
-    try:
-        eps = entry_points(group="sam.memory_backends")  # type: ignore[arg-type]
-        for ep in eps:
-            if ep.name == name:
-                try:
-                    factory = ep.load()
-                    mm = factory(dbp)
-                    if isinstance(mm, MemoryManager):
-                        logger.info(f"Loaded memory backend via plugin: {name}")
-                    else:
-                        logger.info(f"Loaded custom memory backend: {name}")
-                    return mm
-                except Exception as e:
-                    logger.warning(f"Failed to load memory backend '{name}': {e}")
-                    break
-    except Exception:
-        pass
+    for ep in _iter_memory_backends():
+        if ep.name != name:
+            continue
+        try:
+            factory_obj = ep.load()
+            if not callable(factory_obj):
+                logger.warning("Memory backend '%s' entry_point is not callable", name)
+                break
+            factory = cast(MemoryFactory, factory_obj)
+            memory_manager = factory(dbp)
+            if isinstance(memory_manager, MemoryManager):
+                logger.info(f"Loaded memory backend via plugin: {name}")
+            else:
+                logger.info(f"Loaded custom memory backend: {name}")
+            return memory_manager
+        except Exception as exc:
+            logger.warning(f"Failed to load memory backend '{name}': {exc}")
+            break
 
     # Fallback to built-in SQLite manager
     return MemoryManager(dbp)

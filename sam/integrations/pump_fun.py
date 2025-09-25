@@ -1,28 +1,45 @@
-import aiohttp
+from __future__ import annotations
+
 import logging
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Mapping, Optional, Protocol
+
+import aiohttp
+from pydantic import BaseModel, Field, field_validator
 
 from ..core.tools import Tool, ToolSpec
-from pydantic import BaseModel, Field, field_validator
-from ..utils.http_client import get_session
 from ..utils.error_messages import handle_error_gracefully
+from ..utils.http_client import get_session
 from ..utils.transaction_validator import validate_pump_buy, validate_pump_sell
 
 logger = logging.getLogger(__name__)
 
 
+class SolanaClientProtocol(Protocol):
+    wallet_address: Optional[str]
+    keypair: Any
+
+    async def get_balance(self) -> Mapping[str, Any]:
+        ...
+
+    async def get_token_accounts(self, wallet: str) -> Mapping[str, Any]:
+        ...
+
+    async def _get_client(self) -> Any:
+        ...
+
+
 class PumpFunTools:
-    def __init__(self, solana_tools=None):
+    def __init__(self, solana_tools: Optional[SolanaClientProtocol] = None) -> None:
         self.base_url = "https://pumpportal.fun/api"
         self.solana_tools = solana_tools  # For transaction signing and sending
 
-    async def close(self):
+    async def close(self) -> None:
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
 
     async def _sign_and_send_transaction(self, transaction_hex: str, action: str) -> Dict[str, Any]:
         """Sign and send a pump.fun transaction with fresh blockhash."""
-        if not self.solana_tools or not self.solana_tools.keypair:
+        if not self.solana_tools or not getattr(self.solana_tools, "keypair", None):
             return {"error": "No wallet configured for signing transactions"}
 
         try:
@@ -45,7 +62,7 @@ class PumpFunTools:
 
             # Try sending with skip preflight first for better success rate on pump.fun
             try:
-                client = await self.solana_tools._get_client()
+                client = await getattr(self.solana_tools, "_get_client")()
                 result = await client.send_transaction(
                     signed_tx, opts=TxOpts(skip_preflight=True, max_retries=2)
                 )
@@ -61,7 +78,7 @@ class PumpFunTools:
                         f"Preflight skip failed, retrying with preflight: {first_attempt_error}"
                     )
                     # If that fails, try with preflight enabled
-                    client = await self.solana_tools._get_client()
+                    client = await getattr(self.solana_tools, "_get_client")()
                     result = await client.send_transaction(
                         signed_tx, opts=TxOpts(skip_preflight=False, max_retries=1)
                     )
@@ -93,12 +110,14 @@ class PumpFunTools:
                     return {"error": f"API error {response.status}: {error_text}"}
 
                 data = await response.json()
+                trades = data.get("trades")
+                trade_list: List[Dict[str, Any]] = trades if isinstance(trades, list) else []
 
-                logger.info(f"Retrieved {len(data.get('trades', []))} trades for {mint}")
+                logger.info(f"Retrieved {len(trade_list)} trades for {mint}")
                 return {
                     "mint": mint,
-                    "trades": data.get("trades", []),
-                    "total_trades": len(data.get("trades", [])),
+                    "trades": trade_list,
+                    "total_trades": len(trade_list),
                 }
 
         except aiohttp.ClientError as e:
@@ -307,7 +326,9 @@ class PumpFunTools:
             return {"error": str(e)}
 
 
-def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent=None) -> List[Tool]:
+def create_pump_fun_tools(
+    pump_fun_tools: PumpFunTools, agent: Optional[Any] = None
+) -> List[Tool]:
     """Create Pump.fun tool instances."""
 
     class PumpBuyInput(BaseModel):

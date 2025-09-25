@@ -3,10 +3,10 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from sam.commands.health import run_health_check
 
 
-@pytest.mark.asyncio
 class TestHealthCheck:
     """Test health check command functionality."""
 
+    @pytest.mark.asyncio
     @patch("sam.utils.error_handling.get_error_tracker")
     @patch("sam.utils.rate_limiter.get_rate_limiter")
     @patch("sam.utils.secure_storage.get_secure_storage")
@@ -58,6 +58,7 @@ class TestHealthCheck:
             mock_health_checker.register_health_check.assert_called()
             mock_health_checker.run_health_checks.assert_called_once()
 
+    @pytest.mark.asyncio
     @patch("sam.utils.error_handling.get_error_tracker")
     @patch("sam.utils.rate_limiter.get_rate_limiter")
     @patch("sam.utils.secure_storage.get_secure_storage")
@@ -104,6 +105,7 @@ class TestHealthCheck:
 
             assert result == 1  # Issues detected
 
+    @pytest.mark.asyncio
     @patch("sam.utils.error_handling.get_error_tracker")
     @patch("sam.utils.rate_limiter.get_rate_limiter")
     @patch("sam.utils.secure_storage.get_secure_storage")
@@ -157,6 +159,7 @@ class TestHealthCheck:
 
             assert result == 1  # Errors detected
 
+    @pytest.mark.asyncio
     @patch("sam.utils.error_handling.get_error_tracker")
     @patch("sam.utils.rate_limiter.get_rate_limiter")
     @patch("sam.utils.secure_storage.get_secure_storage")

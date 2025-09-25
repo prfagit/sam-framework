@@ -1,7 +1,7 @@
 import logging
 import json
 import time
-from typing import Optional, Callable, List, Dict, Any
+from typing import Any, Callable, Dict, List, Optional
 from .tools import ToolRegistry
 from .middleware import ToolContext
 from .llm_provider import LLMProvider
@@ -32,7 +32,7 @@ class SAMAgent:
         self.memory = memory
         self.system_prompt = system_prompt
         self.events = event_bus or get_event_bus()
-        self.tool_callback: Optional[Callable] = None  # For CLI tool usage feedback
+        self.tool_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
 
         # Usage tracking
         self.session_stats = {
@@ -81,7 +81,7 @@ class SAMAgent:
         history = await self.memory.load_session(session_id, user_id=user_id)
 
         # Build message chain with system prompt
-        messages = (
+        messages: List[Dict[str, Any]] = (
             [{"role": "system", "content": self.system_prompt}]
             + history
             + [{"role": "user", "content": user_input}]
@@ -167,13 +167,12 @@ class SAMAgent:
                     logger.debug(f"LLM requested {len(resp.tool_calls)} tool calls")
 
                     # Add assistant message with tool calls
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": resp.content or "",
-                            "tool_calls": resp.tool_calls,
-                        }
-                    )
+                    assistant_message: Dict[str, Any] = {
+                        "role": "assistant",
+                        "content": resp.content or "",
+                    }
+                    assistant_message["tool_calls"] = resp.tool_calls
+                    messages.append(assistant_message)
 
                     # Execute each tool call
                     for call in resp.tool_calls:

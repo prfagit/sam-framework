@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional, Protocol
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -11,11 +11,46 @@ logger = logging.getLogger(__name__)
 WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 
+class PumpTools(Protocol):
+    async def create_buy_transaction(
+        self, wallet: str, mint: str, amount_sol: float, slippage_percent: int
+    ) -> Dict[str, Any]:
+        ...
+
+    async def create_sell_transaction(
+        self, wallet: str, mint: str, percentage: int, slippage_percent: int
+    ) -> Dict[str, Any]:
+        ...
+
+
+class JupiterTools(Protocol):
+    async def execute_swap(
+        self, input_mint: str, output_mint: str, amount: int, slippage_bps: int
+    ) -> Dict[str, Any]:
+        ...
+
+
+class SolanaTools(Protocol):
+    wallet_address: Optional[str]
+    keypair: Any
+
+    async def get_token_accounts(self, wallet: str) -> Dict[str, Any]:
+        ...
+
+    async def _get_client(self) -> Any:
+        ...
+
+
 class SmartTrader:
-    def __init__(self, pump_tools=None, jupiter_tools=None, solana_tools=None):
-        self.pump = pump_tools
-        self.jupiter = jupiter_tools
-        self.solana = solana_tools
+    def __init__(
+        self,
+        pump_tools: Optional[PumpTools] = None,
+        jupiter_tools: Optional[JupiterTools] = None,
+        solana_tools: Optional[SolanaTools] = None,
+    ) -> None:
+        self.pump: Optional[PumpTools] = pump_tools
+        self.jupiter: Optional[JupiterTools] = jupiter_tools
+        self.solana: Optional[SolanaTools] = solana_tools
 
     async def smart_buy(
         self, mint: str, amount_sol: float, slippage_percent: int = 5
@@ -24,7 +59,11 @@ class SmartTrader:
         if not self.solana or not getattr(self.solana, "wallet_address", None):
             return {"error": "No wallet configured for trading"}
 
-        wallet = self.solana.wallet_address
+        wallet_address = self.solana.wallet_address
+        if wallet_address is None:
+            return {"error": "No wallet configured for trading"}
+
+        wallet = wallet_address
 
         # 1) Try pump.fun
         if self.pump is not None:
@@ -69,7 +108,11 @@ class SmartTrader:
         if not self.solana or not getattr(self.solana, "wallet_address", None):
             return {"error": "No wallet configured for trading"}
 
-        wallet = self.solana.wallet_address
+        wallet_address = self.solana.wallet_address
+        if wallet_address is None:
+            return {"error": "No wallet configured for trading"}
+
+        wallet = wallet_address
 
         # Determine token balance (in smallest units) to sell via Jupiter fallback
         sell_amount_smallest = 0

@@ -1,8 +1,11 @@
 """Pre-transaction validation to prevent errors and provide warnings."""
 
+from __future__ import annotations
+
 import logging
-from typing import Optional, List
 from dataclasses import dataclass
+from typing import Optional
+
 from .price_service import get_price_service
 
 logger = logging.getLogger(__name__)
@@ -13,16 +16,16 @@ class ValidationResult:
     """Result of transaction validation."""
 
     is_valid: bool
-    warnings: List[str]
-    errors: List[str]
-    suggestions: List[str]
+    warnings: list[str]
+    errors: list[str]
+    suggestions: list[str]
     estimated_cost: Optional[float] = None  # In SOL
 
 
 class TransactionValidator:
     """Validates transactions before execution to prevent common errors."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.min_sol_for_fees = 0.01  # Minimum SOL to keep for fees
         self.large_trade_threshold = 10.0  # SOL amount that triggers warning
         self.high_slippage_threshold = 10  # Slippage % that triggers warning
@@ -31,9 +34,9 @@ class TransactionValidator:
         self, wallet_balance: float, transaction_amount: float, operation_type: str = "transaction"
     ) -> ValidationResult:
         """Check if wallet has sufficient balance for transaction + fees."""
-        warnings: List[str] = []
-        errors = []
-        suggestions = []
+        warnings: list[str] = []
+        errors: list[str] = []
+        suggestions: list[str] = []
 
         # Estimate transaction fees (rough estimate)
         estimated_fees = 0.005  # Conservative estimate for Solana transactions
@@ -85,9 +88,9 @@ class TransactionValidator:
         self, slippage: int, token_type: str = "token"
     ) -> ValidationResult:
         """Validate slippage settings and provide warnings."""
-        warnings: List[str] = []
-        errors = []
-        suggestions = []
+        warnings: list[str] = []
+        errors: list[str] = []
+        suggestions: list[str] = []
 
         # Error for invalid slippage
         if slippage < 1 or slippage > 50:
@@ -123,9 +126,9 @@ class TransactionValidator:
 
     async def validate_token_address(self, mint_address: str) -> ValidationResult:
         """Basic validation of token mint address."""
-        warnings: List[str] = []
-        errors = []
-        suggestions = []
+        warnings: list[str] = []
+        errors: list[str] = []
+        suggestions: list[str] = []
 
         # Basic format check
         if not mint_address or len(mint_address) < 32 or len(mint_address) > 44:
@@ -150,9 +153,9 @@ class TransactionValidator:
         self, wallet_balance: float, amount: float, slippage: int, mint_address: str
     ) -> ValidationResult:
         """Comprehensive validation for pump.fun buy operations."""
-        all_warnings: List[str] = []
-        all_errors = []
-        all_suggestions = []
+        all_warnings: list[str] = []
+        all_errors: list[str] = []
+        all_suggestions: list[str] = []
 
         # Validate balance
         balance_result = await self.validate_balance_sufficient(
@@ -219,9 +222,9 @@ class TransactionValidator:
         self, percentage: int, slippage: int, mint_address: str
     ) -> ValidationResult:
         """Comprehensive validation for pump.fun sell operations."""
-        all_warnings: List[str] = []
-        all_errors = []
-        all_suggestions = []
+        all_warnings: list[str] = []
+        all_errors: list[str] = []
+        all_suggestions: list[str] = []
 
         # Validate percentage
         if percentage < 1 or percentage > 100:
@@ -279,9 +282,9 @@ class TransactionValidator:
         self, wallet_balance: float, amount: float, to_address: str
     ) -> ValidationResult:
         """Validate SOL transfer operations."""
-        all_warnings: List[str] = []
-        all_errors = []
-        all_suggestions = []
+        all_warnings: list[str] = []
+        all_errors: list[str] = []
+        all_suggestions: list[str] = []
 
         # Validate balance
         balance_result = await self.validate_balance_sufficient(

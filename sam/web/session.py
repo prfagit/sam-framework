@@ -72,12 +72,17 @@ async def close_agent(context: Optional[RequestContext] = None) -> None:
             _agent_singleton = None
 
 
-async def list_sessions(limit: int = 20, context: Optional[RequestContext] = None):
+async def list_sessions(
+    limit: int = 20, context: Optional[RequestContext] = None
+) -> list[dict[str, Any]]:
     """List recent sessions via the agent's memory manager."""
     agent = await get_agent(context)
     try:
         user_id = _context_user_id(context)
-        return await agent.memory.list_sessions(limit=limit, user_id=user_id)
+        sessions: list[dict[str, Any]] = await agent.memory.list_sessions(
+            limit=limit, user_id=user_id
+        )
+        return sessions
     except Exception:
         return []
 
@@ -87,8 +92,9 @@ async def get_default_session_id(context: Optional[RequestContext] = None) -> st
     agent = await get_agent(context)
     user_id = _context_user_id(context)
     latest = await agent.memory.get_latest_session(user_id=user_id)
-    if latest:
-        return latest.get("session_id", "default")
+    if isinstance(latest, dict):
+        session_val = latest.get("session_id", "default")
+        return session_val if isinstance(session_val, str) else "default"
     from datetime import datetime
     new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
     await agent.memory.create_session(new_id, user_id=user_id)
@@ -165,7 +171,7 @@ async def run_with_events(
     ):
         bus.subscribe(evt, handler)
 
-    async def _runner():
+    async def _runner() -> None:
         nonlocal run_exc
         try:
             agent = await get_agent(context)

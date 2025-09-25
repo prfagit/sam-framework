@@ -1,20 +1,39 @@
 """Database connection pooling for improved performance and resource management."""
 
+from __future__ import annotations
+
 import asyncio
-import aiosqlite
 import logging
 import os
 import time
-from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
+from typing import AsyncIterator, Optional, TypedDict
+
+import aiosqlite
+
 
 logger = logging.getLogger(__name__)
+
+
+class ConnectionInfo(TypedDict):
+    connection: aiosqlite.Connection
+    created_at: float
+    last_used: float
+    usage_count: int
+
+
+class PoolStats(TypedDict):
+    pool_size: int
+    max_pool_size: int
+    total_created: int
+    closed: bool
+    db_path: str
 
 
 class DatabasePool:
     """Connection pool for SQLite database operations."""
 
-    def __init__(self, db_path: str, pool_size: int = 5, max_lifetime: int = 3600):
+    def __init__(self, db_path: str, pool_size: int = 5, max_lifetime: int = 3600) -> None:
         """
         Initialize database connection pool.
 
@@ -26,7 +45,7 @@ class DatabasePool:
         self.db_path = db_path
         self.pool_size = pool_size
         self.max_lifetime = max_lifetime
-        self._pool: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=pool_size)
+        self._pool: asyncio.Queue[ConnectionInfo] = asyncio.Queue(maxsize=pool_size)
         self._created_connections = 0
         self._lock = asyncio.Lock()
         self._closed = False
@@ -41,7 +60,7 @@ class DatabasePool:
 
         logger.info(f"Initialized database pool: {db_path} (max_size: {pool_size})")
 
-    async def _create_connection(self) -> Dict[str, Any]:
+    async def _create_connection(self) -> ConnectionInfo:
         """Create a new database connection with metadata."""
         max_retries = 3
         retry_delay = 0.1
@@ -79,7 +98,7 @@ class DatabasePool:
                     raise
                 await asyncio.sleep(retry_delay * (2**attempt))
 
-        connection_info = {
+        connection_info: ConnectionInfo = {
             "connection": conn,
             "created_at": time.time(),
             "last_used": time.time(),
@@ -91,7 +110,7 @@ class DatabasePool:
 
         return connection_info
 
-    async def _is_connection_valid(self, conn_info: Dict[str, Any]) -> bool:
+    async def _is_connection_valid(self, conn_info: ConnectionInfo) -> bool:
         """Check if a connection is still valid and not expired."""
         if self._closed:
             return False
@@ -120,12 +139,12 @@ class DatabasePool:
             return False
 
     @asynccontextmanager
-    async def get_connection(self):
+    async def get_connection(self) -> AsyncIterator[aiosqlite.Connection]:
         """Get a connection from the pool using context manager."""
         if self._closed:
             raise RuntimeError("Database pool is closed")
 
-        conn_info = None
+        conn_info: Optional[ConnectionInfo] = None
         try:
             # Try to get connection from pool
             try:
@@ -167,7 +186,7 @@ class DatabasePool:
                     if conn_info:
                         await self._close_connection(conn_info)
 
-    async def _close_connection(self, conn_info: Dict[str, Any]):
+    async def _close_connection(self, conn_info: ConnectionInfo) -> None:
         """Close a single connection."""
         try:
             conn = conn_info.get("connection")
@@ -180,7 +199,7 @@ class DatabasePool:
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
 
-    async def close(self):
+    async def close(self) -> None:
         """Close all connections in the pool."""
         self._closed = True
         self._loop = None
@@ -198,7 +217,7 @@ class DatabasePool:
 
         logger.info(f"Closed database pool: {closed_count} connections")
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> PoolStats:
         """Get pool statistics."""
         return {
             "pool_size": self._pool.qsize(),
@@ -246,10 +265,11 @@ async def get_database_pool(db_path: str, pool_size: int = 5) -> DatabasePool:
                 pass
         _global_pool = DatabasePool(db_path, pool_size)
 
+    assert _global_pool is not None
     return _global_pool
 
 
-async def cleanup_database_pool():
+async def cleanup_database_pool() -> None:
     """Cleanup global database pool."""
     global _global_pool
     if _global_pool:
@@ -258,7 +278,7 @@ async def cleanup_database_pool():
 
 
 @asynccontextmanager
-async def get_db_connection(db_path: str):
+async def get_db_connection(db_path: str) -> AsyncIterator[aiosqlite.Connection]:
     """Get database connection from global pool."""
     pool = await get_database_pool(db_path)
     async with pool.get_connection() as conn:

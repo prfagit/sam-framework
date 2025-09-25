@@ -95,21 +95,6 @@ class PluginPolicy:
 
         return module_rules, entry_point_rules
 
-    def to_document(self) -> Dict[str, Any]:
-        modules = {
-            name: {"module": rule.module, **({"sha256": rule.sha256} if rule.sha256 else {}), **({"label": rule.label} if rule.label else {})}
-            for name, rule in self._module_rules.items()
-        }
-        entry_points = {
-            name: {
-                "module": rule.module,
-                **({"sha256": rule.sha256} if rule.sha256 else {}),
-                **({"label": rule.label} if rule.label else {}),
-            }
-            for name, rule in self._entry_point_rules.items()
-        }
-        return {"modules": modules, "entry_points": entry_points}
-
     def resolve_metadata(self, module_name: str) -> ModuleMetadata:
         """Inspect module without importing it and compute metadata."""
         try:

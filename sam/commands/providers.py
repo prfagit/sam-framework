@@ -1,17 +1,24 @@
 """Provider subcommands for SAM CLI."""
 
-from typing import Optional
-
+from typing import Dict, List, Optional, TypedDict
 
 from ..config.settings import Settings
 from ..utils.cli_helpers import CLIFormatter
 from ..utils.env_files import find_env_path, write_env_file
-from ..core.llm_provider import create_llm_provider
+from ..core.llm_provider import LLMProvider, create_llm_provider
+
+
+class ProviderInfo(TypedDict):
+    """Metadata describing an LLM provider for CLI display."""
+
+    name: str
+    models: List[str]
+    description: str
 
 
 def list_providers() -> None:
     """List available LLM providers."""
-    providers = {
+    providers: Dict[str, ProviderInfo] = {
         "openai": {
             "name": "OpenAI",
             "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
@@ -136,38 +143,39 @@ def switch_provider(provider_name: str) -> int:
 
 async def test_provider(provider_name: Optional[str] = None) -> int:
     """Test connection to LLM provider."""
-    if not provider_name:
-        provider_name = Settings.LLM_PROVIDER
+    target_provider = provider_name or Settings.LLM_PROVIDER
+    print(f"🧪 Testing {target_provider} provider...")
 
-    print(f"🧪 Testing {provider_name} provider...")
+    original_provider = Settings.LLM_PROVIDER
+    llm: Optional[LLMProvider] = None
 
     try:
-        original_provider = Settings.LLM_PROVIDER
-        Settings.LLM_PROVIDER = provider_name
+        Settings.LLM_PROVIDER = target_provider
 
         llm = create_llm_provider()
-        test_messages = [{"role": "user", "content": "Say 'Hello from SAM!' and nothing else."}]
+        test_messages = [
+            {"role": "user", "content": "Say 'Hello from SAM!' and nothing else."}
+        ]
 
         response = await llm.chat_completion(test_messages)
 
-        Settings.LLM_PROVIDER = original_provider
-
-        if response and response.content:
-            print(f"✅ {provider_name} test successful!")
+        if response.content:
+            print(f"✅ {target_provider} test successful!")
             print(f"   Response: {response.content.strip()}")
             if response.usage:
                 tokens = response.usage.get("total_tokens", 0)
                 if tokens > 0:
                     print(f"   Tokens used: {tokens}")
             return 0
-        else:
-            print(f"❌ {provider_name} test failed: Empty response")
-            return 1
 
-    except Exception as e:
-        Settings.LLM_PROVIDER = original_provider  # type: ignore[name-defined]
-        print(f"❌ {provider_name} test failed: {e}")
+        print(f"❌ {target_provider} test failed: Empty response")
         return 1
+
+    except Exception as exc:  # pragma: no cover - network/runtime errors
+        print(f"❌ {target_provider} test failed: {exc}")
+        return 1
+
     finally:
-        if "llm" in locals():
+        Settings.LLM_PROVIDER = original_provider
+        if llm is not None:
             await llm.close()

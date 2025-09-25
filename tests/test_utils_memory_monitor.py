@@ -474,6 +474,9 @@ class TestGlobalMemoryMonitor:
             assert task is mock_task
             mock_create_task.assert_called_once()
             mock_periodic_check.assert_called_once_with(30)
+            coroutine = mock_create_task.call_args[0][0]
+            assert asyncio.iscoroutine(coroutine)
+            await coroutine
             assert mock_logger.info.call_count >= 1  # At least the start message
 
     def test_monitor_memory_decorator(self):

@@ -1,47 +1,22 @@
-from pydantic import BaseModel
-import json
+from __future__ import annotations
+
 import asyncio
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Any
+import json
 import logging
 import os
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, cast
+
 from ..utils.connection_pool import get_db_connection
 
 logger = logging.getLogger(__name__)
 
 
-class SessionMemory(BaseModel):
-    user_id: str = "default"
-    session_id: str
-    messages: List[Dict]
-    created_at: datetime
-    updated_at: datetime
-
-
-class UserPreference(BaseModel):
-    user_id: str
-    key: str
-    value: str
-    created_at: datetime
-
-
-class TradeHistory(BaseModel):
-    user_id: str
-    token_address: str
-    action: str  # buy/sell
-    amount: float
-    timestamp: datetime
-
-
-class SecureData(BaseModel):
-    user_id: str
-    encrypted_private_key: str
-    wallet_address: str
-    created_at: datetime
+Message = Dict[str, Any]
 
 
 class MemoryManager:
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str) -> None:
         self.db_path = db_path
 
         # Ensure directory exists (handle case where db_path has no directory)
@@ -58,12 +33,12 @@ class MemoryManager:
             return user_id.strip()
         return "default"
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize database tables. Must be called after creating the manager."""
         await self._init_database()
         logger.info(f"Database tables initialized: {self.db_path}")
 
-    async def _init_database(self):
+    async def _init_database(self) -> None:
         """Initialize database tables using connection pool."""
         max_retries = 3
         retry_delay = 0.5
@@ -146,8 +121,8 @@ class MemoryManager:
                 await asyncio.sleep(retry_delay * (2**attempt))
 
     async def save_session(
-        self, session_id: str, messages: List[Dict], user_id: Optional[str] = None
-    ):
+        self, session_id: str, messages: List[Message], user_id: Optional[str] = None
+    ) -> None:
         """Save session messages to database."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
@@ -173,7 +148,9 @@ class MemoryManager:
                 f"Saved session {session_id} for user {uid} with {len(messages)} messages"
             )
 
-    async def load_session(self, session_id: str, user_id: Optional[str] = None) -> List[Dict]:
+    async def load_session(
+        self, session_id: str, user_id: Optional[str] = None
+    ) -> List[Message]:
         """Load session messages from database."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
@@ -184,7 +161,7 @@ class MemoryManager:
             result = await cursor.fetchone()
 
             if result:
-                messages = json.loads(result[0])
+                messages = cast(List[Message], json.loads(result[0]))
             else:
                 messages = []
 
@@ -193,7 +170,7 @@ class MemoryManager:
         )
         return messages
 
-    async def save_user_preference(self, user_id: str, key: str, value: str):
+    async def save_user_preference(self, user_id: str, key: str, value: str) -> None:
         """Save user preference."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
@@ -231,7 +208,7 @@ class MemoryManager:
 
     async def save_trade_history(
         self, user_id: str, token_address: str, action: str, amount: float
-    ):
+    ) -> None:
         """Save trade to history."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
@@ -249,7 +226,7 @@ class MemoryManager:
 
         logger.info(f"Saved trade: {action} {amount} of {token_address} for user {uid}")
 
-    async def get_trade_history(self, user_id: str, limit: int = 10) -> List[Dict]:
+    async def get_trade_history(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent trades for user."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
@@ -282,7 +259,7 @@ class MemoryManager:
 
     async def store_secure_data(
         self, user_id: str, encrypted_private_key: str, wallet_address: str
-    ):
+    ) -> None:
         """Store encrypted private key and wallet address."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
@@ -327,7 +304,7 @@ class MemoryManager:
 
     async def cleanup_old_sessions(
         self, days_old: int = 30, user_id: Optional[str] = None
-    ):
+    ) -> int:
         """Clean up sessions older than specified days."""
         uid = self._normalize_user_id(user_id) if user_id is not None else None
         async with get_db_connection(self.db_path) as conn:
@@ -345,7 +322,7 @@ class MemoryManager:
                     (cutoff_str, uid),
                 )
 
-            deleted_count = cursor.rowcount
+            deleted_count = cursor.rowcount or 0
             await conn.commit()
 
         logger.info(
@@ -356,7 +333,7 @@ class MemoryManager:
 
     async def cleanup_old_trades(
         self, days_old: int = 90, user_id: Optional[str] = None
-    ):
+    ) -> int:
         """Clean up old trade history."""
         uid = self._normalize_user_id(user_id) if user_id is not None else None
         async with get_db_connection(self.db_path) as conn:
@@ -373,7 +350,7 @@ class MemoryManager:
                     (cutoff_str, uid),
                 )
 
-            deleted_count = cursor.rowcount
+            deleted_count = cursor.rowcount or 0
             await conn.commit()
 
         logger.info(
@@ -382,7 +359,7 @@ class MemoryManager:
         )
         return deleted_count
 
-    async def vacuum_database(self):
+    async def vacuum_database(self) -> bool:
         """Vacuum the database to reclaim space after cleanup."""
         try:
             async with get_db_connection(self.db_path) as conn:
@@ -421,27 +398,27 @@ class MemoryManager:
     async def get_session_stats(self) -> Dict[str, int]:
         """Get database statistics."""
         async with get_db_connection(self.db_path) as conn:
-            stats = {}
+            stats: Dict[str, int] = {}
 
             # Count sessions
             cursor = await conn.execute("SELECT COUNT(*) FROM sessions")
             result = await cursor.fetchone()
-            stats["sessions"] = result[0] if result else 0
+            stats["sessions"] = int(result[0]) if result else 0
 
             # Count preferences
             cursor = await conn.execute("SELECT COUNT(*) FROM preferences")
             result = await cursor.fetchone()
-            stats["preferences"] = result[0] if result else 0
+            stats["preferences"] = int(result[0]) if result else 0
 
             # Count trades
             cursor = await conn.execute("SELECT COUNT(*) FROM trades")
             result = await cursor.fetchone()
-            stats["trades"] = result[0] if result else 0
+            stats["trades"] = int(result[0]) if result else 0
 
             # Count secure data entries
             cursor = await conn.execute("SELECT COUNT(*) FROM secure_data")
             result = await cursor.fetchone()
-            stats["secure_data"] = result[0] if result else 0
+            stats["secure_data"] = int(result[0]) if result else 0
 
         logger.debug(f"Database stats: {stats}")
         return stats
@@ -454,7 +431,7 @@ class MemoryManager:
                 "DELETE FROM sessions WHERE session_id = ? AND user_id = ?",
                 (session_id, uid),
             )
-            deleted_count = cursor.rowcount
+            deleted_count = cursor.rowcount or 0
             await conn.commit()
 
         logger.info(f"Cleared session {session_id} for user {uid}")
@@ -528,14 +505,14 @@ class MemoryManager:
                 cursor = await conn.execute(
                     "DELETE FROM sessions WHERE user_id = ?", (uid,)
                 )
-            count = cursor.rowcount
+            count = cursor.rowcount or 0
             await conn.commit()
         logger.info(
             "Cleared sessions"
             + (f" for user {uid}" if uid is not None else "")
             + f" (deleted {count} rows)"
         )
-        return count or 0
+        return count
 
     async def get_latest_session(
         self, user_id: Optional[str] = None
@@ -568,7 +545,7 @@ class MemoryManager:
         if not row:
             return None
         try:
-            msgs = json.loads(row[4]) if row[4] else []
+            msgs = cast(List[Message], json.loads(row[4]) if row[4] else [])
         except Exception:
             msgs = []
         return {
@@ -582,7 +559,7 @@ class MemoryManager:
     async def create_session(
         self,
         session_id: str,
-        initial_messages: Optional[List[Dict]] = None,
+        initial_messages: Optional[List[Message]] = None,
         user_id: Optional[str] = None,
     ) -> bool:
         """Create a new empty session if it doesn't exist.

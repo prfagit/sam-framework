@@ -4,11 +4,18 @@
 Cool loading animations with the SAM ASCII art from the README.
 """
 
+from __future__ import annotations
+
 import asyncio
-import sys
 import os
 import random
-from typing import List, Optional
+import re
+import sys
+from collections.abc import Sequence
+from typing import Optional
+
+
+ANSI_PATTERN = re.compile(r"\033\[[0-9;]*m")
 
 
 class Style:
@@ -48,7 +55,7 @@ def colorize(text: str, *styles: str) -> str:
 
 
 # The awesome SAM ASCII art from the README
-SAM_ASCII_ART = [
+SAM_ASCII_ART: list[str] = [
     "⠀⠀⠀⢘⠀⡂⢠⠆⠀⡰⠀⡀⢀⣠⣶⣦⣶⣶⣶⣶⣾⣿⣿⡿⢀⠈⢐⠈⠀⠀",
     "⠀⠀⠀⡁⢄⡀⣞⡇⢰⠃⣼⣇⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⠛⣰⣻⡀⢸⠀⠀⠀",
     "⠀⠀⠀⣠⠁⣛⣽⣇⠘⢸⣿⣿⣷⣾⣿⣿⣿⣿⣿⣿⣿⠟⢡⣾⣿⢿⡇⠀⡃⠀",
@@ -73,37 +80,39 @@ SAM_ASCII_ART = [
 class ASCIILoader:
     """Animated ASCII art loader for SAM."""
 
-    def __init__(self, title: str = "SAM Framework", subtitle: str = "Solana Agent Middleware"):
+    def __init__(
+        self, title: str = "SAM Framework", subtitle: str = "Solana Agent Middleware"
+    ) -> None:
         self.title = title
         self.subtitle = subtitle
         self.running = False
-        self.task: Optional[asyncio.Task] = None
+        self.task: Optional[asyncio.Task[None]] = None
 
         # Animation frames for different effects
-        self.glow_frames = ["⡀", "⠄", "⠂", "⠁", "⠈", "⠐", "⠠", "⢀"]
-        self.spark_chars = ["✦", "✧", "⭐", "✨", "💫", "⚡", "🌟"]
+        self.glow_frames: list[str] = ["⡀", "⠄", "⠂", "⠁", "⠈", "⠐", "⠠", "⢀"]
+        self.spark_chars: list[str] = ["✦", "✧", "⭐", "✨", "💫", "⚡", "🌟"]
 
         # Color schemes for cycling
-        self.color_schemes = [
+        self.color_schemes: list[list[str]] = [
             [Style.FG_CYAN, Style.FG_BRIGHT_CYAN],
             [Style.FG_GREEN, Style.FG_BRIGHT_GREEN],
             [Style.FG_MAGENTA, Style.FG_BRIGHT_MAGENTA],
             [Style.FG_BLUE, Style.FG_BRIGHT_BLUE],
         ]
 
-    def clear_screen(self):
+    def clear_screen(self) -> None:
         """Clear the terminal screen."""
         if supports_ansi():
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
 
-    def hide_cursor(self):
+    def hide_cursor(self) -> None:
         """Hide terminal cursor."""
         if supports_ansi():
             sys.stdout.write("\033[?25l")
             sys.stdout.flush()
 
-    def show_cursor(self):
+    def show_cursor(self) -> None:
         """Show terminal cursor."""
         if supports_ansi():
             sys.stdout.write("\033[?25h")
@@ -111,28 +120,25 @@ class ASCIILoader:
 
     def center_text(self, text: str, width: int = 80) -> str:
         """Center text within given width."""
-        # Remove ANSI codes for length calculation
-        import re
-
-        clean_text = re.sub(r"\033\[[0-9;]*m", "", text)
+        clean_text = ANSI_PATTERN.sub("", text)
         text_length = len(clean_text)
         if text_length >= width:
             return text
-        
+
         left_padding = (width - text_length) // 2
         right_padding = width - text_length - left_padding
-        
+
         # Return with padding but preserve exact width by recalculating with ANSI codes
         result = " " * left_padding + text + " " * right_padding
-        result_clean = re.sub(r"\033\[[0-9;]*m", "", result)
-        
+        result_clean = ANSI_PATTERN.sub("", result)
+
         # Adjust padding if ANSI codes affected the total length
         if len(result_clean) != width:
             actual_padding_needed = width - text_length
             left_padding = actual_padding_needed // 2
             right_padding = actual_padding_needed - left_padding
             result = " " * left_padding + text + " " * right_padding
-        
+
         return result
 
     def get_terminal_width(self) -> int:
@@ -144,7 +150,7 @@ class ASCIILoader:
         except (OSError, ValueError):
             return 80
 
-    async def show_static_art(self, duration: float = 2.0):
+    async def show_static_art(self, duration: float = 2.0) -> None:
         """Display static ASCII art with title."""
         self.clear_screen()
         self.hide_cursor()
@@ -171,7 +177,9 @@ class ASCIILoader:
         finally:
             self.show_cursor()
 
-    async def show_animated_loading(self, messages: List[str], duration_per_message: float = 1.5):
+    async def show_animated_loading(
+        self, messages: Sequence[str], duration_per_message: float = 1.5
+    ) -> None:
         """Show animated loading with changing messages."""
         if not supports_ansi():
             # Fallback for non-ANSI terminals
@@ -202,8 +210,9 @@ class ASCIILoader:
                 print()
 
                 # Animate ASCII art lines appearing
+                denominator = max(len(messages), 1)
                 lines_to_show = min(
-                    len(SAM_ASCII_ART), int((i + 1) / len(messages) * len(SAM_ASCII_ART)) + 3
+                    len(SAM_ASCII_ART), int((i + 1) / denominator * len(SAM_ASCII_ART)) + 3
                 )
 
                 for j, line in enumerate(SAM_ASCII_ART):
@@ -235,7 +244,7 @@ class ASCIILoader:
         finally:
             self.show_cursor()
 
-    async def show_wave_effect(self, duration: float = 3.0):
+    async def show_wave_effect(self, duration: float = 3.0) -> None:
         """Show ASCII art with a wave color effect."""
         if not supports_ansi():
             await self.show_static_art(duration)
@@ -284,7 +293,7 @@ class ASCIILoader:
         finally:
             self.show_cursor()
 
-    async def show_glitch_intro(self, duration: float = 1.8):
+    async def show_glitch_intro(self, duration: float = 1.8) -> None:
         """Fast glitchy ASCII intro - no fluff, just cool."""
         if not supports_ansi():
             await self.show_static_art(0.5)
@@ -358,7 +367,7 @@ class ASCIILoader:
         finally:
             self.show_cursor()
 
-    async def start(self):
+    async def start(self) -> None:
         """Start the loading animation."""
         if not supports_ansi():
             # Simple fallback for non-ANSI terminals
@@ -373,7 +382,7 @@ class ASCIILoader:
 
         self.running = False
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the animation."""
         self.running = False
         if self.task and not self.task.done():
@@ -386,13 +395,13 @@ class ASCIILoader:
 
 
 # Convenience functions for easy use
-async def show_sam_loading():
+async def show_sam_loading() -> None:
     """Show the SAM loading animation."""
     loader = ASCIILoader()
     await loader.start()
 
 
-async def show_sam_intro(style: str = "glitch"):
+async def show_sam_intro(style: str = "glitch") -> None:
     """Show SAM intro with different animation styles.
 
     Args:

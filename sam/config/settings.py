@@ -179,7 +179,7 @@ class Settings:
         return True
 
     @classmethod
-    def log_config(cls):
+    def log_config(cls) -> None:
         """Log current configuration (excluding sensitive data)."""
         logger.info("SAM Framework Configuration:")
         logger.info(f"  LLM Provider: {cls.LLM_PROVIDER}")
@@ -226,7 +226,7 @@ class Settings:
         logger.info(f"  Encryption Key: {'Set' if cls.SAM_FERNET_KEY else 'Missing'}")
 
 
-def setup_logging(level: Optional[str] = None):
+def setup_logging(level: Optional[str] = None) -> None:
     """Set up logging configuration."""
     log_level = level or Settings.LOG_LEVEL
 

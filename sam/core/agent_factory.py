@@ -42,23 +42,11 @@ class AgentFactory:
         ctx = context or RequestContext()
         cache_key = ctx.cache_key()
         agent = self._agents.pop(cache_key, None)
-        if agent and hasattr(agent, "close"):
+        if agent is not None:
             try:
-                await agent.close()  # type: ignore[attr-defined]
+                await agent.close()
             except Exception:
                 pass
-
-    async def clear_all(self) -> None:
-        """Dispose every cached agent synchronously."""
-        for cache_key, agent in list(self._agents.items()):
-            try:
-                if hasattr(agent, "close"):
-                    await agent.close()  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            finally:
-                self._agents.pop(cache_key, None)
-
 
 _default_factory: Optional[AgentFactory] = None
 

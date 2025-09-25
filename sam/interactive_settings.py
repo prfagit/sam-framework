@@ -1,17 +1,44 @@
 """Interactive settings management for SAM framework."""
 
+from __future__ import annotations
+
+import importlib
 import os
-from pathlib import Path
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
 
+
+class InquirerInterface(Protocol):
+    """Subset of the inquirer API used by the interactive settings flow."""
+
+    def list_input(
+        self,
+        message: str,
+        choices: Sequence[Union[str, Tuple[str, Any]]],
+        default: Optional[Any] = None,
+    ) -> Any:
+        ...
+
+    def confirm(self, message: str, default: bool = ...) -> bool:
+        ...
+
+    def password(self, message: str) -> str:
+        ...
+
+    def text(self, message: str, default: str = ...) -> str:
+        ...
+
+
+_INQUIRER_MODULE: Optional[Any] = None
 try:
-    import inquirer
-
+    _INQUIRER_MODULE = importlib.import_module("inquirer")
     INQUIRER_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover - import availability depends on optional dependency
     INQUIRER_AVAILABLE = False
+
+inquirer: Optional[InquirerInterface] = cast(Optional[InquirerInterface], _INQUIRER_MODULE)
 
 
 class SettingType(Enum):
@@ -36,11 +63,11 @@ class SettingDefinition:
     current_value: Any = None
     default_value: Any = None
     choices: Optional[List[str]] = None
-    validation: Optional[callable] = None
+    validation: Optional[Callable[[Any], bool]] = None
     sensitive: bool = False
     env_var: str = field(init=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.env_var = self.key
         # Get current value from environment
         if self.setting_type == SettingType.BOOLEAN:
@@ -56,12 +83,23 @@ class SettingDefinition:
             self.current_value = os.getenv(self.key, self.default_value or "")
 
 
+SettingChoice = Tuple[str, Union[SettingDefinition, str]]
+
+
 class InteractiveSettingsManager:
     """Manages interactive configuration settings."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.settings_definitions = self._create_settings_definitions()
         self.modified_settings: Dict[str, Any] = {}
+        self._prompt: Optional[InquirerInterface] = inquirer
+
+    def _require_inquirer(self) -> InquirerInterface:
+        """Return the loaded inquirer module or raise if unavailable."""
+
+        if self._prompt is None:
+            raise RuntimeError("Interactive settings requires the optional 'inquirer' dependency.")
+        return self._prompt
 
     def _create_settings_definitions(self) -> List[SettingDefinition]:
         """Create all configurable settings definitions."""
@@ -306,7 +344,7 @@ class InteractiveSettingsManager:
 
     def _get_setting_categories(self) -> Dict[str, List[SettingDefinition]]:
         """Group settings by category for better organization."""
-        categories = {
+        categories: Dict[str, List[SettingDefinition]] = {
             "🤖 LLM Provider": [],
             "🔑 API Keys": [],
             "⚡ Tool Toggles": [],
@@ -352,6 +390,7 @@ class InteractiveSettingsManager:
             print("   Install with: uv add inquirer")
             return False
 
+        prompt = self._require_inquirer()
         print("\n" + "=" * 60)
         print("🛠️  SAM Framework Interactive Settings")
         print("=" * 60)
@@ -360,13 +399,13 @@ class InteractiveSettingsManager:
 
         while True:
             # Main category selection
-            category_choices = list(categories.keys()) + [
+            category_choices: List[str] = list(categories.keys()) + [
                 "💾 Save & Exit",
                 "❌ Exit without saving",
             ]
 
             try:
-                selected_category = inquirer.list_input(
+                selected_category = prompt.list_input(
                     "Select category to configure:", choices=category_choices
                 )
             except KeyboardInterrupt:
@@ -377,7 +416,7 @@ class InteractiveSettingsManager:
                 return self._save_settings()
             elif selected_category == "❌ Exit without saving":
                 if self.modified_settings:
-                    confirm = inquirer.confirm(
+                    confirm = prompt.confirm(
                         "You have unsaved changes. Are you sure you want to exit?", default=False
                     )
                     if not confirm:
@@ -386,14 +425,18 @@ class InteractiveSettingsManager:
             else:
                 self._show_category_settings(selected_category, categories[selected_category])
 
-    def _show_category_settings(self, category_name: str, settings: List[SettingDefinition]):
+    def _show_category_settings(
+        self, category_name: str, settings: Sequence[SettingDefinition]
+    ) -> None:
         """Show settings for a specific category."""
+        prompt = self._require_inquirer()
+
         while True:
             print(f"\n📁 {category_name}")
             print("-" * 50)
 
             # Create choices with current values
-            choices = []
+            choices: List[SettingChoice] = []
             for setting in settings:
                 current_display = self._format_current_value_display(setting)
                 choice_text = f"{setting.display_name}: {current_display}"
@@ -402,17 +445,18 @@ class InteractiveSettingsManager:
             choices.append(("⬅️  Back to categories", "back"))
 
             try:
-                selected = inquirer.list_input("Select setting to modify:", choices=choices)
+                selected = prompt.list_input("Select setting to modify:", choices=choices)
             except KeyboardInterrupt:
                 return
 
-            if selected == "back":
+            if isinstance(selected, str) and selected == "back":
                 return
-            else:
+            elif isinstance(selected, SettingDefinition):
                 self._modify_setting(selected)
 
-    def _modify_setting(self, setting: SettingDefinition):
+    def _modify_setting(self, setting: SettingDefinition) -> None:
         """Modify a specific setting."""
+        prompt = self._require_inquirer()
         print(f"\n🔧 Configuring: {setting.display_name}")
         print(f"📝 {setting.description}")
 
@@ -420,50 +464,64 @@ class InteractiveSettingsManager:
         print(f"🔍 Current value: {current_display}")
 
         try:
+            new_value: Any
             if setting.setting_type == SettingType.BOOLEAN:
-                new_value = inquirer.confirm(
-                    f"Enable {setting.display_name}?", default=setting.current_value
+                default_value = bool(setting.current_value) if setting.current_value is not None else False
+                new_value = prompt.confirm(
+                    f"Enable {setting.display_name}?", default=default_value
                 )
             elif setting.setting_type == SettingType.CHOICE:
-                new_value = inquirer.list_input(
+                choices = setting.choices or []
+                if not choices:
+                    print("❌ No choices configured for this setting.")
+                    return
+
+                default_choice: Optional[str] = None
+                if isinstance(setting.current_value, str) and setting.current_value in choices:
+                    default_choice = setting.current_value
+                else:
+                    default_choice = choices[0]
+
+                new_value = prompt.list_input(
                     f"Select {setting.display_name}:",
-                    choices=setting.choices,
-                    default=setting.current_value
-                    if setting.current_value in setting.choices
-                    else setting.choices[0],
+                    choices=choices,
+                    default=default_choice,
                 )
             elif setting.setting_type == SettingType.PASSWORD:
-                new_value = inquirer.password(
+                password_value = prompt.password(
                     f"Enter {setting.display_name} (leave blank to keep current):"
                 )
-                if not new_value.strip():  # Keep current if empty
+                if not password_value.strip():  # Keep current if empty
                     return
+                new_value = password_value
             else:  # TEXT, INTEGER, FLOAT
                 prompt_text = f"Enter {setting.display_name}"
                 if setting.current_value:
                     prompt_text += f" (current: {setting.current_value})"
                 prompt_text += ":"
 
-                new_value = inquirer.text(
-                    prompt_text, default=str(setting.current_value) if setting.current_value else ""
+                text_response = prompt.text(
+                    prompt_text,
+                    default=str(setting.current_value) if setting.current_value is not None else "",
                 )
+                new_value = text_response
 
                 # Type conversion and validation
                 if setting.setting_type == SettingType.INTEGER:
                     try:
-                        new_value = int(new_value)
+                        new_value = int(text_response)
                     except ValueError:
                         print("❌ Invalid integer value!")
                         return
                 elif setting.setting_type == SettingType.FLOAT:
                     try:
-                        new_value = float(new_value)
+                        new_value = float(text_response)
                     except ValueError:
                         print("❌ Invalid number value!")
                         return
 
             # Apply validation if provided
-            if setting.validation:
+            if setting.validation is not None:
                 try:
                     if not setting.validation(new_value):
                         print("❌ Validation failed!")
@@ -491,9 +549,9 @@ class InteractiveSettingsManager:
         print(f"\n💾 Saving {len(self.modified_settings)} setting(s) to {env_path}...")
 
         # Read existing .env file content
-        existing_env = {}
+        existing_env: Dict[str, str] = {}
         if env_path.exists():
-            with open(env_path, "r") as f:
+            with env_path.open("r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -509,7 +567,7 @@ class InteractiveSettingsManager:
 
         # Write back to .env file
         try:
-            with open(env_path, "w") as f:
+            with env_path.open("w", encoding="utf-8") as f:
                 f.write("# SAM Framework Configuration\n")
                 f.write("# Generated by interactive settings\n\n")
 
@@ -528,7 +586,7 @@ class InteractiveSettingsManager:
             return False
 
 
-def run_interactive_settings():
+def run_interactive_settings() -> bool:
     """Entry point for interactive settings."""
     manager = InteractiveSettingsManager()
     return manager.show_interactive_settings()

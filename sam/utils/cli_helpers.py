@@ -1,7 +1,7 @@
 """CLI helpers for better user experience and onboarding."""
 
 import os
-from typing import Dict, Any
+from typing import Any, Dict, List, cast
 from ..config.settings import Settings
 from .secure_storage import get_secure_storage
 
@@ -96,7 +96,8 @@ class CLIFormatter:
                 clean_line = clean_line.replace(code, "")
 
             content_line = f"│ {line}"
-            content_line += " " * (width - len(clean_line) - 3) + "│"
+            padding = max(width - len(clean_line) - 3, 0)
+            content_line += " " * padding + "│"
             boxed_lines.append(content_line)
 
         return f"{top}\n" + "\n".join(boxed_lines) + f"\n{bottom}"
@@ -175,7 +176,7 @@ def check_setup_status() -> Dict[str, Any]:
     return status
 
 
-def show_welcome_banner():
+def show_welcome_banner() -> None:
     """Show welcome banner with setup status."""
     banner = f"""
 {CLIFormatter.colorize("🤖 SAM - Solana Agent Middleware", CLIFormatter.BOLD + CLIFormatter.CYAN)}
@@ -186,7 +187,7 @@ def show_welcome_banner():
     print(banner)
 
 
-def show_setup_status(verbose: bool = False):
+def show_setup_status(verbose: bool = False) -> None:
     """Show current setup status."""
     status = check_setup_status()
 
@@ -216,13 +217,13 @@ def show_setup_status(verbose: bool = False):
         print(CLIFormatter.success("\nAll systems ready! 🚀"))
 
 
-def show_onboarding_guide():
+def show_onboarding_guide() -> None:
     """Show step-by-step onboarding guide."""
     print(CLIFormatter.header("🚀 Quick Setup Guide"))
 
     status = check_setup_status()
 
-    steps = []
+    steps: List[Dict[str, Any]] = []
 
     if not status["openai_api_key"]:
         steps.append(
@@ -276,7 +277,7 @@ def show_onboarding_guide():
                 print(f"  {CLIFormatter.colorize(cmd, CLIFormatter.GREEN)}")
 
 
-def show_quick_help():
+def show_quick_help() -> None:
     """Show quick help for common commands."""
     help_text = f"""
 {CLIFormatter.header("Quick Commands")}
@@ -315,9 +316,14 @@ def format_balance_display(balance_data: Dict[str, Any]) -> str:
     output.append(CLIFormatter.header(f"Wallet: {short_address}"))
 
     # SOL Balance with USD
-    sol_balance = balance_data.get("sol_balance", 0)
+    sol_balance_raw = balance_data.get("sol_balance", 0)
+    try:
+        sol_balance = float(sol_balance_raw)
+    except (TypeError, ValueError):
+        sol_balance = 0.0
+
     if "formatted_sol" in balance_data:
-        sol_display = balance_data["formatted_sol"]
+        sol_display = str(balance_data["formatted_sol"])
     else:
         sol_display = f"{sol_balance:.4f} SOL"
 
@@ -325,12 +331,12 @@ def format_balance_display(balance_data: Dict[str, Any]) -> str:
 
     # Total portfolio value
     total_usd = balance_data.get("total_portfolio_usd")
-    if total_usd:
+    if isinstance(total_usd, (int, float)):
         output.append(f"{CLIFormatter.colorize('Portfolio:', CLIFormatter.BOLD)} ${total_usd:.2f}")
 
     # Tokens
-    tokens = balance_data.get("tokens", [])
-    token_count = balance_data.get("token_count", len(tokens))
+    tokens = cast(List[Dict[str, Any]], balance_data.get("tokens", []))
+    token_count = cast(int, balance_data.get("token_count", len(tokens)))
 
     if token_count > 0:
         output.append(f"\n{CLIFormatter.colorize(f'Tokens ({token_count}):', CLIFormatter.BOLD)}")
@@ -362,7 +368,10 @@ def format_error_for_cli(error_data: Dict[str, Any]) -> str:
 
     title = error_data.get("title", "Error")
     message = error_data.get("message", "Something went wrong")
-    solutions = error_data.get("solutions", [])
+    solutions_raw = error_data.get("solutions")
+    solutions: List[str] = []
+    if isinstance(solutions_raw, list):
+        solutions = [str(solution) for solution in solutions_raw]
     category = error_data.get("category", "system")
 
     # Choose emoji based on category
@@ -395,7 +404,7 @@ def is_first_run() -> bool:
     return not os.path.exists(Settings.SAM_DB_PATH)
 
 
-def show_first_run_experience():
+def show_first_run_experience() -> None:
     """Show first-run experience with onboarding."""
     show_welcome_banner()
 
@@ -412,7 +421,7 @@ def show_first_run_experience():
     )
 
 
-def show_startup_summary():
+def show_startup_summary() -> None:
     """Show brief startup summary for returning users."""
     status = check_setup_status()
 

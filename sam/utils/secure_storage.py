@@ -5,7 +5,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Dict, Optional, Any, Protocol, runtime_checkable
+from typing import Dict, Iterator, Optional, Any, Protocol, Tuple, runtime_checkable
 
 import keyring
 from cryptography.fernet import Fernet
@@ -19,6 +19,7 @@ class BaseSecretStore(Protocol):
     """Protocol describing the secure storage API used by SAM."""
 
     current_key_str: Optional[str]
+    fernet: Optional[Fernet]
 
     def store_private_key(self, user_id: str, private_key: str) -> bool:
         ...
@@ -45,6 +46,9 @@ class BaseSecretStore(Protocol):
         ...
 
     def rotate_encryption_key(self, new_key: Optional[str] = None) -> Dict[str, Any]:
+        ...
+
+    def diagnostics(self) -> Dict[str, Any]:
         ...
 
 
@@ -162,7 +166,7 @@ class EncryptedFileVault:
         with self._lock:
             return {k: v.copy() for k, v in self._index.items()}
 
-    def iter_secrets(self):
+    def iter_secrets(self) -> Iterator[Tuple[str, str]]:
         with self._lock:
             for key, value in self._data.items():
                 yield key, value
@@ -421,6 +425,10 @@ class SecureStorage(BaseSecretStore):
                     user_id,
                 )
 
+        if encrypted_key_str is None:
+            logger.debug("Encrypted private key not found for user: %s", user_id)
+            return None
+
         try:
             encrypted_key = base64.b64decode(encrypted_key_str.encode())
             private_key = self.fernet.decrypt(encrypted_key).decode()
@@ -541,6 +549,11 @@ class SecureStorage(BaseSecretStore):
             encrypted_config = base64.b64decode(encrypted_config_str.encode())
             config_json = self.fernet.decrypt(encrypted_config).decode()
             config = json.loads(config_json)
+            if not isinstance(config, dict):
+                logger.error(
+                    "Wallet config for user %s is not a JSON object; ignoring value", user_id
+                )
+                return None
 
             logger.debug(f"Retrieved wallet config for user: {user_id}")
             return config
@@ -553,7 +566,14 @@ class SecureStorage(BaseSecretStore):
                     return None
                 encrypted_config = base64.b64decode(encrypted_config_str.encode())
                 config_json = self.fernet.decrypt(encrypted_config).decode()
-                return json.loads(config_json)
+                fallback_config = json.loads(config_json)
+                if isinstance(fallback_config, dict):
+                    return fallback_config
+                logger.error(
+                    "Fallback wallet config for user %s is not a JSON object; ignoring value",
+                    user_id,
+                )
+                return None
             except Exception:
                 return None
 
@@ -766,7 +786,7 @@ def configure_secure_storage(store: BaseSecretStore) -> None:
 
 def _load_plugin_storage() -> Optional[BaseSecretStore]:
     try:
-        eps = entry_points(group="sam.secure_storage")  # type: ignore[arg-type]
+        eps = entry_points(group="sam.secure_storage")
     except Exception as exc:
         logger.debug("Failed to load secure storage entry points: %s", exc)
         return None

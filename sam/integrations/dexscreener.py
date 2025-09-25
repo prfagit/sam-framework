@@ -1,17 +1,81 @@
-from dexscreener import DexscreenerClient
-import logging
+from __future__ import annotations
+
 import asyncio
-from typing import Dict, Any, List
+import logging
+from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, TypeGuard, cast
+
+from dexscreener import DexscreenerClient
+from pydantic import BaseModel, Field
 
 from ..core.tools import Tool, ToolSpec
-from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 
+class PriceWindow(Protocol):
+    h1: Optional[float]
+    h6: Optional[float]
+    h24: Optional[float]
+
+
+class VolumeWindow(Protocol):
+    h1: Optional[float]
+    h6: Optional[float]
+    h24: Optional[float]
+
+
+class TokenInfo(Protocol):
+    address: str
+    name: Optional[str]
+    symbol: Optional[str]
+
+
+class LiquidityInfo(Protocol):
+    usd: Optional[float]
+
+
+class TokenPair(Protocol):
+    chain_id: Optional[str]
+    dex_id: Optional[str]
+    pair_address: Optional[str]
+    base_token: TokenInfo
+    quote_token: TokenInfo
+    price_usd: Optional[float]
+    price_change: Optional[PriceWindow]
+    volume: Optional[VolumeWindow]
+    liquidity: Optional[LiquidityInfo]
+    fdv: Optional[float]
+    market_cap: Optional[float]
+    pair_created_at: Optional[int]
+    url: Optional[str]
+    info: Optional[Dict[str, Any]]
+
+
+class DexClientProtocol(Protocol):
+    def search_pairs(self, query: str) -> Sequence[TokenPair]:
+        ...
+
+    def get_token_pairs(self, token: str) -> Sequence[TokenPair]:
+        ...
+
+    def get_trending_pairs(self, chain: Optional[str] = None) -> Sequence[TokenPair]:
+        ...
+
+
+PairLike = TokenPair | Mapping[str, Any]
+
+
+def _is_mapping_pair(pair: PairLike) -> TypeGuard[Mapping[str, Any]]:
+    return isinstance(pair, Mapping)
+
+
+def _is_token_pair(pair: PairLike) -> TypeGuard[TokenPair]:
+    return not isinstance(pair, Mapping)
+
+
 class DexScreenerTools:
-    def __init__(self):
-        self.client = DexscreenerClient()
+    def __init__(self, client: Optional[DexClientProtocol] = None) -> None:
+        self.client: DexClientProtocol = cast(DexClientProtocol, client or DexscreenerClient())
         logger.info("Initialized DexScreener client")
 
     async def search_pairs(self, query: str) -> Dict[str, Any]:
@@ -20,36 +84,7 @@ class DexScreenerTools:
             # Run synchronous client in thread to avoid blocking event loop
             results = await asyncio.to_thread(self.client.search_pairs, query)
 
-            # DexScreener client returns a list of TokenPair objects
-            if not isinstance(results, list):
-                logger.error(f"Expected list but got {type(results)}: {results}")
-                return {"error": "API returned unexpected format"}
-
-            pairs = []
-            for pair in results:  # results is already a list
-                pairs.append(
-                    {
-                        "chain_id": pair.chain_id,
-                        "dex_id": pair.dex_id,
-                        "pair_address": pair.pair_address,
-                        "base_token": {
-                            "address": pair.base_token.address,
-                            "name": pair.base_token.name,
-                            "symbol": pair.base_token.symbol,
-                        },
-                        "quote_token": {
-                            "address": pair.quote_token.address,
-                            "name": pair.quote_token.name,
-                            "symbol": pair.quote_token.symbol,
-                        },
-                        "price_usd": pair.price_usd,
-                        "price_change_24h": pair.price_change.h24 if pair.price_change else None,
-                        "volume_24h": pair.volume.h24 if pair.volume else None,
-                        "liquidity": pair.liquidity.usd if pair.liquidity else None,
-                        "market_cap": getattr(pair, "market_cap", None),
-                        "created_at": pair.pair_created_at,
-                    }
-                )
+            pairs = [_serialize_pair_summary(pair) for pair in _ensure_sequence(results)]
 
             logger.info(f"Found {len(pairs)} pairs for query: {query}")
             return {"query": query, "pairs": pairs, "total_pairs": len(pairs)}
@@ -64,36 +99,7 @@ class DexScreenerTools:
             # Run synchronous client in thread to avoid blocking event loop
             results = await asyncio.to_thread(self.client.get_token_pairs, token_address)
 
-            # DexScreener client returns a list of TokenPair objects
-            if not isinstance(results, list):
-                logger.error(f"Expected list but got {type(results)}: {results}")
-                return {"error": "API returned unexpected format"}
-
-            pairs = []
-            for pair in results:  # results is already a list
-                pairs.append(
-                    {
-                        "chain_id": pair.chain_id,
-                        "dex_id": pair.dex_id,
-                        "pair_address": pair.pair_address,
-                        "base_token": {
-                            "address": pair.base_token.address,
-                            "name": pair.base_token.name,
-                            "symbol": pair.base_token.symbol,
-                        },
-                        "quote_token": {
-                            "address": pair.quote_token.address,
-                            "name": pair.quote_token.name,
-                            "symbol": pair.quote_token.symbol,
-                        },
-                        "price_usd": pair.price_usd,
-                        "price_change_24h": pair.price_change.h24 if pair.price_change else None,
-                        "volume_24h": pair.volume.h24 if pair.volume else None,
-                        "liquidity": pair.liquidity.usd if pair.liquidity else None,
-                        "fdv": getattr(pair, "fdv", None),
-                        "market_cap": getattr(pair, "market_cap", None),
-                    }
-                )
+            pairs = [_serialize_pair_summary(pair) for pair in _ensure_sequence(results)]
 
             logger.info(f"Found {len(pairs)} pairs for token: {token_address}")
             return {"token_address": token_address, "pairs": pairs, "total_pairs": len(pairs)}
@@ -106,90 +112,12 @@ class DexScreenerTools:
         """Get detailed information for a specific Solana pair."""
         try:
             # Run synchronous client in thread to avoid blocking event loop
-            results = await asyncio.to_thread(self.client.get_token_pairs, f"solana:{pair_address}")
+            results = await asyncio.to_thread(
+                self.client.get_token_pairs, f"solana:{pair_address}"
+            )
 
-            if not results:
-                return {"error": "Pair not found"}
-
-            # results might be a TokenPair object directly or a dict with "pair"
-            if hasattr(results, "chain_id"):
-                # It's a TokenPair object
-                pair = results
-            elif isinstance(results, dict) and "pair" in results:
-                # It's a dict with pair data
-                pair = results["pair"]
-            else:
-                return {"error": "Unexpected response format"}
-
-            # Handle both TokenPair objects and dicts
-            if hasattr(pair, "chain_id"):
-                # TokenPair object
-                pair_info = {
-                    "chain_id": pair.chain_id,
-                    "dex_id": pair.dex_id,
-                    "pair_address": pair.pair_address,
-                    "base_token": {
-                        "address": pair.base_token.address,
-                        "name": pair.base_token.name,
-                        "symbol": pair.base_token.symbol,
-                    },
-                    "quote_token": {
-                        "address": pair.quote_token.address,
-                        "name": pair.quote_token.name,
-                        "symbol": pair.quote_token.symbol,
-                    },
-                    "price_usd": pair.price_usd,
-                    "price_change": {
-                        "1h": pair.price_change.h1 if pair.price_change else None,
-                        "6h": pair.price_change.h6 if pair.price_change else None,
-                        "24h": pair.price_change.h24 if pair.price_change else None,
-                    },
-                    "volume": {
-                        "1h": pair.volume.h1 if pair.volume else None,
-                        "6h": pair.volume.h6 if pair.volume else None,
-                        "24h": pair.volume.h24 if pair.volume else None,
-                    },
-                    "liquidity": pair.liquidity.usd if pair.liquidity else None,
-                    "fdv": pair.fdv,
-                    "market_cap": getattr(pair, "market_cap", None),
-                    "created_at": pair.pair_created_at,
-                    "url": pair.url,
-                    "info": getattr(pair, "info", None),
-                }
-            else:
-                # Dict format (fallback)
-                pair_info = {
-                    "chain_id": pair.get("chainId"),
-                    "dex_id": pair.get("dexId"),
-                    "pair_address": pair.get("pairAddress"),
-                    "base_token": {
-                        "address": pair.get("baseToken", {}).get("address"),
-                        "name": pair.get("baseToken", {}).get("name"),
-                        "symbol": pair.get("baseToken", {}).get("symbol"),
-                    },
-                    "quote_token": {
-                        "address": pair.get("quoteToken", {}).get("address"),
-                        "name": pair.get("quoteToken", {}).get("name"),
-                        "symbol": pair.get("quoteToken", {}).get("symbol"),
-                    },
-                    "price_usd": pair.get("priceUsd"),
-                    "price_change": {
-                        "1h": pair.get("priceChange", {}).get("h1"),
-                        "6h": pair.get("priceChange", {}).get("h6"),
-                        "24h": pair.get("priceChange", {}).get("h24"),
-                    },
-                    "volume": {
-                        "1h": pair.get("volume", {}).get("h1"),
-                        "6h": pair.get("volume", {}).get("h6"),
-                        "24h": pair.get("volume", {}).get("h24"),
-                    },
-                    "liquidity": pair.get("liquidity", {}).get("usd"),
-                    "fdv": pair.get("fdv"),
-                    "market_cap": pair.get("marketCap"),
-                    "created_at": pair.get("pairCreatedAt"),
-                    "url": pair.get("url"),
-                    "info": pair.get("info"),
-                }
+            pair = _extract_single_pair(results)
+            pair_info = _serialize_pair_detail(pair)
 
             logger.info(f"Retrieved pair info for: {pair_address}")
             return pair_info
@@ -201,59 +129,211 @@ class DexScreenerTools:
     async def get_trending_pairs(self, chain: str = "solana") -> Dict[str, Any]:
         """Get trending pairs for a specific chain."""
         try:
-            # DexScreener doesn't have a direct trending endpoint,
-            # so we'll search for popular tokens and sort by volume
-            popular_tokens = ["SOL", "USDC", "USDT"]
-            all_pairs = []
-
-            for token in popular_tokens:
-                try:
-                    results = await asyncio.to_thread(self.client.search_pairs, f"{token} {chain}")
-                    if results:  # results is a list of TokenPair objects
-                        all_pairs.extend(results[:5])  # Take top 5 for each
-                except Exception as e:
-                    logger.warning(f"Error getting pairs for {token}: {e}")
-                    continue
-
-            # Sort by 24h volume
-            sorted_pairs = sorted(
-                all_pairs,
-                key=lambda x: float(x.volume.h24 if x.volume and x.volume.h24 else 0),
-                reverse=True,
-            )[:10]  # Top 10
-
-            trending_pairs = []
-            for pair in sorted_pairs:
-                trending_pairs.append(
-                    {
-                        "pair_address": pair.pair_address,
-                        "base_token": {
-                            "address": pair.base_token.address,
-                            "name": pair.base_token.name,
-                            "symbol": pair.base_token.symbol,
-                        },
-                        "quote_token": {
-                            "address": pair.quote_token.address,
-                            "name": pair.quote_token.name,
-                            "symbol": pair.quote_token.symbol,
-                        },
-                        "price_usd": pair.price_usd,
-                        "volume_24h": pair.volume.h24 if pair.volume else None,
-                        "price_change_24h": pair.price_change.h24 if pair.price_change else None,
-                        "liquidity": pair.liquidity.usd if pair.liquidity else None,
-                    }
-                )
-
-            logger.info(f"Retrieved {len(trending_pairs)} trending pairs for {chain}")
+            results = await asyncio.to_thread(self.client.get_trending_pairs, chain)
+            seq = _ensure_sequence(results)
+            trending_pairs = [_serialize_trending_pair(pair) for pair in seq]
             return {
                 "chain": chain,
                 "trending_pairs": trending_pairs,
                 "total_pairs": len(trending_pairs),
             }
-
-        except Exception as e:
+        except AttributeError:
+            return await self._fallback_trending_pairs(chain)
+        except Exception as e:  # pragma: no cover - client/runtime errors
             logger.error(f"Error getting trending pairs: {e}")
             return {"error": str(e)}
+
+    async def _fallback_trending_pairs(self, chain: str) -> Dict[str, Any]:
+        """Fallback trending computation using search + heuristics."""
+        popular_tokens = ["SOL", "USDC", "USDT"]
+        all_pairs: List[PairLike] = []
+
+        for token in popular_tokens:
+            try:
+                results = await asyncio.to_thread(
+                    self.client.search_pairs, f"{token} {chain}"
+                )
+                all_pairs.extend(_ensure_sequence(results)[:5])
+            except Exception as e:
+                logger.warning(f"Error getting pairs for {token}: {e}")
+                continue
+
+        sorted_pairs = sorted(all_pairs, key=_volume_24h, reverse=True)[:10]
+        trending_pairs = [_serialize_trending_pair(pair) for pair in sorted_pairs]
+
+        logger.info(f"Retrieved {len(trending_pairs)} fallback trending pairs for {chain}")
+        return {
+            "chain": chain,
+            "trending_pairs": trending_pairs,
+            "total_pairs": len(trending_pairs),
+        }
+
+
+def _ensure_sequence(results: Any) -> Sequence[PairLike]:
+    if isinstance(results, Sequence) and not isinstance(results, (str, bytes)):
+        return cast(Sequence[PairLike], results)
+    logger.error(f"Expected sequence of TokenPair, got {type(results)}: {results}")
+    return []
+
+
+def _serialize_token(token: TokenInfo) -> Dict[str, Optional[str]]:
+    return {
+        "address": token.address,
+        "name": token.name,
+        "symbol": token.symbol,
+    }
+
+
+def _serialize_token_mapping(data: Mapping[str, Any]) -> Dict[str, Optional[str]]:
+    return {
+        "address": cast(Optional[str], data.get("address")),
+        "name": cast(Optional[str], data.get("name")),
+        "symbol": cast(Optional[str], data.get("symbol")),
+    }
+
+
+def _serialize_pair_summary(pair: PairLike) -> Dict[str, Any]:
+    if _is_mapping_pair(pair):
+        base = cast(Mapping[str, Any], pair.get("baseToken", {}))
+        quote = cast(Mapping[str, Any], pair.get("quoteToken", {}))
+        price_change_data = cast(Mapping[str, Any], pair.get("priceChange", {}))
+        volume_data = cast(Mapping[str, Any], pair.get("volume", {}))
+        liquidity_data = cast(Mapping[str, Any], pair.get("liquidity", {}))
+        return {
+            "chain_id": pair.get("chainId"),
+            "dex_id": pair.get("dexId"),
+            "pair_address": pair.get("pairAddress"),
+            "base_token": _serialize_token_mapping(base),
+            "quote_token": _serialize_token_mapping(quote),
+            "price_usd": pair.get("priceUsd"),
+            "price_change_24h": price_change_data.get("h24"),
+            "volume_24h": volume_data.get("h24"),
+            "liquidity": liquidity_data.get("usd"),
+            "fdv": pair.get("fdv"),
+            "market_cap": pair.get("marketCap"),
+            "created_at": pair.get("pairCreatedAt"),
+        }
+
+    assert _is_token_pair(pair)
+    token_pair: TokenPair = pair
+    return {
+        "chain_id": token_pair.chain_id,
+        "dex_id": token_pair.dex_id,
+        "pair_address": token_pair.pair_address,
+        "base_token": _serialize_token(token_pair.base_token),
+        "quote_token": _serialize_token(token_pair.quote_token),
+        "price_usd": token_pair.price_usd,
+        "price_change_24h": token_pair.price_change.h24
+        if token_pair.price_change
+        else None,
+        "volume_24h": token_pair.volume.h24 if token_pair.volume else None,
+        "liquidity": token_pair.liquidity.usd if token_pair.liquidity else None,
+        "fdv": token_pair.fdv,
+        "market_cap": token_pair.market_cap,
+        "created_at": token_pair.pair_created_at,
+    }
+
+def _extract_single_pair(results: Any) -> PairLike:
+    if isinstance(results, Sequence) and results and not isinstance(results, (str, bytes)):
+        return cast(PairLike, results[0])
+    if isinstance(results, Mapping) and "pair" in results:
+        return cast(PairLike, results["pair"])
+    if hasattr(results, "chain_id"):
+        return cast(TokenPair, results)
+    raise ValueError("Unexpected response format from DexScreener")
+
+
+def _serialize_pair_detail(pair: PairLike) -> Dict[str, Any]:
+    if _is_mapping_pair(pair):
+        data = pair
+        base = cast(Mapping[str, Any], data.get("baseToken", {}))
+        quote = cast(Mapping[str, Any], data.get("quoteToken", {}))
+        price_change_data = cast(Mapping[str, Any], data.get("priceChange", {}))
+        volume_data = cast(Mapping[str, Any], data.get("volume", {}))
+        liquidity_data = cast(Mapping[str, Any], data.get("liquidity", {}))
+        return {
+            "chain_id": data.get("chainId"),
+            "dex_id": data.get("dexId"),
+            "pair_address": data.get("pairAddress"),
+            "base_token": _serialize_token_mapping(base),
+            "quote_token": _serialize_token_mapping(quote),
+            "price_usd": data.get("priceUsd"),
+            "price_change": {
+                "1h": price_change_data.get("h1"),
+                "6h": price_change_data.get("h6"),
+                "24h": price_change_data.get("h24"),
+            },
+            "volume": {
+                "1h": volume_data.get("h1"),
+                "6h": volume_data.get("h6"),
+                "24h": volume_data.get("h24"),
+            },
+            "liquidity": liquidity_data.get("usd"),
+            "fdv": data.get("fdv"),
+            "market_cap": data.get("marketCap"),
+            "created_at": data.get("pairCreatedAt"),
+            "url": data.get("url"),
+            "info": data.get("info"),
+        }
+
+    assert _is_token_pair(pair)
+    token_pair: TokenPair = pair
+    price_window = token_pair.price_change
+    volume_window = token_pair.volume
+    return {
+        "chain_id": token_pair.chain_id,
+        "dex_id": token_pair.dex_id,
+        "pair_address": token_pair.pair_address,
+        "base_token": _serialize_token(token_pair.base_token),
+        "quote_token": _serialize_token(token_pair.quote_token),
+        "price_usd": token_pair.price_usd,
+        "price_change": {
+            "1h": price_window.h1 if price_window else None,
+            "6h": price_window.h6 if price_window else None,
+            "24h": price_window.h24 if price_window else None,
+        },
+        "volume": {
+            "1h": volume_window.h1 if volume_window else None,
+            "6h": volume_window.h6 if volume_window else None,
+            "24h": volume_window.h24 if volume_window else None,
+        },
+        "liquidity": token_pair.liquidity.usd if token_pair.liquidity else None,
+        "fdv": token_pair.fdv,
+        "market_cap": token_pair.market_cap,
+        "created_at": token_pair.pair_created_at,
+        "url": token_pair.url,
+        "info": token_pair.info,
+    }
+
+
+def _volume_24h(pair: PairLike) -> float:
+    if _is_mapping_pair(pair):
+        volume = pair.get("volume", {})
+        value = None
+        if isinstance(volume, Mapping):
+            value = volume.get("h24")
+        try:
+            return float(value) if value is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    assert _is_token_pair(pair)
+    token_pair: TokenPair = pair
+    vol = token_pair.volume
+    return float(vol.h24) if vol and vol.h24 is not None else 0.0
+
+
+def _serialize_trending_pair(pair: PairLike) -> Dict[str, Any]:
+    summary = _serialize_pair_summary(pair)
+    return {
+        "pair_address": summary.get("pair_address"),
+        "base_token": summary.get("base_token"),
+        "quote_token": summary.get("quote_token"),
+        "price_usd": summary.get("price_usd"),
+        "volume_24h": summary.get("volume_24h"),
+        "price_change_24h": summary.get("price_change_24h"),
+        "liquidity": summary.get("liquidity"),
+    }
 
 
 def create_dexscreener_tools(dex_tools: DexScreenerTools) -> List[Tool]:

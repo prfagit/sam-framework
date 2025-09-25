@@ -1,8 +1,10 @@
 """User-friendly error messages with actionable solutions."""
 
+from __future__ import annotations
+
 import logging
-from typing import Dict, Optional, Any
 from enum import Enum
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +24,13 @@ class UserFriendlyError:
         category: ErrorCategory,
         title: str,
         message: str,
-        solutions: list[str],
+        solutions: Sequence[str],
         original_error: Optional[str] = None,
     ):
         self.category = category
         self.title = title
         self.message = message
-        self.solutions = solutions
+        self.solutions: List[str] = list(solutions)
         self.original_error = original_error
 
     def to_dict(self) -> Dict[str, Any]:
@@ -57,7 +59,9 @@ class ErrorMessageGenerator:
     """Generate user-friendly error messages from technical errors."""
 
     @staticmethod
-    def from_solana_error(error_msg: str, context: Optional[Dict] = None) -> UserFriendlyError:
+    def from_solana_error(
+        error_msg: str, context: Optional[Mapping[str, Any]] = None
+    ) -> UserFriendlyError:
         """Convert Solana RPC errors to user-friendly messages."""
         error_lower = error_msg.lower()
 
@@ -144,7 +148,9 @@ class ErrorMessageGenerator:
         )
 
     @staticmethod
-    def from_pump_fun_error(error_msg: str, context: Optional[Dict] = None) -> UserFriendlyError:
+    def from_pump_fun_error(
+        error_msg: str, context: Optional[Mapping[str, Any]] = None
+    ) -> UserFriendlyError:
         """Convert Pump.fun API errors to user-friendly messages."""
         error_lower = error_msg.lower()
 
@@ -287,7 +293,9 @@ class ErrorMessageGenerator:
         )
 
 
-def handle_error_gracefully(error: Exception, context: Optional[Dict] = None) -> Dict[str, Any]:
+def handle_error_gracefully(
+    error: Exception, context: Optional[Mapping[str, Any]] = None
+) -> Dict[str, Any]:
     """Convert any error to a user-friendly response."""
     error_msg = str(error)
 
@@ -299,8 +307,8 @@ def handle_error_gracefully(error: Exception, context: Optional[Dict] = None) ->
             friendly_error = ErrorMessageGenerator.from_pump_fun_error(error_msg, context)
         elif "validation" in error_msg.lower():
             # Extract field name if possible
-            field = context.get("field", "input") if context else "input"
-            friendly_error = ErrorMessageGenerator.from_validation_error(field, error_msg)
+            field_value = context.get("field", "input") if context else "input"
+            friendly_error = ErrorMessageGenerator.from_validation_error(str(field_value), error_msg)
         elif "api" in error_msg.lower() and "key" in error_msg.lower():
             friendly_error = ErrorMessageGenerator.no_api_key()
         elif "wallet" in error_msg.lower() and "configured" in error_msg.lower():
@@ -331,14 +339,20 @@ def handle_error_gracefully(error: Exception, context: Optional[Dict] = None) ->
         }
 
 
-def format_error_for_cli(error_dict: Dict[str, Any]) -> str:
+def format_error_for_cli(error_dict: Mapping[str, Any]) -> str:
     """Format error dictionary for CLI display."""
     if not error_dict.get("error"):
         return str(error_dict)
 
     title = error_dict.get("title", "Error")
     message = error_dict.get("message", "Something went wrong")
-    solutions = error_dict.get("solutions", [])
+    raw_solutions = error_dict.get("solutions", [])
+    if isinstance(raw_solutions, Sequence) and not isinstance(raw_solutions, (str, bytes)):
+        solutions = [str(item) for item in raw_solutions]
+    elif raw_solutions:
+        solutions = [str(raw_solutions)]
+    else:
+        solutions = []
 
     output = f"❌ **{title}**\n\n{message}"
 

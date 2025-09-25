@@ -1,4 +1,3 @@
-import pytest
 from typing import cast
 
 from sam.core.event_payloads import (
@@ -7,7 +6,6 @@ from sam.core.event_payloads import (
     AgentStatusPayload,
     AgentStatusState,
     LLMUsagePayload,
-    ToolCalledPayload,
     ToolFailedPayload,
     ToolResultPayload,
 )

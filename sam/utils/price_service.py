@@ -1,11 +1,12 @@
 """Price service for USD conversions (Jupiter first, DexScreener fallback or selectable)."""
 
 import asyncio
-import os
 import logging
+import os
 import time
-from typing import Dict, Optional, Any, List
+from typing import Any, Dict, Mapping, Optional, Sequence
 from dataclasses import dataclass
+
 from .http_client import get_session
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ class PriceService:
         self._last_estimate_log_at: float = 0.0
 
         # Common token mint addresses for quick reference
-        self.COMMON_TOKENS = {
+        self.COMMON_TOKENS: Dict[str, str] = {
             "SOL": "So11111111111111111111111111111111111111112",
             "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "USDT": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
@@ -76,12 +77,21 @@ class PriceService:
                     async with session.get(url, params=params) as response:
                         if response.status != 200:
                             return None
-                        data = await response.json()
+                        raw_data = await response.json()
+                        data = _as_mapping(raw_data)
+                        if not data:
+                            return None
+                        prices = _as_mapping(data.get("data"))
+                        if not prices:
+                            return None
+                        sol_mint = "So11111111111111111111111111111111111111112"
+                        sol_entry = _as_mapping(prices.get(sol_mint))
+                        if not sol_entry:
+                            return None
+                        price = sol_entry.get("price")
                         try:
-                            # v3 API returns price directly under the mint address
-                            sol_mint = "So11111111111111111111111111111111111111112"
-                            return float(data["data"][sol_mint]["price"])  # type: ignore[index]
-                        except Exception:
+                            return float(price) if price is not None else None
+                        except (TypeError, ValueError):
                             return None
 
                 async def _from_dexscreener() -> Optional[float]:
@@ -92,20 +102,32 @@ class PriceService:
                     async with session.get(url) as response:
                         if response.status != 200:
                             return None
-                        data = await response.json()
-                        pairs = data.get("pairs") or []
-                        best = None
+                        raw_data = await response.json()
+                        data = _as_mapping(raw_data)
+                        pairs = _as_sequence(data.get("pairs")) if data else []
+                        best: Optional[float] = None
                         best_liq = -1.0
-                        for p in pairs:
-                            try:
-                                liq = float((p.get("liquidity") or {}).get("usd") or 0.0)
-                                if liq > best_liq and p.get("priceUsd"):
-                                    best = p
-                                    best_liq = liq
-                            except Exception:
+                        for pair in pairs:
+                            mapping_pair = _as_mapping(pair)
+                            if not mapping_pair:
                                 continue
-                        if best and best.get("priceUsd"):
-                            return float(best["priceUsd"])  # type: ignore[index]
+                            liquidity = _as_mapping(mapping_pair.get("liquidity"))
+                            usd_liquidity = liquidity.get("usd") if liquidity else None
+                            price_usd = mapping_pair.get("priceUsd")
+                            try:
+                                liq_value = float(usd_liquidity) if usd_liquidity is not None else 0.0
+                            except (TypeError, ValueError):
+                                liq_value = 0.0
+                            if price_usd is None:
+                                continue
+                            if liq_value > best_liq:
+                                try:
+                                    best = float(price_usd)
+                                    best_liq = liq_value
+                                except (TypeError, ValueError):
+                                    continue
+                        if best is not None:
+                            return best
                         return None
 
                 async def _cache_and_return(price: float, source: str) -> float:
@@ -203,7 +225,9 @@ class PriceService:
             return f"{sol_amount:.4f} SOL"
 
     async def format_portfolio_value(
-        self, sol_balance: float, tokens: Optional[List] = None
+        self,
+        sol_balance: float,
+        tokens: Optional[Sequence[Mapping[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Format complete portfolio with USD values."""
         try:
@@ -251,7 +275,7 @@ class PriceService:
 
         return stats
 
-    async def clear_cache(self):
+    async def clear_cache(self) -> None:
         """Clear all cached prices."""
         async with self._lock:
             self._price_cache.clear()
@@ -275,7 +299,7 @@ async def get_price_service() -> PriceService:
     return _global_price_service
 
 
-async def cleanup_price_service():
+async def cleanup_price_service() -> None:
     """Cleanup global price service."""
     global _global_price_service
     if _global_price_service:
@@ -300,3 +324,15 @@ async def sol_to_usd(sol_amount: float) -> float:
     """Convert SOL to USD."""
     service = await get_price_service()
     return await service.sol_to_usd(sol_amount)
+
+
+def _as_mapping(value: Any) -> Optional[Mapping[str, Any]]:
+    if isinstance(value, Mapping):
+        return value
+    return None
+
+
+def _as_sequence(value: Any) -> Sequence[Any]:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return value
+    return []

@@ -1,14 +1,19 @@
 """Circuit breaker implementation for resilient API calls."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Any, Callable, Optional
 from functools import wraps
+from typing import Awaitable, Callable, Dict, Optional, ParamSpec, Tuple, TypeVar, TypedDict
 
 logger = logging.getLogger(__name__)
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 class CircuitState(Enum):
@@ -27,7 +32,7 @@ class CircuitBreakerConfig:
     recovery_timeout: float = 60.0  # Seconds before attempting recovery
     success_threshold: int = 3  # Successes needed to close from half-open
     timeout: float = 30.0  # Request timeout in seconds
-    exceptions: tuple = (Exception,)  # Exceptions that count as failures
+    exceptions: Tuple[type[BaseException], ...] = (Exception,)  # Exceptions that count as failures
 
 
 @dataclass
@@ -52,14 +57,16 @@ class CircuitBreakerError(Exception):
 class CircuitBreaker:
     """Circuit breaker implementation for resilient API calls."""
 
-    def __init__(self, name: str, config: Optional[CircuitBreakerConfig] = None):
+    def __init__(self, name: str, config: Optional[CircuitBreakerConfig] = None) -> None:
         self.name = name
         self.config = config or CircuitBreakerConfig()
         self.stats = CircuitBreakerStats()
         self._lock = asyncio.Lock()
         logger.info(f"Circuit breaker '{name}' initialized with config: {self.config}")
 
-    async def call(self, func: Callable, *args, **kwargs) -> Any:
+    async def call(
+        self, func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
+    ) -> T:
         """Execute a function with circuit breaker protection."""
         async with self._lock:
             await self._check_state()
@@ -87,7 +94,7 @@ class CircuitBreaker:
             await self._on_failure()
             raise
 
-    async def _check_state(self):
+    async def _check_state(self) -> None:
         """Check and update circuit breaker state."""
         current_time = time.time()
 
@@ -99,7 +106,7 @@ class CircuitBreaker:
             self.stats.state = CircuitState.HALF_OPEN
             self.stats.success_count = 0
 
-    async def _on_success(self):
+    async def _on_success(self) -> None:
         """Handle successful call."""
         async with self._lock:
             if self.stats.state == CircuitState.HALF_OPEN:
@@ -111,7 +118,7 @@ class CircuitBreaker:
             elif self.stats.state == CircuitState.CLOSED:
                 self.stats.failure_count = 0
 
-    async def _on_failure(self):
+    async def _on_failure(self) -> None:
         """Handle failed call."""
         async with self._lock:
             self.stats.failure_count += 1
@@ -130,7 +137,7 @@ class CircuitBreaker:
                 logger.warning(f"Circuit breaker '{self.name}' transitioning to OPEN")
                 self.stats.state = CircuitState.OPEN
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> "CircuitBreakerStatsSnapshot":
         """Get current circuit breaker statistics."""
         return {
             "name": self.name,
@@ -159,14 +166,16 @@ def get_circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None
     return _circuit_breakers[name]
 
 
-def circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None):
+def circuit_breaker(
+    name: str, config: Optional[CircuitBreakerConfig] = None
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
     """Decorator to add circuit breaker protection to async functions."""
 
-    def decorator(func: Callable):
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         breaker = get_circuit_breaker(name, config)
 
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             return await breaker.call(func, *args, **kwargs)
 
         return wrapper
@@ -174,6 +183,17 @@ def circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None):
     return decorator
 
 
-def get_all_circuit_breaker_stats() -> Dict[str, Dict[str, Any]]:
+def get_all_circuit_breaker_stats() -> Dict[str, CircuitBreakerStatsSnapshot]:
     """Get statistics for all circuit breakers."""
     return {name: breaker.get_stats() for name, breaker in _circuit_breakers.items()}
+
+
+class CircuitBreakerStatsSnapshot(TypedDict):
+    name: str
+    state: str
+    failure_count: int
+    total_requests: int
+    total_failures: int
+    total_timeouts: int
+    failure_rate: float
+    last_failure_time: float

@@ -4,13 +4,16 @@ import time
 import traceback
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Callable
+from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union, cast
 from dataclasses import dataclass
 from enum import Enum
 import aiosqlite
 import os
 
 logger = logging.getLogger(__name__)
+
+HealthCheckFunc = Callable[[], Union[Awaitable[Any], Any]]
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 class ErrorSeverity(Enum):
@@ -51,7 +54,7 @@ class ErrorTracker:
 
         logger.info(f"Initialized error tracker: {db_path}")
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize error tracking database."""
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute("""
@@ -86,7 +89,7 @@ class ErrorTracker:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> None:
         """Log an error to the tracking system."""
         try:
             error_record = ErrorRecord(
@@ -121,7 +124,7 @@ class ErrorTracker:
             # Don't let error logging break the main flow
             logger.error(f"Failed to log error: {e}")
 
-    async def _store_error(self, error_record: ErrorRecord):
+    async def _store_error(self, error_record: ErrorRecord) -> None:
         """Store error record in database."""
         try:
             async with aiosqlite.connect(self.db_path) as conn:
@@ -253,7 +256,7 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         recovery_timeout: int = 60,
         expected_exception: type[Exception] = Exception,
-    ):
+    ) -> None:
         self.name = name
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
@@ -273,7 +276,12 @@ class CircuitBreaker:
             and time.time() - self.last_failure_time >= self.recovery_timeout
         )
 
-    async def call(self, func: Callable, *args, **kwargs) -> Any:
+    async def call(
+        self,
+        func: Callable[..., Union[Awaitable[Any], Any]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         """Execute function with circuit breaker protection."""
         if self.state == "open":
             if self._should_attempt_reset():
@@ -283,11 +291,10 @@ class CircuitBreaker:
                 raise Exception(f"Circuit breaker {self.name} is open")
 
         try:
-            result = (
-                await func(*args, **kwargs)
-                if asyncio.iscoroutinefunction(func)
-                else func(*args, **kwargs)
-            )
+            if asyncio.iscoroutinefunction(func):
+                result = await cast(Callable[..., Awaitable[Any]], func)(*args, **kwargs)
+            else:
+                result = func(*args, **kwargs)
 
             # Success - reset failure count
             if self.state == "half_open":
@@ -313,11 +320,16 @@ class CircuitBreaker:
 class HealthChecker:
     """Health monitoring for SAM framework components."""
 
-    def __init__(self):
-        self.checks = {}
-        self.last_check_time = {}
+    def __init__(self) -> None:
+        self.checks: Dict[str, Dict[str, Any]] = {}
+        self.last_check_time: Dict[str, float] = {}
 
-    def register_health_check(self, name: str, check_func: Callable, interval: int = 60):
+    def register_health_check(
+        self,
+        name: str,
+        check_func: HealthCheckFunc,
+        interval: int = 60,
+    ) -> None:
         """Register a health check function."""
         self.checks[name] = {
             "func": check_func,
@@ -327,19 +339,20 @@ class HealthChecker:
         }
         logger.info(f"Registered health check: {name}")
 
-    async def run_health_checks(self) -> Dict[str, Any]:
+    async def run_health_checks(self) -> Dict[str, Optional[Dict[str, Any]]]:
         """Run all health checks and return results."""
-        results = {}
+        results: Dict[str, Optional[Dict[str, Any]]] = {}
         current_time = time.time()
 
         for name, check in self.checks.items():
             # Only run check if interval has elapsed
             if current_time - check["last_check"] >= check["interval"]:
                 try:
-                    if asyncio.iscoroutinefunction(check["func"]):
-                        result = await check["func"]()
+                    func = check["func"]
+                    if asyncio.iscoroutinefunction(func):
+                        result = await cast(Callable[..., Awaitable[Any]], func)()
                     else:
-                        result = check["func"]()
+                        result = func()
 
                     check["last_result"] = {
                         "status": "healthy",
@@ -384,25 +397,31 @@ def get_health_checker() -> HealthChecker:
 
 
 async def log_error(
-    error: Exception, component: str, severity: ErrorSeverity = ErrorSeverity.MEDIUM, **kwargs
-):
+    error: Exception,
+    component: str,
+    severity: ErrorSeverity = ErrorSeverity.MEDIUM,
+    **kwargs: Any,
+) -> None:
     """Convenience function to log errors."""
     tracker = await get_error_tracker()
     await tracker.log_error(error, component, severity, **kwargs)
 
 
-def handle_errors(component: str, severity: ErrorSeverity = ErrorSeverity.MEDIUM):
+def handle_errors(
+    component: str,
+    severity: ErrorSeverity = ErrorSeverity.MEDIUM,
+) -> Callable[[F], F]:
     """Decorator for automatic error handling and logging."""
 
-    def decorator(func: Callable) -> Callable:
-        async def async_wrapper(*args, **kwargs):
+    def decorator(func: F) -> F:
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
                 await log_error(e, component, severity)
                 raise
 
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return func(*args, **kwargs)
             except Exception as e:
@@ -410,6 +429,8 @@ def handle_errors(component: str, severity: ErrorSeverity = ErrorSeverity.MEDIUM
                 logger.error(f"Error in {component}: {e}")
                 raise
 
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+        if asyncio.iscoroutinefunction(func):
+            return cast(F, async_wrapper)
+        return cast(F, sync_wrapper)
 
     return decorator

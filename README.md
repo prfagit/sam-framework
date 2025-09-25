@@ -588,6 +588,47 @@ uv run ruff check --fix
 uv run mypy sam/
 ```
 
+### Verification Checklist
+
+Run before opening a pull request to ensure quality gates stay green:
+
+```bash
+uv run ruff check           # Static analysis
+uv run mypy sam/           # Type safety across the package
+uv run pytest -v           # Full test suite
+```
+
+All three commands must pass without warnings for CI parity.
+
+### Decorator Utilities
+
+SAM ships a single, consolidated decorator toolkit under `sam.utils.decorators`. These helpers combine rate limiting, error tracking, retry/backoff, and performance telemetry in one place:
+
+```python
+from sam.utils.decorators import (
+    rate_limit,
+    retry_with_backoff,
+    log_execution,
+    safe_async_operation,
+    performance_monitor,
+)
+from sam.utils.error_handling import ErrorSeverity
+
+
+@safe_async_operation(
+    "dexscreener",
+    log_result=True,
+    max_retries=2,
+    error_severity=ErrorSeverity.MEDIUM,
+)
+@performance_monitor("dexscreener", warn_threshold=0.5)
+@rate_limit("market_data")
+async def fetch_pair(mint: str) -> dict:
+    ...
+```
+
+All decorator imports that previously referenced `sam.utils.enhanced_decorators` should now use `sam.utils.decorators`.
+
 ### Development Workflow
 
 ```bash

@@ -1,10 +1,15 @@
 """Shared HTTP client for consistent session management across integrations."""
 
-import logging
-import aiohttp
+from __future__ import annotations
+
 import asyncio
-from typing import Optional
+import logging
+import os
 from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Optional
+
+import aiohttp
+
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +20,7 @@ class SharedHTTPClient:
     _instance: Optional["SharedHTTPClient"] = None
     _session: Optional[aiohttp.ClientSession] = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._closed = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -56,7 +61,7 @@ class SharedHTTPClient:
         assert self._session is not None, "Session should be created by _create_session"
         return self._session
 
-    async def _create_session(self):
+    async def _create_session(self) -> None:
         """Create new HTTP session with optimized settings."""
         # Connection pooling and timeout configuration
         connector = aiohttp.TCPConnector(
@@ -69,8 +74,7 @@ class SharedHTTPClient:
         )
 
         # Shorter defaults in test mode to avoid long hangs
-        import os as _os
-        if _os.getenv("SAM_TEST_MODE") == "1":
+        if os.getenv("SAM_TEST_MODE") == "1":
             timeout = aiohttp.ClientTimeout(total=20, connect=5, sock_read=10)
         else:
             timeout = aiohttp.ClientTimeout(total=60, connect=10, sock_read=30)
@@ -90,7 +94,9 @@ class SharedHTTPClient:
             self._loop = None
 
     @asynccontextmanager
-    async def request(self, method: str, url: str, **kwargs):
+    async def request(
+        self, method: str, url: str, **kwargs: Any
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
         """Context manager for making HTTP requests with automatic cleanup."""
         session = await self.get_session()
         try:
@@ -100,7 +106,7 @@ class SharedHTTPClient:
             logger.error(f"HTTP request failed: {method} {url} - {e}")
             raise
 
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP session and cleanup resources."""
         if self._session and not self._session.closed:
             await self._session.close()
@@ -108,10 +114,15 @@ class SharedHTTPClient:
         self._closed = True
         self._loop = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "SharedHTTPClient":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        _exc_type: Optional[type[BaseException]],
+        _exc_val: Optional[BaseException],
+        _exc_tb: Optional[Any],
+    ) -> None:
         await self.close()
 
 
@@ -127,7 +138,7 @@ async def get_http_client() -> SharedHTTPClient:
     return _global_client
 
 
-async def cleanup_http_client():
+async def cleanup_http_client() -> None:
     """Cleanup global HTTP client."""
     global _global_client
     if _global_client:
@@ -143,8 +154,16 @@ async def get_session() -> aiohttp.ClientSession:
 
 
 @asynccontextmanager
-async def http_request(method: str, url: str, **kwargs):
+async def http_request(
+    method: str, url: str, **kwargs: Any
+) -> AsyncIterator[aiohttp.ClientResponse]:
     """Make HTTP request using global shared client."""
     client = await get_http_client()
-    async with client.request(method, url, **kwargs) as response:
+
+    @asynccontextmanager
+    async def _execute() -> AsyncIterator[aiohttp.ClientResponse]:
+        async with client.request(method, url, **kwargs) as response:
+            yield response
+
+    async with _execute() as response:
         yield response

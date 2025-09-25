@@ -9,7 +9,7 @@ import os
 from sam.utils.http_client import get_http_client, cleanup_http_client
 from sam.utils.connection_pool import DatabasePool, get_database_pool, cleanup_database_pool
 from sam.utils.rate_limiter import RateLimiter, cleanup_rate_limiter
-from sam.utils.enhanced_decorators import safe_async_operation, performance_monitor
+from sam.utils.decorators import safe_async_operation, performance_monitor
 from sam.utils.error_handling import ErrorSeverity
 from sam.core.memory import MemoryManager
 

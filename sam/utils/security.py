@@ -1,15 +1,18 @@
 """Security utilities and hardening for SAM framework."""
 
+import asyncio
 import hashlib
 import hmac
 import secrets
 import re
 import logging
-from typing import Dict, Any, Optional, List, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TypeVar, Union, cast
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 @dataclass
@@ -22,7 +25,7 @@ class SecurityConfig:
     blocked_domains: Optional[List[str]] = None
     rate_limit_bypass_tokens: Optional[List[str]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.allowed_protocols is None:
             self.allowed_protocols = ["https", "wss"]
         if self.blocked_domains is None:
@@ -34,7 +37,7 @@ class SecurityConfig:
 class InputValidator:
     """Comprehensive input validation and sanitization."""
 
-    def __init__(self, config: Optional[SecurityConfig] = None):
+    def __init__(self, config: Optional[SecurityConfig] = None) -> None:
         self.config = config or SecurityConfig()
 
         # Common patterns for validation
@@ -173,7 +176,7 @@ class InputValidator:
 class SecurityScanner:
     """Security scanning and threat detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.suspicious_patterns = [
             # Common attack patterns
             re.compile(r"union\s+select", re.IGNORECASE),
@@ -222,11 +225,11 @@ class SecurityScanner:
 class SecureLogger:
     """Security-focused logging that redacts sensitive information."""
 
-    def __init__(self, logger_name: str):
+    def __init__(self, logger_name: str) -> None:
         self.logger = logging.getLogger(logger_name)
 
         # Patterns to redact in logs
-        self.redact_patterns = [
+        self.redact_patterns: List[tuple[re.Pattern[str], Union[str, Callable[[re.Match[str]], str]]]] = [
             (
                 re.compile(
                     r'(private[_-]?key["\s]*[:=]["\s]*)([A-Za-z0-9+/=]{32,})(["\s]*)', re.IGNORECASE
@@ -263,20 +266,20 @@ class SecureLogger:
 
         return message
 
-    def secure_log(self, level: int, message: str, *args, **kwargs):
+    def secure_log(self, level: int, message: str, *args: Any, **kwargs: Any) -> None:
         """Log message with sensitive data redaction."""
         redacted_message = self.redact_sensitive_data(message)
         self.logger.log(level, redacted_message, *args, **kwargs)
 
-    def secure_info(self, message: str, *args, **kwargs):
+    def secure_info(self, message: str, *args: Any, **kwargs: Any) -> None:
         """Secure info logging."""
         self.secure_log(logging.INFO, message, *args, **kwargs)
 
-    def secure_warning(self, message: str, *args, **kwargs):
+    def secure_warning(self, message: str, *args: Any, **kwargs: Any) -> None:
         """Secure warning logging."""
         self.secure_log(logging.WARNING, message, *args, **kwargs)
 
-    def secure_error(self, message: str, *args, **kwargs):
+    def secure_error(self, message: str, *args: Any, **kwargs: Any) -> None:
         """Secure error logging."""
         self.secure_log(logging.ERROR, message, *args, **kwargs)
 
@@ -284,7 +287,7 @@ class SecureLogger:
 class SecurityMiddleware:
     """Security middleware for request processing."""
 
-    def __init__(self, config: Optional[SecurityConfig] = None):
+    def __init__(self, config: Optional[SecurityConfig] = None) -> None:
         self.config = config or SecurityConfig()
         self.validator = InputValidator(config)
         self.scanner = SecurityScanner()
@@ -308,7 +311,7 @@ class SecurityMiddleware:
             issues.append("Invalid request format")
 
         # Scan for threats in all string values
-        def scan_recursive(obj, path=""):
+        def scan_recursive(obj: Any, path: str = "") -> None:
             if isinstance(obj, dict):
                 for key, value in obj.items():
                     scan_recursive(value, f"{path}.{key}")
@@ -377,27 +380,32 @@ def get_security_middleware(config: Optional[SecurityConfig] = None) -> Security
 
 # Security decorator for functions
 def security_check(
-    validate_input: bool = True, log_access: bool = True, require_auth: bool = False
-):
+    validate_input: bool = True,
+    log_access: bool = True,
+) -> Callable[[F], F]:
     """Security decorator for function calls."""
 
-    def decorator(func):
-        async def async_wrapper(*args, **kwargs):
-            middleware = get_security_middleware()
+    def decorator(func: F) -> F:
+        if asyncio.iscoroutinefunction(func):
 
-            if log_access:
-                middleware.secure_logger.secure_info(
-                    f"Function access: {func.__name__} called with {len(args)} args"
-                )
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                middleware = get_security_middleware()
 
-            if validate_input and kwargs:
-                valid, issues = await middleware.validate_request(kwargs)
-                if not valid:
-                    raise ValueError(f"Security validation failed: {issues}")
+                if log_access:
+                    middleware.secure_logger.secure_info(
+                        f"Function access: {func.__name__} called with {len(args)} args"
+                    )
 
-            return await func(*args, **kwargs)
+                if validate_input and kwargs:
+                    valid, issues = await middleware.validate_request(dict(kwargs))
+                    if not valid:
+                        raise ValueError(f"Security validation failed: {issues}")
 
-        def sync_wrapper(*args, **kwargs):
+                return await cast(Callable[..., Awaitable[Any]], func)(*args, **kwargs)
+
+            return cast(F, async_wrapper)
+
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             middleware = get_security_middleware()
 
             if log_access:
@@ -407,8 +415,6 @@ def security_check(
 
             return func(*args, **kwargs)
 
-        import asyncio
-
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+        return cast(F, sync_wrapper)
 
     return decorator

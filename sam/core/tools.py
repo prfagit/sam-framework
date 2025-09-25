@@ -41,7 +41,7 @@ class ToolRegistry:
         self._middlewares: List[Middleware] = list(middlewares or [])
         self._logger = logging.getLogger(__name__)
 
-    def register(self, tool: Tool):
+    def register(self, tool: Tool) -> None:
         name = tool.spec.name
         if name in self._tools:
             self._logger.warning(f"Overwriting already-registered tool: {name}")

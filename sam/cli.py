@@ -5,14 +5,18 @@ Polished, minimal CLI with subtle styling, a lightweight spinner
 animation, and handy slash-commands for a clean contributor UX.
 """
 
-import asyncio
-import sys
-import os
+from __future__ import annotations
+
 import argparse
+import asyncio
+import importlib
 import logging
+import os
 import shutil
+import sys
 import textwrap
-from typing import Optional
+from types import TracebackType
+from typing import Any, Optional, cast
 
 try:
     import uvloop
@@ -25,8 +29,8 @@ from .core.agent import SAMAgent
 from .core.builder import cleanup_agent_fast
 from .core.agent_factory import get_default_factory
 from .core.context import RequestContext
-from .config.settings import Settings, setup_logging
 from .config.plugin_policy import PluginPolicy, load_allowlist_document
+from .config.settings import Settings, setup_logging
 
 # crypto helpers are used in commands; CLI no longer needs them directly
 # secure storage used in subcommands; not needed at CLI top-level anymore
@@ -52,15 +56,16 @@ from .commands.keys import (
 from .commands.maintenance import run_maintenance as cmd_run_maintenance
 from .commands.health import run_health_check as cmd_run_health
 from .commands.plugins import run_plugins_command as cmd_run_plugins
-from .utils.env_files import find_env_path
+from .interactive_settings import InquirerInterface
 from .utils.ascii_loader import show_sam_intro
+from .utils.env_files import find_env_path
 # Note: integrations are now wired inside AgentBuilder
 
 logger = logging.getLogger(__name__)
 
 
 # Optional interactive UI (menus, prompts) — lazily imported to avoid hard deps
-_INQ = None  # type: ignore
+_INQ: InquirerInterface | None = None
 
 
 def _ensure_inquirer() -> bool:
@@ -68,12 +73,13 @@ def _ensure_inquirer() -> bool:
     if _INQ is not None:
         return True
     try:
-        import inquirer as _inquirer  # type: ignore
-
-        _INQ = _inquirer
-        return True
+        module = importlib.import_module("inquirer")
+    except ModuleNotFoundError:
+        return False
     except Exception:
         return False
+    _INQ = cast(InquirerInterface, module)
+    return True
 
 
 # CLI request context + shared factory for agent reuse
@@ -120,7 +126,6 @@ class Style:
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
-    ITALIC = "\033[3m"
 
     # Foreground (subtle palette)
     FG_CYAN = "\033[36m"
@@ -170,11 +175,11 @@ class Spinner:
     def __init__(self, message: str = "Working", interval: float = 0.08):
         self.message = message
         self.interval = interval
-        self._task = None
+        self._task: asyncio.Task[None] | None = None
         self._running = False
         self._current_status = message
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Spinner":
         if supports_ansi():
             self._running = True
             self._task = asyncio.create_task(self._spin())
@@ -184,14 +189,19 @@ class Spinner:
             sys.stdout.flush()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _tb: TracebackType | None,
+    ) -> None:
         await self.stop()
 
-    def update_status(self, new_message: str):
+    def update_status(self, new_message: str) -> None:
         """Update the spinner message during execution."""
         self._current_status = new_message
 
-    async def _spin(self):
+    async def _spin(self) -> None:
         i = 0
         while self._running:
             frame = self.FRAMES[i % len(self.FRAMES)]
@@ -201,7 +211,7 @@ class Spinner:
             i += 1
             await asyncio.sleep(self.interval)
 
-    async def stop(self):
+    async def stop(self) -> None:
         if self._running:
             self._running = False
             if self._task:
@@ -222,10 +232,10 @@ async def setup_agent() -> SAMAgent:
     return await CLI_FACTORY.get_agent(CLI_CONTEXT)
 
 
-async def cleanup_agent(agent):
+async def cleanup_agent(agent: SAMAgent | None) -> None:
     """Clean up agent resources quickly (delegated)."""
     try:
-        if agent and hasattr(agent, "close"):
+        if agent is not None:
             try:
                 await asyncio.wait_for(agent.close(), timeout=1.0)
             except Exception:
@@ -237,13 +247,18 @@ async def cleanup_agent(agent):
     await cleanup_agent_fast()
 
 
-async def run_interactive_session(session_id: str, no_animation: bool = False, *, clear_sessions: bool = False):
+async def run_interactive_session(
+    session_id: str,
+    no_animation: bool = False,
+    *,
+    clear_sessions: bool = False,
+) -> int:
     """Run interactive REPL session."""
     # Show fast glitch intro (unless disabled)
     if not no_animation:
         await show_sam_intro("glitch")
 
-    agent = None
+    agent: SAMAgent | None = None
     # Initialize agent
     try:
         async with Spinner("Loading SAM"):
@@ -263,7 +278,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
     # Determine default session behavior: if session_id is 'default' or 'latest',
     # switch to the most recently updated session, creating a new dated one if none exists.
     try:
-        if session_id in {None, "", "default", "latest"}:  # type: ignore[comparison-overlap]
+        if not session_id or session_id in {"default", "latest"}:
             latest = await agent.memory.get_latest_session(user_id=CLI_CONTEXT.user_id)
             if latest:
                 session_id = latest.get("session_id", "default")
@@ -360,14 +375,14 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
         except Exception:
             return "unset"
 
-    async def show_tools():
+    async def show_tools() -> None:
         specs = agent.tools.list_specs()
         print()
         print(colorize("🔧 Available Tools", Style.BOLD, Style.FG_CYAN))
         print()
 
         # Group tools by category
-        categories = {
+        categories: dict[str, list[str]] = {
             "💰 Wallet & Balance": ["get_balance", "transfer_sol"],
             "📊 Token Data": [
                 "get_token_data",
@@ -410,7 +425,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
             print()
         print()
 
-    def show_config():
+    def show_config() -> None:
         print(colorize(hr(), Style.FG_GRAY))
         print(colorize("Configuration", Style.BOLD))
 
@@ -459,11 +474,11 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
             pass
         print(colorize(hr(), Style.FG_GRAY))
 
-    def clear_screen():
+    def clear_screen() -> None:
         os.system("cls" if os.name == "nt" else "clear")
         print(banner("SAM"))
 
-    def show_context_info():
+    def show_context_info() -> None:
         """Show compact status line beneath prompt area (no tokens for now)."""
         stats = agent.session_stats
         context_length = int(stats.get("context_length", 0) or 0)
@@ -471,7 +486,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
         line = f"model:{model_short()} • ctx:{pct}% ({context_length}/{MAX_CONTEXT_MSGS}) • wallet:{wallet_short()}"
         print(colorize(f"  {line}", Style.DIM, Style.FG_GRAY))
 
-    def _format_history_entry(msg: dict) -> Optional[str]:
+    def _format_history_entry(msg: dict[str, Any]) -> Optional[str]:
         role = msg.get("role")
         # Hide internal system notes
         if role == "system":
@@ -503,7 +518,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
             return f"Assistant: {content}"
         return f"{role}: {content}"
 
-    async def show_history(limit: Optional[int] = None):
+    async def show_history(limit: Optional[int] = None) -> None:
         try:
             ctx = await agent.memory.load_session(session_id, user_id=CLI_CONTEXT.user_id)
         except Exception as e:
@@ -535,7 +550,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                 print(colorize(line, Style.FG_GRAY))
         print(colorize(hr(), Style.FG_GRAY))
 
-    async def list_and_maybe_switch_session():
+    async def list_and_maybe_switch_session() -> None:
         nonlocal session_id
         try:
             sessions = await agent.memory.list_sessions(
@@ -557,12 +572,16 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
         # Offer interactive switch if inquirer available
         if _ensure_inquirer():
             try:
-                choice = _INQ.list_input(
+                inquirer = _INQ
+                if inquirer is None:
+                    return
+                choices = [str(s.get("session_id")) for s in sessions if s.get("session_id")]
+                raw_choice = inquirer.list_input(
                     "Switch to session? (ESC to cancel)",
-                    choices=[s.get("session_id") for s in sessions],
+                    choices=choices,
                 )
-                if choice:
-                    session_id = choice
+                if raw_choice:
+                    session_id = str(raw_choice)
                     print(colorize(f"Switched to session: {session_id}", Style.FG_GREEN))
                     await show_history(limit=None)
             except Exception:
@@ -574,11 +593,14 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
     except Exception:
         pass
 
-    def interactive_select(title: str, options: list[tuple[str, str]]):
+    def interactive_select(title: str, options: list[tuple[str, str]]) -> Optional[str]:
         if _ensure_inquirer():
             try:
+                inquirer = _INQ
+                if inquirer is None:
+                    return None
                 choice_map = {label: value for label, value in options}
-                choice = _INQ.list_input(title, choices=list(choice_map.keys()))  # type: ignore
+                choice = inquirer.list_input(title, choices=list(choice_map.keys()))
                 return choice_map.get(choice)
             except KeyboardInterrupt:
                 return None
@@ -594,10 +616,13 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
         print(colorize("Tip: install with `uv add inquirer`", Style.FG_GRAY))
         return None
 
-    def interactive_text(title: str, default: str = ""):
+    def interactive_text(title: str, default: str = "") -> Optional[str]:
         if _ensure_inquirer():
             try:
-                return _INQ.text(title, default=default)  # type: ignore
+                inquirer = _INQ
+                if inquirer is None:
+                    return default
+                return inquirer.text(title, default=default)
             except KeyboardInterrupt:
                 return None
             except Exception:
@@ -618,7 +643,10 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
     def interactive_confirm(title: str, default: bool = False) -> bool:
         if _ensure_inquirer():
             try:
-                return bool(_INQ.confirm(title, default=default))  # type: ignore
+                inquirer = _INQ
+                if inquirer is None:
+                    return default
+                return bool(inquirer.confirm(title, default=default))
             except KeyboardInterrupt:
                 return False
             except Exception:
@@ -760,8 +788,8 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                             ],
                         )
                         if name:
-                            result = cmd_switch_provider(name)
-                            if result == 0:
+                            switch_status = cmd_switch_provider(name)
+                            if switch_status == 0:
                                 print(
                                     colorize(
                                         "🔄 Restart SAM to use the new provider", Style.FG_YELLOW
@@ -771,8 +799,8 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                 if user_input.startswith("/switch "):
                     provider = user_input.split(" ", 1)[1] if len(user_input.split(" ")) > 1 else ""
                     if provider:
-                        result = cmd_switch_provider(provider)
-                        if result == 0:
+                        switch_status = cmd_switch_provider(provider)
+                        if switch_status == 0:
                             print(
                                 colorize("🔄 Restart SAM to use the new provider", Style.FG_YELLOW)
                             )
@@ -784,13 +812,15 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                     continue
                 if user_input in ("/clear-context",):
                     async with Spinner("Clearing conversation context"):
-                        result = await agent.clear_context(session_id)
-                    print(colorize("✨ " + result, Style.FG_GREEN))
+                        clear_message = await agent.clear_context(session_id)
+                    print(colorize("✨ " + clear_message, Style.FG_GREEN))
                     continue
                 if user_input in ("/compact",):
                     async with Spinner("Compacting conversation"):
-                        result = await agent.compact_conversation(session_id, keep_recent=0)
-                    print(colorize("📋 " + result, Style.FG_GREEN))
+                        compact_message = await agent.compact_conversation(
+                            session_id, keep_recent=0
+                        )
+                    print(colorize("📋 " + compact_message, Style.FG_GREEN))
                     await show_history(limit=None)
                     continue
                 # Diagnostics: /wallet and /balance [address]
@@ -814,9 +844,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                         print(colorize("Solana tools unavailable.", Style.FG_YELLOW))
                         continue
                     async with Spinner("Querying balance"):
-                        result = await w.get_balance(address or None)
+                        balance_info = await w.get_balance(address or None)
                     print(colorize(hr(), Style.FG_GRAY))
-                    print(wrap(str(result)))
+                    print(wrap(str(balance_info)))
                     print(colorize(hr(), Style.FG_GRAY))
                     continue
 
@@ -826,9 +856,9 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                     continue
 
                 # Process user input through agent with enhanced spinner
-                current_spinner = None
+                current_spinner: Spinner | None = None
 
-                def tool_callback(tool_name: str, tool_args: dict):
+                def tool_callback(tool_name: str, tool_args: dict[str, Any]) -> None:
                     """Update spinner when tools are used."""
                     nonlocal current_spinner
                     if current_spinner:
@@ -836,11 +866,11 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                         current_spinner.update_status(display_name)
 
                 # Run agent in a task we can cancel via ESC
-                async def _listen_for_escape(cancel_task: asyncio.Task):
+                async def _listen_for_escape(cancel_task: asyncio.Task[str]) -> None:
                     """Listen for ESC key and cancel the current task. Portable best-effort."""
                     try:
                         if os.name == "nt":
-                            import msvcrt  # type: ignore
+                            msvcrt = cast(Any, importlib.import_module("msvcrt"))
 
                             while not cancel_task.done():
                                 if msvcrt.kbhit():
@@ -879,10 +909,11 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
                 async with Spinner("🤔 Thinking — press ESC to interrupt") as spinner:
                     current_spinner = spinner
                     agent.tool_callback = tool_callback
-                    task = asyncio.create_task(
+                    task: asyncio.Task[str] = asyncio.create_task(
                         agent.run(user_input, session_id, context=CLI_CONTEXT)
                     )
-                    esc_task = asyncio.create_task(_listen_for_escape(task))
+                    esc_task: asyncio.Task[None] = asyncio.create_task(_listen_for_escape(task))
+                    response: str = ""
                     try:
                         response = await task
                     except asyncio.CancelledError:
@@ -928,7 +959,7 @@ async def run_interactive_session(session_id: str, no_animation: bool = False, *
     return 0
 
 
-def print_help():
+def print_help() -> None:
     """Print available commands and usage."""
     print()
     print(colorize("🛠️  Quick Commands", Style.BOLD, Style.FG_CYAN))
@@ -956,30 +987,21 @@ def print_help():
     print("   • /history 10  # show last 10 messages")
     print()
 
-
-def _onboarded_flag_path() -> str:
-    # Keep alongside the default DB in .sam
-    root = os.getcwd()
-    sam_dir = os.path.join(root, ".sam")
-    os.makedirs(sam_dir, exist_ok=True)
-    return os.path.join(sam_dir, ".onboarded")
-
-
-def import_private_key():
+def import_private_key() -> int:
     """Shim delegating to commands.keys.import_private_key."""
     from .commands.keys import import_private_key as _import
 
     return _import()
 
 
-def import_private_key_legacy():
+def import_private_key_legacy() -> int:
     """Shim delegating to commands.keys.import_private_key_legacy."""
     from .commands.keys import import_private_key_legacy as _legacy
 
     return _legacy()
 
 
-def generate_key():
+def generate_key() -> int:
     """Shim delegating to commands.keys.generate_key."""
     from .commands.keys import generate_key as _gen
 
@@ -992,7 +1014,7 @@ def generate_key():
 # Provider subcommands moved to sam.cli.commands.providers
 
 
-async def test_provider(provider_name: Optional[str] = None):
+async def test_provider(provider_name: Optional[str] = None) -> int:
     """Shim delegating to commands.providers.test_provider."""
     from .commands.providers import test_provider as _test
 
@@ -1002,7 +1024,7 @@ async def test_provider(provider_name: Optional[str] = None):
 # moved to sam.commands.health.run_health_check
 
 
-async def main():
+async def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="SAM Framework CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -1139,8 +1161,8 @@ async def main():
 
     if args.command == "setup":
         show_setup_status(verbose=True)
-        status = check_setup_status()
-        if status["issues"]:
+        setup_status = check_setup_status()
+        if setup_status["issues"]:
             print(f"\n{CLIFormatter.info('Run setup guide?')} ", end="")
             if input("(Y/n): ").strip().lower() != "n":
                 show_onboarding_guide()
@@ -1215,8 +1237,10 @@ async def main():
         agent = await CLI_FACTORY.get_agent(debug_ctx)
         print(colorize("🔌 Plugins", Style.BOLD, Style.FG_CYAN))
         policy = PluginPolicy.from_env()
-        status = "enabled" if policy.enabled else "disabled"
-        print(f" Policy: {status} (allow unverified: {'on' if policy.allow_unverified else 'off'})")
+        policy_status = "enabled" if policy.enabled else "disabled"
+        print(
+            f" Policy: {policy_status} (allow unverified: {'on' if policy.allow_unverified else 'off'})"
+        )
         print(f" Allowlist: {policy.allowlist_path}")
         doc = load_allowlist_document(policy.allowlist_path)
         modules = doc.get("modules", {})
@@ -1332,7 +1356,7 @@ async def main():
     return 1
 
 
-def app():
+def app() -> None:
     """Entry point for the CLI application."""
     import os
 

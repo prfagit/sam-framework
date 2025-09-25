@@ -2,8 +2,10 @@
 
 import logging
 import os
-from typing import Dict, Any, Union, List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
 from ..core.tools import Tool, ToolSpec
 
 # Decorators replaced by registry middlewares for rate limit/retry/logging
@@ -15,14 +17,14 @@ logger = logging.getLogger(__name__)
 class SearchTools:
     """Search functionality using Brave search API."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None) -> None:
         """Initialize search tools with optional Brave API key."""
         self.api_key = api_key or os.getenv("BRAVE_API_KEY")
         logger.info(
             f"Initialized search tools {'with API key' if self.api_key else 'with fallback mode'}"
         )
 
-    async def close(self):
+    async def close(self) -> None:
         """Close method for compatibility - shared client handles cleanup."""
         pass  # Shared HTTP client handles session lifecycle
 
@@ -71,7 +73,7 @@ class SearchTools:
 
             headers = {"Accept": "application/json", "X-Subscription-Token": self.api_key or ""}
 
-            params: Dict[str, Union[str, int]] = {"q": query, "count": min(count, 20)}
+            params: Dict[str, Any] = {"q": query, "count": min(count, 20)}
 
             if freshness:
                 params["freshness"] = freshness
@@ -80,20 +82,21 @@ class SearchTools:
                 if response.status == 200:
                     data = await response.json()
 
-                    results = []
-                    web_results = (
-                        data.get("web", {}).get("results", [])
-                        if search_type == "web"
-                        else data.get("results", [])
+                    results: List[Dict[str, str]] = []
+                    containers = data.get("web", {}) if search_type == "web" else data
+                    raw_results = (
+                        containers.get("results", []) if isinstance(containers, dict) else []
                     )
 
-                    for result in web_results:
+                    for result in raw_results:
+                        if not isinstance(result, dict):
+                            continue
                         results.append(
                             {
-                                "title": result.get("title", ""),
-                                "url": result.get("url", ""),
-                                "description": result.get("description", ""),
-                                "published": result.get("age", ""),
+                                "title": str(result.get("title", "")),
+                                "url": str(result.get("url", "")),
+                                "description": str(result.get("description", "")),
+                                "published": str(result.get("age", "")),
                             }
                         )
 
@@ -126,10 +129,14 @@ def create_search_tools(search_tools: SearchTools) -> List[Tool]:
             description="Time filter: 'pd' (day), 'pw' (week), 'pm' (month), 'py' (year)",
         )
 
-        def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
-            # Enforce allowed freshness values if provided
-            if self.freshness is not None and self.freshness not in {"pd", "pw", "pm", "py"}:
+        @field_validator("freshness")
+        @classmethod
+        def validate_freshness(
+            cls, value: Optional[str]
+        ) -> Optional[str]:  # pragma: no cover - simple input validation
+            if value is not None and value not in {"pd", "pw", "pm", "py"}:
                 raise ValueError("freshness must be one of: pd, pw, pm, py")
+            return value
 
     class NewsSearchInput(BaseModel):
         query: str = Field(..., description="News search query")
@@ -138,9 +145,12 @@ def create_search_tools(search_tools: SearchTools) -> List[Tool]:
             "pw", description="Time filter: 'pd' (day), 'pw' (week), 'pm' (month)"
         )
 
-        def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
-            if self.freshness not in {"pd", "pw", "pm"}:
+        @field_validator("freshness")
+        @classmethod
+        def validate_freshness(cls, value: str) -> str:  # pragma: no cover - simple input validation
+            if value not in {"pd", "pw", "pm"}:
                 raise ValueError("freshness must be one of: pd, pw, pm")
+            return value
 
     async def handle_web_search(args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle web search requests."""
@@ -148,8 +158,10 @@ def create_search_tools(search_tools: SearchTools) -> List[Tool]:
         if not query:
             return {"error": "Search query is required"}
 
-        count = args.get("count", 5)
-        freshness = args.get("freshness")
+        count_value = args.get("count", 5)
+        count = int(count_value) if isinstance(count_value, int) else 5
+        freshness_value = args.get("freshness")
+        freshness = str(freshness_value) if isinstance(freshness_value, str) else None
 
         return await search_tools.search_web(query, count, freshness)
 
@@ -159,8 +171,10 @@ def create_search_tools(search_tools: SearchTools) -> List[Tool]:
         if not query:
             return {"error": "Search query is required"}
 
-        count = args.get("count", 5)
-        freshness = args.get("freshness", "pw")
+        count_value = args.get("count", 5)
+        count = int(count_value) if isinstance(count_value, int) else 5
+        freshness_value = args.get("freshness", "pw")
+        freshness = str(freshness_value) if isinstance(freshness_value, str) else "pw"
 
         return await search_tools.search_news(query, count, freshness)
 

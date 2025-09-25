@@ -8,9 +8,10 @@ import hmac
 import logging
 import time
 from decimal import Decimal, ROUND_DOWN, getcontext
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Mapping, Union
 from urllib.parse import urlencode
 
+from aiohttp import ClientResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..core.tools import Tool, ToolSpec
@@ -65,7 +66,7 @@ class AsterFuturesClient:
         *,
         symbol: str,
         side: str,
-        quantity: float,
+        quantity: Union[float, str],
         position_side: Optional[str] = None,
         reduce_only: Optional[bool] = None,
         timestamp: Optional[int] = None,
@@ -75,7 +76,7 @@ class AsterFuturesClient:
             "symbol": symbol.upper(),
             "side": side.upper(),
             "type": "MARKET",
-            "quantity": quantity,
+            "quantity": self._stringify(quantity),
         }
         if position_side:
             params["positionSide"] = position_side.upper()
@@ -154,12 +155,6 @@ class AsterFuturesClient:
         session = await get_session()
         headers = {"X-MBX-APIKEY": self.api_key}
         async with session.get(url, params=params, headers=headers) as response:
-            return await self._normalize_response(path, response, request_payload={"params": params})
-
-    async def _public_get(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        url = f"{self.base_url}{path}"
-        session = await get_session()
-        async with session.get(url, params=params) as response:
             return await self._normalize_response(path, response, request_payload={"params": params})
 
     async def _get_symbol_filters(self, symbol: str) -> Dict[str, Decimal]:
@@ -248,7 +243,12 @@ class AsterFuturesClient:
         async with session.get(url, params=params) as response:
             return await self._normalize_response(path, response, request_payload={"params": params})
 
-    async def _normalize_response(self, path: str, response, request_payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _normalize_response(
+        self,
+        path: str,
+        response: ClientResponse,
+        request_payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
         text = await response.text()
         try:
             data = json.loads(text)
@@ -463,7 +463,12 @@ def create_aster_futures_tools(client: AsterFuturesClient) -> List[Tool]:
                     "details": mark_resp,
                 }
             try:
-                mark_price = float(mark_resp["response"]["markPrice"])
+                resp_payload = mark_resp.get("response")
+                if isinstance(resp_payload, Mapping):
+                    mark_value = resp_payload.get("markPrice")
+                else:
+                    mark_value = None
+                mark_price = float(mark_value) if mark_value is not None else 0.0
                 trade_quantity = parsed.usd_notional / mark_price if mark_price else 0.0
             except (KeyError, TypeError, ValueError):
                 return {
@@ -526,12 +531,18 @@ def create_aster_futures_tools(client: AsterFuturesClient) -> List[Tool]:
         if "error" in position_resp:
             return position_resp
 
-        entries = position_resp.get("response", [])
+        raw_entries = position_resp.get("response", [])
+        if isinstance(raw_entries, Sequence):
+            entries = raw_entries
+        else:
+            entries = []
         target_side = (parsed.position_side or "").upper()
 
         position_amt = Decimal("0")
         fallback_amt = Decimal("0")
         for record in entries:
+            if not isinstance(record, Mapping):
+                continue
             if record.get("symbol") != parsed.symbol:
                 continue
             side = record.get("positionSide", "BOTH").upper()

@@ -1,14 +1,14 @@
 import asyncio
+import json
 import logging
 import os
-import json
-from typing import Optional, Dict, Any, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from .agent import SAMAgent
 from .llm_provider import create_llm_provider
 from .memory_provider import create_memory_manager
 from .tools import ToolRegistry
-from .middleware import LoggingMiddleware, RateLimitMiddleware, RetryMiddleware
+from .middleware import LoggingMiddleware, RateLimitMiddleware, RetryMiddleware, ToolContext
 from .context import RequestContext
 from ..config.prompts import SOLANA_AGENT_PROMPT
 from ..config.settings import Settings
@@ -108,7 +108,7 @@ class AgentBuilder:
                             return t
                     return default_type or name
 
-                def identifier_fn(name: str, args: Dict[str, Any], ctx):
+                def identifier_fn(name: str, args: Dict[str, Any], ctx: Optional[ToolContext]) -> str:
                     if name in type_map and isinstance(type_map[name], dict):
                         field = type_map[name].get("identifier_field")
                         if isinstance(field, str) and field:

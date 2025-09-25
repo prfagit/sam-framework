@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import time
 from unittest.mock import patch, AsyncMock
-from sam.utils.enhanced_decorators import (
+from sam.utils.decorators import (
     safe_async_operation,
     performance_monitor,
     _should_retry,
@@ -18,7 +18,7 @@ class TestSafeAsyncOperation:
     @pytest.mark.asyncio
     async def test_safe_operation_success(self):
         """Test successful operation with logging."""
-        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
 
             @safe_async_operation("test_component", log_args=True, log_result=True)
             async def test_func(x, y):
@@ -67,7 +67,7 @@ class TestSafeAsyncOperation:
     @pytest.mark.asyncio
     async def test_safe_operation_error_tracking(self):
         """Test error tracking integration."""
-        with patch("sam.utils.enhanced_decorators.get_error_tracker") as mock_get_tracker:
+        with patch("sam.utils.decorators.get_error_tracker") as mock_get_tracker:
             mock_tracker = AsyncMock()
             mock_get_tracker.return_value = mock_tracker
 
@@ -119,7 +119,7 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_normal_operation(self):
         """Test normal performance logging."""
-        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
 
             @performance_monitor("test_component", warn_threshold=1.0)
             async def test_func():
@@ -138,7 +138,7 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_warning_threshold(self):
         """Test warning threshold logging."""
-        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
 
             @performance_monitor("test_component", warn_threshold=0.01, critical_threshold=1.0)
             async def test_func():
@@ -157,7 +157,7 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_critical_threshold(self):
         """Test critical threshold logging."""
-        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
 
             @performance_monitor("test_component", warn_threshold=0.01, critical_threshold=0.01)
             async def test_func():
@@ -176,7 +176,7 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_sync_function(self):
         """Test performance monitoring with synchronous functions."""
-        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
 
             @performance_monitor("test_component")
             def test_func():
@@ -191,7 +191,7 @@ class TestPerformanceMonitor:
     @pytest.mark.asyncio
     async def test_performance_error_logging(self):
         """Test error logging in performance monitor."""
-        with patch("sam.utils.enhanced_decorators.logger") as mock_logger:
+        with patch("sam.utils.decorators.logger") as mock_logger:
 
             @performance_monitor("test_component")
             async def test_func():
@@ -205,22 +205,6 @@ class TestPerformanceMonitor:
             mock_logger.error.assert_called()
             error_call = str(mock_logger.error.call_args)
             assert "failed after" in error_call
-
-
-class TestCircuitBreakerEnhanced:
-    """Test enhanced circuit breaker decorator functionality."""
-
-    @pytest.mark.skip(reason="Circuit breaker implementation incomplete in codebase")
-    @pytest.mark.asyncio
-    async def test_circuit_breaker_success(self):
-        """Test successful circuit breaker operation."""
-        pass
-
-    @pytest.mark.skip(reason="Circuit breaker implementation incomplete in codebase")
-    @pytest.mark.asyncio
-    async def test_circuit_breaker_custom_config(self):
-        """Test circuit breaker with custom configuration."""
-        pass
 
 
 class TestHelperFunctions:

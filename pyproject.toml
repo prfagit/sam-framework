@@ -81,6 +81,7 @@ dev = [
     "sam-framework",
     "types-psutil>=7.0.0.20250822",
     "streamlit>=1.36.0",
+    "vulture>=2.14",
 ]
 
 ## Note: uv currently doesn't support a [tool.uv.scripts] table.
