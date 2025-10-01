@@ -6,8 +6,19 @@ import importlib
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, Union, cast
+
+from .config.profile_store import get_profile_store
+from .config.settings import API_KEY_ALIASES, PRIVATE_KEY_ALIASES, Settings
+from .utils.wallets import (
+    WalletError,
+    derive_evm_address,
+    derive_solana_address,
+    generate_evm_wallet,
+    generate_solana_wallet,
+    normalize_evm_private_key,
+)
+from .utils.secure_storage import get_secure_storage, sync_stored_api_key
 
 
 class InquirerInterface(Protocol):
@@ -18,17 +29,13 @@ class InquirerInterface(Protocol):
         message: str,
         choices: Sequence[Union[str, Tuple[str, Any]]],
         default: Optional[Any] = None,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
-    def confirm(self, message: str, default: bool = ...) -> bool:
-        ...
+    def confirm(self, message: str, default: bool = ...) -> bool: ...
 
-    def password(self, message: str) -> str:
-        ...
+    def password(self, message: str) -> str: ...
 
-    def text(self, message: str, default: str = ...) -> str:
-        ...
+    def text(self, message: str, default: str = ...) -> str: ...
 
 
 _INQUIRER_MODULE: Optional[Any] = None
@@ -69,18 +76,8 @@ class SettingDefinition:
 
     def __post_init__(self) -> None:
         self.env_var = self.key
-        # Get current value from environment
-        if self.setting_type == SettingType.BOOLEAN:
-            env_val = os.getenv(self.key, str(self.default_value)).lower()
-            self.current_value = env_val in ["true", "1", "yes", "on"]
-        elif self.setting_type in [SettingType.INTEGER, SettingType.FLOAT]:
-            try:
-                converter = int if self.setting_type == SettingType.INTEGER else float
-                self.current_value = converter(os.getenv(self.key, str(self.default_value)))
-            except (ValueError, TypeError):
-                self.current_value = self.default_value
-        else:
-            self.current_value = os.getenv(self.key, self.default_value or "")
+        if self.current_value is None and self.default_value is not None:
+            self.current_value = self.default_value
 
 
 SettingChoice = Tuple[str, Union[SettingDefinition, str]]
@@ -90,9 +87,115 @@ class InteractiveSettingsManager:
     """Manages interactive configuration settings."""
 
     def __init__(self) -> None:
+        self.profile_store = get_profile_store()
         self.settings_definitions = self._create_settings_definitions()
         self.modified_settings: Dict[str, Any] = {}
+        self.modified_secrets: Dict[str, Optional[str]] = {}
         self._prompt: Optional[InquirerInterface] = inquirer
+        self._hydrate_values()
+        self._hydrate_wallet_settings()
+
+    def _set_setting_value(self, key: str, value: Any) -> None:
+        for setting in self.settings_definitions:
+            if setting.key == key:
+                setting.current_value = value
+                break
+
+    def _get_setting_value(self, key: str) -> Any:
+        for setting in self.settings_definitions:
+            if setting.key == key:
+                return setting.current_value
+        return None
+
+    def _hydrate_values(self) -> None:
+        profile_data = self.profile_store.data.copy()
+        try:
+            storage = get_secure_storage()
+        except Exception:
+            storage = None
+
+        Settings.refresh_from_env()
+
+        for setting in self.settings_definitions:
+            key = setting.key
+
+            if setting.sensitive and key in API_KEY_ALIASES:
+                alias = API_KEY_ALIASES[key]
+                value = None
+                if storage:
+                    try:
+                        value = storage.get_api_key(alias)
+                    except Exception:
+                        value = None
+                setting.current_value = bool(value)
+                continue
+
+            if setting.sensitive and key in PRIVATE_KEY_ALIASES:
+                alias = PRIVATE_KEY_ALIASES[key]
+                value = None
+                if storage:
+                    try:
+                        value = storage.get_private_key(alias)
+                    except Exception:
+                        value = None
+                setting.current_value = bool(value)
+                continue
+
+            if key in profile_data:
+                setting.current_value = profile_data[key]
+            elif hasattr(Settings, key):
+                setting.current_value = getattr(Settings, key)
+
+    def _hydrate_wallet_settings(self) -> None:
+        try:
+            storage = get_secure_storage()
+        except Exception:
+            storage = None
+
+        if not storage:
+            self._set_setting_value("BRAVE_API_KEY", Settings.BRAVE_API_KEY_PRESENT)
+            return
+
+        try:
+            sol_key = storage.get_private_key("default")
+        except Exception:
+            sol_key = None
+        if sol_key:
+            self._set_setting_value("SAM_WALLET_PRIVATE_KEY", True)
+            try:
+                sol_address = derive_solana_address(sol_key)
+                self._set_setting_value("SAM_SOLANA_ADDRESS", sol_address)
+            except WalletError:
+                pass
+
+        try:
+            evm_key = storage.get_private_key("hyperliquid_private_key")
+        except Exception:
+            evm_key = None
+        if evm_key:
+            try:
+                normalized = normalize_evm_private_key(evm_key)
+            except WalletError:
+                normalized = evm_key
+            self._set_setting_value("HYPERLIQUID_PRIVATE_KEY", True)
+            try:
+                evm_address = derive_evm_address(normalized)
+                self._set_setting_value("EVM_WALLET_ADDRESS", evm_address)
+            except WalletError:
+                pass
+
+        try:
+            account_address = storage.get_api_key("hyperliquid_account_address")
+        except Exception:
+            account_address = None
+        if account_address and not self._get_setting_value("EVM_WALLET_ADDRESS"):
+            self._set_setting_value("EVM_WALLET_ADDRESS", account_address)
+
+        try:
+            brave_key = storage.get_api_key("brave_api_key")
+        except Exception:
+            brave_key = None
+        self._set_setting_value("BRAVE_API_KEY", bool(brave_key) or Settings.BRAVE_API_KEY_PRESENT)
 
     def _require_inquirer(self) -> InquirerInterface:
         """Return the loaded inquirer module or raise if unavailable."""
@@ -201,6 +304,25 @@ class InteractiveSettingsManager:
                 setting_type=SettingType.PASSWORD,
                 sensitive=True,
             ),
+            SettingDefinition(
+                key="SAM_SOLANA_ADDRESS",
+                display_name="Solana Address",
+                description="Derived Solana wallet address (read-only)",
+                setting_type=SettingType.TEXT,
+            ),
+            SettingDefinition(
+                key="HYPERLIQUID_PRIVATE_KEY",
+                display_name="EVM Private Key",
+                description="Your EVM private key (0x-prefixed hex)",
+                setting_type=SettingType.PASSWORD,
+                sensitive=True,
+            ),
+            SettingDefinition(
+                key="EVM_WALLET_ADDRESS",
+                display_name="EVM Wallet Address",
+                description="Derived EVM wallet address used for Hyperliquid",
+                setting_type=SettingType.TEXT,
+            ),
             # Aster Futures Settings
             SettingDefinition(
                 key="ASTER_API_KEY",
@@ -280,6 +402,13 @@ class InteractiveSettingsManager:
                 setting_type=SettingType.BOOLEAN,
                 default_value=False,
             ),
+            SettingDefinition(
+                key="ENABLE_HYPERLIQUID_TOOLS",
+                display_name="Enable Hyperliquid Tools",
+                description="Enable Hyperliquid trading and account tools",
+                setting_type=SettingType.BOOLEAN,
+                default_value=False,
+            ),
             # Safety & Limits Settings
             SettingDefinition(
                 key="MAX_TRANSACTION_SOL",
@@ -331,8 +460,8 @@ class InteractiveSettingsManager:
 
     def _format_current_value_display(self, setting: SettingDefinition) -> str:
         """Format current value for display."""
-        if setting.sensitive and setting.current_value:
-            return "***SET***" if setting.current_value else "***NOT SET***"
+        if setting.sensitive:
+            return "✅ Stored securely" if setting.current_value else "❌ Not set"
         elif setting.setting_type == SettingType.BOOLEAN:
             return "✅ Enabled" if setting.current_value else "❌ Disabled"
         elif setting.current_value == "":
@@ -347,6 +476,7 @@ class InteractiveSettingsManager:
         categories: Dict[str, List[SettingDefinition]] = {
             "🤖 LLM Provider": [],
             "🔑 API Keys": [],
+            "💰 Wallets": [],
             "⚡ Tool Toggles": [],
             "🔐 Security & Limits": [],
             "🌐 Network & Storage": [],
@@ -356,6 +486,13 @@ class InteractiveSettingsManager:
         for setting in self.settings_definitions:
             if setting.key == "LLM_PROVIDER":
                 categories["🤖 LLM Provider"].append(setting)
+            elif setting.key in [
+                "SAM_WALLET_PRIVATE_KEY",
+                "SAM_SOLANA_ADDRESS",
+                "HYPERLIQUID_PRIVATE_KEY",
+                "EVM_WALLET_ADDRESS",
+            ]:
+                categories["💰 Wallets"].append(setting)
             elif setting.key.endswith("_API_KEY") or setting.key.endswith("_API_SECRET"):
                 categories["🔑 API Keys"].append(setting)
             elif setting.key.startswith("ENABLE_"):
@@ -370,7 +507,6 @@ class InteractiveSettingsManager:
                 categories["🔐 Security & Limits"].append(setting)
             elif setting.key in [
                 "SAM_SOLANA_RPC_URL",
-                "SAM_WALLET_PRIVATE_KEY",
                 "SAM_DB_PATH",
                 "OPENAI_BASE_URL",
                 "LOCAL_LLM_BASE_URL",
@@ -463,13 +599,82 @@ class InteractiveSettingsManager:
         current_display = self._format_current_value_display(setting)
         print(f"🔍 Current value: {current_display}")
 
+        # Wallet-specific handling
+        if setting.key in {"SAM_SOLANA_ADDRESS", "EVM_WALLET_ADDRESS"}:
+            print("ℹ️  This value is derived from the corresponding private key.")
+            print("   Use the wallet private key option to import or generate a new wallet.")
+            return
+
+        if setting.key in {"SAM_WALLET_PRIVATE_KEY", "HYPERLIQUID_PRIVATE_KEY"}:
+            actions = ["Import existing key", "Generate new wallet", "Cancel"]
+            try:
+                action = prompt.list_input(
+                    "Select wallet action:",
+                    choices=actions,
+                    default="Import existing key",
+                )
+            except KeyboardInterrupt:
+                return
+
+            if action == "Cancel":
+                return
+
+            private_key: Optional[str] = None
+            address: Optional[str] = None
+
+            if action == "Import existing key":
+                provided_key = prompt.password("Enter private key (input hidden):").strip()
+                if not provided_key:
+                    print("❌ Private key is required.")
+                    return
+                try:
+                    if setting.key == "SAM_WALLET_PRIVATE_KEY":
+                        address = derive_solana_address(provided_key)
+                    else:
+                        normalized = normalize_evm_private_key(provided_key)
+                        address = derive_evm_address(normalized)
+                        provided_key = normalized
+                except WalletError as exc:
+                    print(f"❌ {exc}")
+                    return
+                private_key = provided_key
+            elif action == "Generate new wallet":
+                if setting.key == "SAM_WALLET_PRIVATE_KEY":
+                    private_key, address = generate_solana_wallet()
+                else:
+                    private_key, address = generate_evm_wallet()
+                print("✅ Generated new wallet.")
+                print(f"   Private key: {private_key}")
+                print(f"   Address: {address}")
+                print("   Save the private key securely before proceeding!\n")
+
+            if not private_key or not address:
+                print("❌ Failed to update wallet.")
+                return
+
+            # Stash secret for secure storage persistence
+            self.modified_secrets[setting.key] = private_key
+            self._set_setting_value(setting.key, True)
+
+            if setting.key == "SAM_WALLET_PRIVATE_KEY":
+                self.modified_settings["SAM_SOLANA_ADDRESS"] = address
+                self._set_setting_value("SAM_SOLANA_ADDRESS", address)
+            else:
+                self.modified_settings["EVM_WALLET_ADDRESS"] = address
+                self._set_setting_value("EVM_WALLET_ADDRESS", address)
+                self.modified_settings["ENABLE_HYPERLIQUID_TOOLS"] = True
+                self._set_setting_value("ENABLE_HYPERLIQUID_TOOLS", True)
+
+            print("✅ Wallet updated!")
+            return
+
         try:
             new_value: Any
             if setting.setting_type == SettingType.BOOLEAN:
-                default_value = bool(setting.current_value) if setting.current_value is not None else False
-                new_value = prompt.confirm(
-                    f"Enable {setting.display_name}?", default=default_value
+                default_value = (
+                    bool(setting.current_value) if setting.current_value is not None else False
                 )
+                new_value = prompt.confirm(f"Enable {setting.display_name}?", default=default_value)
             elif setting.setting_type == SettingType.CHOICE:
                 choices = setting.choices or []
                 if not choices:
@@ -488,11 +693,29 @@ class InteractiveSettingsManager:
                     default=default_choice,
                 )
             elif setting.setting_type == SettingType.PASSWORD:
+                if setting.key == "SAM_FERNET_KEY":
+                    print("ℹ️  Manage the encryption key via `sam key rotate`.")
+                    return
+
                 password_value = prompt.password(
                     f"Enter {setting.display_name} (leave blank to keep current):"
                 )
-                if not password_value.strip():  # Keep current if empty
+                stripped_value = password_value.strip()
+                if not stripped_value:
                     return
+
+                if setting.sensitive and setting.key in API_KEY_ALIASES:
+                    self.modified_secrets[setting.key] = stripped_value
+                    setting.current_value = True
+                    print(f"✅ {setting.display_name} updated!")
+                    return
+
+                if setting.sensitive and setting.key in PRIVATE_KEY_ALIASES:
+                    self.modified_secrets[setting.key] = stripped_value
+                    setting.current_value = True
+                    print(f"✅ {setting.display_name} updated!")
+                    return
+
                 new_value = password_value
             else:  # TEXT, INTEGER, FLOAT
                 prompt_text = f"Enter {setting.display_name}"
@@ -530,6 +753,24 @@ class InteractiveSettingsManager:
                     print(f"❌ Validation error: {e}")
                     return
 
+            if setting.sensitive and setting.key in API_KEY_ALIASES:
+                if isinstance(new_value, str):
+                    self.modified_secrets[setting.key] = new_value.strip()
+                else:
+                    self.modified_secrets[setting.key] = str(new_value)
+                setting.current_value = True
+                print(f"✅ {setting.display_name} updated!")
+                return
+
+            if setting.sensitive and setting.key in PRIVATE_KEY_ALIASES:
+                if isinstance(new_value, str):
+                    self.modified_secrets[setting.key] = new_value.strip()
+                else:
+                    self.modified_secrets[setting.key] = str(new_value)
+                setting.current_value = True
+                print(f"✅ {setting.display_name} updated!")
+                return
+
             # Store the modification
             self.modified_settings[setting.key] = new_value
             setting.current_value = new_value
@@ -539,46 +780,90 @@ class InteractiveSettingsManager:
             return
 
     def _save_settings(self) -> bool:
-        """Save modified settings to .env file."""
-        if not self.modified_settings:
+        """Persist modified settings via profile store and secure storage."""
+
+        if not self.modified_settings and not self.modified_secrets:
             print("ℹ️  No changes to save.")
             return False
 
-        env_path = Path(".env")
-
-        print(f"\n💾 Saving {len(self.modified_settings)} setting(s) to {env_path}...")
-
-        # Read existing .env file content
-        existing_env: Dict[str, str] = {}
-        if env_path.exists():
-            with env_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        key, value = line.split("=", 1)
-                        existing_env[key] = value
-
-        # Update with modified settings
-        for key, value in self.modified_settings.items():
-            if isinstance(value, bool):
-                existing_env[key] = "true" if value else "false"
-            else:
-                existing_env[key] = str(value)
-
-        # Write back to .env file
         try:
-            with env_path.open("w", encoding="utf-8") as f:
-                f.write("# SAM Framework Configuration\n")
-                f.write("# Generated by interactive settings\n\n")
+            storage: Optional[Any] = None
+            evm_wallet_value: Optional[str] = None
 
-                for key, value in sorted(existing_env.items()):
-                    f.write(f"{key}={value}\n")
+            if "EVM_WALLET_ADDRESS" in self.modified_settings:
+                raw_evm = self.modified_settings["EVM_WALLET_ADDRESS"]
+                if raw_evm is None:
+                    trimmed_evm = None
+                else:
+                    trimmed_evm = str(raw_evm).strip()
+                    if not trimmed_evm:
+                        trimmed_evm = None
+                if trimmed_evm:
+                    self.modified_settings["EVM_WALLET_ADDRESS"] = trimmed_evm
+                    evm_wallet_value = trimmed_evm
+                else:
+                    self.modified_settings["EVM_WALLET_ADDRESS"] = None
+                    evm_wallet_value = None
+                if "HYPERLIQUID_ACCOUNT_ADDRESS" not in self.modified_settings:
+                    self.modified_settings["HYPERLIQUID_ACCOUNT_ADDRESS"] = None
+
+            needs_storage = (
+                bool(self.modified_secrets) or "EVM_WALLET_ADDRESS" in self.modified_settings
+            )
+            if needs_storage:
+                storage = get_secure_storage()
+
+            if self.modified_settings:
+                self.profile_store.update(self.modified_settings)
+                for key, value in self.modified_settings.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                        continue
+                    if isinstance(value, bool):
+                        os.environ[key] = "true" if value else "false"
+                    else:
+                        os.environ[key] = str(value)
+
+            if "EVM_WALLET_ADDRESS" in self.modified_settings and storage is not None:
+                sync_stored_api_key(
+                    storage,
+                    "hyperliquid_account_address",
+                    evm_wallet_value,
+                    case_insensitive=True,
+                    delete_when_empty=True,
+                )
+
+            if self.modified_secrets:
+                assert storage is not None
+                brave_status: Optional[bool] = None
+                for key, value in self.modified_secrets.items():
+                    if key in API_KEY_ALIASES:
+                        alias = API_KEY_ALIASES[key]
+                        if value:
+                            storage.store_api_key(alias, value)
+                        else:
+                            storage.delete_api_key(alias)
+                        if key == "BRAVE_API_KEY":
+                            brave_status = bool(value)
+                    elif key in PRIVATE_KEY_ALIASES:
+                        alias = PRIVATE_KEY_ALIASES[key]
+                        if value:
+                            storage.store_private_key(alias, value)
+                        else:
+                            storage.delete_private_key(alias)
+                    else:
+                        if value:
+                            os.environ[key] = value
+                if brave_status is not None:
+                    self.profile_store.update({"BRAVE_API_KEY_PRESENT": brave_status})
+
+            Settings.refresh_from_env()
 
             print("✅ Settings saved successfully!")
             print("ℹ️  Restart SAM for changes to take effect.")
 
-            # Clear modifications
             self.modified_settings.clear()
+            self.modified_secrets.clear()
             return True
 
         except Exception as e:

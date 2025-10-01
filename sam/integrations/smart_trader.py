@@ -14,31 +14,26 @@ WSOL_MINT = "So11111111111111111111111111111111111111112"
 class PumpTools(Protocol):
     async def create_buy_transaction(
         self, wallet: str, mint: str, amount_sol: float, slippage_percent: int
-    ) -> Dict[str, Any]:
-        ...
+    ) -> Dict[str, Any]: ...
 
     async def create_sell_transaction(
         self, wallet: str, mint: str, percentage: int, slippage_percent: int
-    ) -> Dict[str, Any]:
-        ...
+    ) -> Dict[str, Any]: ...
 
 
 class JupiterTools(Protocol):
     async def execute_swap(
         self, input_mint: str, output_mint: str, amount: int, slippage_bps: int
-    ) -> Dict[str, Any]:
-        ...
+    ) -> Dict[str, Any]: ...
 
 
 class SolanaTools(Protocol):
     wallet_address: Optional[str]
     keypair: Any
 
-    async def get_token_accounts(self, wallet: str) -> Dict[str, Any]:
-        ...
+    async def get_token_accounts(self, wallet: str) -> Dict[str, Any]: ...
 
-    async def _get_client(self) -> Any:
-        ...
+    async def _get_client(self) -> Any: ...
 
 
 class SmartTrader:
@@ -156,7 +151,9 @@ class SmartTrader:
             logger.info(
                 f"smart_sell: attempting Jupiter swap {mint}->SOL amount={sell_amount_smallest} bps={slippage_bps}"
             )
-            res = await self.jupiter.execute_swap(mint, WSOL_MINT, sell_amount_smallest, slippage_bps)
+            res = await self.jupiter.execute_swap(
+                mint, WSOL_MINT, sell_amount_smallest, slippage_bps
+            )
             if isinstance(res, dict) and "error" not in res:
                 res.setdefault("provider", "jupiter")
             return res
@@ -195,7 +192,9 @@ def create_smart_trader_tools(
 
     class SmartSellInput(BaseModel):
         mint: str = Field(..., description="Token mint to sell")
-        percentage: int = Field(100, ge=1, le=100, description="Percentage of holdings to sell (1-100)")
+        percentage: int = Field(
+            100, ge=1, le=100, description="Percentage of holdings to sell (1-100)"
+        )
         slippage_percent: int = Field(5, ge=1, le=50, description="Slippage percent for provider")
 
         @field_validator("mint")

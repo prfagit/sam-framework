@@ -123,9 +123,11 @@ def rotate_key(new_key: str | None = None, *, assume_yes: bool = False) -> int:
         return 1
 
     if not assume_yes:
-        confirm = input(
-            "This will generate a new key and re-encrypt stored secrets. Proceed? (y/N): "
-        ).strip().lower()
+        confirm = (
+            input("This will generate a new key and re-encrypt stored secrets. Proceed? (y/N): ")
+            .strip()
+            .lower()
+        )
         if confirm != "y":
             print("❌ Rotation cancelled")
             return 1
@@ -150,8 +152,7 @@ def rotate_key(new_key: str | None = None, *, assume_yes: bool = False) -> int:
     fallback_promoted = result.get("fallback_promoted", [])
     if fallback_promoted:
         print(
-            "⚠️  The encrypted fallback vault now holds copies of: "
-            + ", ".join(fallback_promoted)
+            "⚠️  The encrypted fallback vault now holds copies of: " + ", ".join(fallback_promoted)
         )
         print("   Restore system keyring access and rerun rotation to migrate them back.")
 

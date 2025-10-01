@@ -22,12 +22,14 @@ class TestHealthCheck:
         # Mock health checker
         mock_health_checker = MagicMock()
         mock_health_checker.register_health_check = MagicMock()
-        mock_health_checker.run_health_checks = AsyncMock(return_value={
-            "database": {"status": "ok", "stats": {"sessions": 5}},
-            "secure_storage": {"status": "healthy", "test_results": True},
-            "rate_limiter": {"status": "healthy", "active_keys": 2},
-            "error_tracker": {"status": "healthy", "recent_errors": 0},
-        })
+        mock_health_checker.run_health_checks = AsyncMock(
+            return_value={
+                "database": {"status": "ok", "stats": {"sessions": 5}},
+                "secure_storage": {"status": "healthy", "test_results": True},
+                "rate_limiter": {"status": "healthy", "active_keys": 2},
+                "error_tracker": {"status": "healthy", "recent_errors": 0},
+            }
+        )
         mock_get_health_checker.return_value = mock_health_checker
 
         # Mock secure storage
@@ -74,12 +76,14 @@ class TestHealthCheck:
         # Mock health checker with issues
         mock_health_checker = MagicMock()
         mock_health_checker.register_health_check = MagicMock()
-        mock_health_checker.run_health_checks = AsyncMock(return_value={
-            "database": {"status": "error", "error": "Connection failed"},
-            "secure_storage": {"status": "healthy"},
-            "rate_limiter": {"status": "warning", "error": "High usage"},
-            "error_tracker": {"recent_errors": 5},
-        })
+        mock_health_checker.run_health_checks = AsyncMock(
+            return_value={
+                "database": {"status": "error", "error": "Connection failed"},
+                "secure_storage": {"status": "healthy"},
+                "rate_limiter": {"status": "warning", "error": "High usage"},
+                "error_tracker": {"recent_errors": 5},
+            }
+        )
         mock_get_health_checker.return_value = mock_health_checker
 
         # Mock other components
@@ -121,12 +125,14 @@ class TestHealthCheck:
         # Mock health checker
         mock_health_checker = MagicMock()
         mock_health_checker.register_health_check = MagicMock()
-        mock_health_checker.run_health_checks = AsyncMock(return_value={
-            "database": {"status": "ok"},
-            "secure_storage": {"status": "healthy"},
-            "rate_limiter": {"status": "healthy"},
-            "error_tracker": {"recent_errors": 0},
-        })
+        mock_health_checker.run_health_checks = AsyncMock(
+            return_value={
+                "database": {"status": "ok"},
+                "secure_storage": {"status": "healthy"},
+                "rate_limiter": {"status": "healthy"},
+                "error_tracker": {"recent_errors": 0},
+            }
+        )
         mock_get_health_checker.return_value = mock_health_checker
 
         # Mock components
@@ -144,8 +150,12 @@ class TestHealthCheck:
             "total_errors": 15,
             "severity_counts": {"error": 10, "warning": 5},
             "critical_errors": [
-                {"timestamp": "2024-01-01", "component": "database", "error_message": "Connection lost"}
-            ]
+                {
+                    "timestamp": "2024-01-01",
+                    "component": "database",
+                    "error_message": "Connection lost",
+                }
+            ],
         }
         mock_get_error_tracker.return_value = mock_error_tracker
 
@@ -209,7 +219,7 @@ class TestHealthCheck:
             "sam.utils.error_handling",
             "sam.utils.secure_storage",
             "sam.utils.rate_limiter",
-            "sam.core.memory"
+            "sam.core.memory",
         ]
 
         for module_name in required_modules:

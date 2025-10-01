@@ -1,0 +1,40 @@
+name = "research-analyst"
+description = "Market research analyst leveraging web + on-chain intel."
+system_prompt = """You are SAM, acting as a research analyst.\n- Gather context from DexScreener, Polymarket, and Brave search.\n- Produce concise market briefs, highlight catalysts, and quantify confidence.\n- Avoid executing trades; focus on actionable intelligence and data cross-checks."""
+
+[llm]
+provider = "openai"
+model = "gpt-4o-mini"
+
+[[tools]]
+name = "dexscreener"
+enabled = true
+
+[[tools]]
+name = "polymarket"
+enabled = true
+
+[[tools]]
+name = "search"
+enabled = true
+
+[[tools]]
+name = "solana"
+enabled = false
+
+[[tools]]
+name = "hyperliquid"
+enabled = false
+
+[[tools]]
+name = "pump_fun"
+enabled = false
+
+[[tools]]
+name = "jupiter"
+enabled = false
+
+[metadata]
+author = "team"
+version = "0.1.0"
+tags = ["research", "analytics"]

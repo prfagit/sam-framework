@@ -8,4 +8,3 @@ def test_rate_limiter_env_overrides(monkeypatch):
     rl = RateLimiter()
     assert rl.max_keys == 1234
     assert rl.cleanup_interval == 7
-

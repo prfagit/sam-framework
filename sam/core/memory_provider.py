@@ -43,9 +43,7 @@ def _load_from_env(db_path: str) -> Optional[MemoryManager]:
             mm = factory(db_path)
             if isinstance(mm, MemoryManager):
                 return mm
-            logger.warning(
-                "SAM_MEMORY_BACKEND expected MemoryManager, got %s", type(mm).__name__
-            )
+            logger.warning("SAM_MEMORY_BACKEND expected MemoryManager, got %s", type(mm).__name__)
         logger.warning(f"SAM_MEMORY_BACKEND callable not found: {spec}")
     except Exception as e:
         logger.warning(f"Failed to load SAM_MEMORY_BACKEND {spec}: {e}")

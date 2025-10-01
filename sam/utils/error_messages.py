@@ -308,7 +308,9 @@ def handle_error_gracefully(
         elif "validation" in error_msg.lower():
             # Extract field name if possible
             field_value = context.get("field", "input") if context else "input"
-            friendly_error = ErrorMessageGenerator.from_validation_error(str(field_value), error_msg)
+            friendly_error = ErrorMessageGenerator.from_validation_error(
+                str(field_value), error_msg
+            )
         elif "api" in error_msg.lower() and "key" in error_msg.lower():
             friendly_error = ErrorMessageGenerator.no_api_key()
         elif "wallet" in error_msg.lower() and "configured" in error_msg.lower():

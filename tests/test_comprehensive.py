@@ -31,7 +31,8 @@ class TestHTTPClientIntegration:
         session = await client.get_session()
 
         assert session is not None
-        assert session.timeout.total == 60
+        # In test mode (SAM_TEST_MODE=1), timeout is 20 seconds, otherwise 60
+        assert session.timeout.total in (20, 60)
         assert not session.closed
 
         await cleanup_http_client()

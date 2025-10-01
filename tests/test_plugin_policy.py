@@ -92,14 +92,7 @@ def test_plugins_load_when_allowlisted(tmp_path, monkeypatch):
 
     allowlist = tmp_path / "allowlist.json"
     allowlist.write_text(
-        json.dumps(
-            {
-                "modules": {
-                    module_name: {"sha256": digest}
-                },
-                "entry_points": {}
-            }
-        )
+        json.dumps({"modules": {module_name: {"sha256": digest}}, "entry_points": {}})
     )
 
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -121,14 +114,7 @@ def test_plugins_digest_mismatch_blocks(tmp_path, monkeypatch):
 
     allowlist = tmp_path / "allowlist.json"
     allowlist.write_text(
-        json.dumps(
-            {
-                "modules": {
-                    module_name: {"sha256": "deadbeef"}
-                },
-                "entry_points": {}
-            }
-        )
+        json.dumps({"modules": {module_name: {"sha256": "deadbeef"}}, "entry_points": {}})
     )
 
     monkeypatch.syspath_prepend(str(tmp_path))

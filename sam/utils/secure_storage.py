@@ -14,6 +14,17 @@ from importlib.metadata import entry_points
 logger = logging.getLogger(__name__)
 
 
+def _normalize_secret_value(value: Optional[Any]) -> Optional[str]:
+    """Normalize a secret value by stripping whitespace and coercing to string."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    trimmed = value.strip()
+    return trimmed or None
+
+
 @runtime_checkable
 class BaseSecretStore(Protocol):
     """Protocol describing the secure storage API used by SAM."""
@@ -21,35 +32,27 @@ class BaseSecretStore(Protocol):
     current_key_str: Optional[str]
     fernet: Optional[Fernet]
 
-    def store_private_key(self, user_id: str, private_key: str) -> bool:
-        ...
+    def store_private_key(self, user_id: str, private_key: str) -> bool: ...
 
-    def get_private_key(self, user_id: str) -> Optional[str]:
-        ...
+    def get_private_key(self, user_id: str) -> Optional[str]: ...
 
-    def delete_private_key(self, user_id: str) -> bool:
-        ...
+    def delete_private_key(self, user_id: str) -> bool: ...
 
-    def store_api_key(self, service: str, api_key: str) -> bool:
-        ...
+    def store_api_key(self, service: str, api_key: str) -> bool: ...
 
-    def get_api_key(self, service: str) -> Optional[str]:
-        ...
+    def get_api_key(self, service: str) -> Optional[str]: ...
 
-    def store_wallet_config(self, user_id: str, config: Dict[str, Any]) -> bool:
-        ...
+    def delete_api_key(self, service: str) -> bool: ...
 
-    def get_wallet_config(self, user_id: str) -> Optional[Dict[str, Any]]:
-        ...
+    def store_wallet_config(self, user_id: str, config: Dict[str, Any]) -> bool: ...
 
-    def test_keyring_access(self) -> Dict[str, bool]:
-        ...
+    def get_wallet_config(self, user_id: str) -> Optional[Dict[str, Any]]: ...
 
-    def rotate_encryption_key(self, new_key: Optional[str] = None) -> Dict[str, Any]:
-        ...
+    def test_keyring_access(self) -> Dict[str, bool]: ...
 
-    def diagnostics(self) -> Dict[str, Any]:
-        ...
+    def rotate_encryption_key(self, new_key: Optional[str] = None) -> Dict[str, Any]: ...
+
+    def diagnostics(self) -> Dict[str, Any]: ...
 
 
 class EncryptedFileVault:
@@ -78,19 +81,23 @@ class EncryptedFileVault:
             index = payload.get("index")
             if isinstance(index, dict):
                 self._index = {
-                    str(k): {"source": str(v.get("source", "fallback")), "kind": str(v.get("kind", "fernet_b64"))}
+                    str(k): {
+                        "source": str(v.get("source", "fallback")),
+                        "kind": str(v.get("kind", "fernet_b64")),
+                    }
                     for k, v in index.items()
                     if isinstance(v, dict)
                 }
             else:
                 # Backfill index with available secrets assuming fallback origin
                 self._index = {
-                    key: {"source": "fallback", "kind": "fernet_b64"}
-                    for key in self._data.keys()
+                    key: {"source": "fallback", "kind": "fernet_b64"} for key in self._data.keys()
                 }
             meta = payload.get("meta")
             if isinstance(meta, dict):
-                self._meta = {str(k): str(v) for k, v in meta.items() if isinstance(v, (str, int, float))}
+                self._meta = {
+                    str(k): str(v) for k, v in meta.items() if isinstance(v, (str, int, float))
+                }
         except Exception as exc:
             logger.warning("Failed to load secure store fallback %s: %s", self.path, exc)
 
@@ -187,6 +194,7 @@ class EncryptedFileVault:
         with self._lock:
             return self._meta.get(key, default)
 
+
 class SecureStorage(BaseSecretStore):
     """Secure storage for sensitive data using system keyring and encryption.
 
@@ -222,7 +230,7 @@ class SecureStorage(BaseSecretStore):
         Rules:
         - If keyring has a key, prefer it to preserve access to existing ciphertexts.
         - If env has a key but keyring is empty, write env -> keyring (log on failure).
-        - If both exist and differ, prefer keyring, set env to keyring, and warn.
+        - If both exist and differ, FAIL-FAST to prevent data loss.
         - If neither exists, generate, persist to keyring, and set env.
         """
         env_key = os.getenv("SAM_FERNET_KEY")
@@ -232,19 +240,21 @@ class SecureStorage(BaseSecretStore):
         except Exception as e:
             logger.warning(f"Keyring read failed: {e}")
 
-        # Both present
+        # Both present - fail-fast on mismatch
         if env_key and kr_key:
             if env_key != kr_key:
-                logger.warning(
-                    "SAM_FERNET_KEY mismatch between environment and keyring; using keyring key to preserve access. Update your .env to match."
+                raise RuntimeError(
+                    "SAM_FERNET_KEY mismatch detected!\n"
+                    f"Environment key: {env_key[:8]}...\n"
+                    f"Keyring key: {kr_key[:8]}...\n\n"
+                    "This mismatch will cause encrypted data to be inaccessible.\n"
+                    "To resolve:\n"
+                    "  1. If you trust the keyring key, run: sam key sync-from-keyring\n"
+                    "  2. If you trust the .env key, run: sam key sync-to-keyring\n"
+                    "  3. To rotate to a new key, run: sam key rotate\n\n"
+                    "DO NOT proceed without resolving this mismatch to avoid data loss."
                 )
-                try:
-                    os.environ["SAM_FERNET_KEY"] = kr_key
-                except Exception:
-                    pass
-                self.current_key_str = kr_key
-                return kr_key.encode()
-            # Equal
+            # Equal - safe to proceed
             self.current_key_str = env_key
             return env_key.encode()
 
@@ -257,12 +267,12 @@ class SecureStorage(BaseSecretStore):
             self.current_key_str = env_key
             return env_key.encode()
 
-        # Only keyring present
+        # Only keyring present - use it but don't mutate environment
         if kr_key and not env_key:
-            try:
-                os.environ["SAM_FERNET_KEY"] = kr_key
-            except Exception:
-                pass
+            logger.info(
+                "Using SAM_FERNET_KEY from keyring. "
+                "Set SAM_FERNET_KEY in .env to avoid this message."
+            )
             self.current_key_str = kr_key
             return kr_key.encode()
 
@@ -326,12 +336,13 @@ class SecureStorage(BaseSecretStore):
                 keyring.set_password(self.service_name, "encryption_key", new_key_str)
             except Exception as exc:
                 logger.error(f"Failed to write new encryption key to keyring: {exc}")
-            try:
-                os.environ["SAM_FERNET_KEY"] = new_key_str
-            except Exception:
-                pass
+
             self.current_key_str = new_key_str
-            logger.info("Generated new encryption key")
+            logger.info(
+                f"Generated new encryption key: {new_key_str[:8]}...\n"
+                "IMPORTANT: Add this to your .env file:\n"
+                f"SAM_FERNET_KEY={new_key_str}"
+            )
             return new_key
         except Exception as exc:
             logger.error(f"Could not generate encryption key: {exc}")
@@ -406,9 +417,7 @@ class SecureStorage(BaseSecretStore):
         encrypted_key_str: Optional[str] = None
 
         try:
-            encrypted_key_str = keyring.get_password(
-                self.service_name, f"private_key_{user_id}"
-            )
+            encrypted_key_str = keyring.get_password(self.service_name, f"private_key_{user_id}")
         except Exception as e:
             logger.error(f"Failed to retrieve private key via keyring for {user_id}: {e}")
 
@@ -493,6 +502,20 @@ class SecureStorage(BaseSecretStore):
         logger.debug(f"No API key found for service: {service}")
         return None
 
+    def delete_api_key(self, service: str) -> bool:
+        """Delete API key from keyring and fallback store."""
+        success = False
+        try:
+            keyring.delete_password(self.service_name, f"api_key_{service}")
+            success = True
+        except Exception as e:
+            logger.error(f"Failed to delete API key for {service}: {e}")
+        if self._fallback_store.delete(f"api_key_{service}"):
+            success = True
+        if success:
+            logger.info(f"Deleted API key for service: {service}")
+        return success
+
     def store_wallet_config(self, user_id: str, config: Dict[str, Any]) -> bool:
         """Store wallet configuration securely."""
         if not self.fernet:
@@ -500,12 +523,10 @@ class SecureStorage(BaseSecretStore):
             return False
 
         try:
-            # Encrypt the configuration
             config_json = json.dumps(config)
             encrypted_config = self.fernet.encrypt(config_json.encode())
             encrypted_config_str = base64.b64encode(encrypted_config).decode()
 
-            # Store in keyring
             keyring.set_password(
                 self.service_name, f"wallet_config_{user_id}", encrypted_config_str
             )
@@ -517,9 +538,7 @@ class SecureStorage(BaseSecretStore):
 
         except Exception as e:
             logger.error(f"Failed to store wallet config for {user_id}: {e}")
-            return self._store_in_fallback(
-                f"wallet_config_{user_id}", encrypted_config_str
-            )
+            return self._store_in_fallback(f"wallet_config_{user_id}", encrypted_config_str)
 
     def get_wallet_config(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve and decrypt wallet configuration."""
@@ -528,7 +547,6 @@ class SecureStorage(BaseSecretStore):
             return None
 
         try:
-            # Get encrypted config from keyring
             encrypted_config_str = keyring.get_password(
                 self.service_name, f"wallet_config_{user_id}"
             )
@@ -545,7 +563,6 @@ class SecureStorage(BaseSecretStore):
                     user_id,
                 )
 
-            # Decrypt the config
             encrypted_config = base64.b64decode(encrypted_config_str.encode())
             config_json = self.fernet.decrypt(encrypted_config).decode()
             config = json.loads(config_json)
@@ -579,9 +596,6 @@ class SecureStorage(BaseSecretStore):
 
     def list_stored_users(self) -> list[str]:
         """List users with stored private keys."""
-        # Note: keyring doesn't provide a way to list all keys
-        # This would need to be implemented differently for each keyring backend
-        # For now, return empty list and log warning
         logger.warning("Listing stored users is not supported by keyring interface")
         return []
 
@@ -622,9 +636,7 @@ class SecureStorage(BaseSecretStore):
                 try:
                     ciphertext = keyring.get_password(self.service_name, key_name)
                 except Exception as exc:
-                    logger.warning(
-                        f"Keyring read failed for {key_name} during rotation: {exc}"
-                    )
+                    logger.warning(f"Keyring read failed for {key_name} during rotation: {exc}")
                     keyring_failed = True
 
             if not ciphertext:
@@ -710,22 +722,19 @@ class SecureStorage(BaseSecretStore):
         }
 
         try:
-            # Test storing a value
             test_key = "test_access"
             test_value = "test_value_123"
 
             keyring.set_password(self.service_name, test_key, test_value)
             results["can_store"] = True
 
-            # Test retrieving the value
             retrieved = keyring.get_password(self.service_name, test_key)
             results["can_retrieve"] = retrieved == test_value
 
-            # Clean up test data
             try:
                 keyring.delete_password(self.service_name, test_key)
             except Exception:
-                pass  # Ignore cleanup errors
+                pass
 
             results["keyring_available"] = True
 
@@ -771,6 +780,54 @@ class SecureStorage(BaseSecretStore):
             "stale_cipher_blobs": len(stale_keys),
             "fingerprint_mismatch": mismatch,
         }
+
+
+
+def sync_stored_api_key(
+    storage: BaseSecretStore,
+    alias: str,
+    desired_value: Optional[Any],
+    *,
+    case_insensitive: bool = False,
+    delete_when_empty: bool = True,
+) -> Optional[str]:
+    """Ensure a stored API key matches the desired value."""
+
+    try:
+        current_value = storage.get_api_key(alias)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Secure storage read failed for %s: %s", alias, exc)
+        current_value = None
+
+    desired = _normalize_secret_value(desired_value)
+    current = _normalize_secret_value(current_value)
+
+    compare_desired = desired.lower() if case_insensitive and desired else desired
+    compare_current = current.lower() if case_insensitive and current else current
+
+    if compare_desired:
+        if compare_current != compare_desired:
+            try:
+                success = storage.store_api_key(alias, desired)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Secure storage store failed for %s: %s", alias, exc)
+                success = False
+            if not success:
+                logger.debug(
+                    "Secure storage could not persist alias %s; using desired value in-session",
+                    alias,
+                )
+            return desired
+        return current
+
+    if delete_when_empty and current:
+        try:
+            storage.delete_api_key(alias)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Secure storage delete failed for %s: %s", alias, exc)
+        return None
+
+    return current
 
 
 # Global secure storage instance
@@ -824,9 +881,7 @@ def get_secure_storage() -> BaseSecretStore:
         current_key = getattr(_secure_storage, "current_key_str", None)
         if isinstance(_secure_storage, SecureStorage):
             if current_key != env_key and env_key is not None:
-                logger.info(
-                    "SAM_FERNET_KEY changed in environment; reinitializing secure storage"
-                )
+                logger.info("SAM_FERNET_KEY changed in environment; reinitializing secure storage")
                 _secure_storage = SecureStorage()
         elif env_key is not None and current_key and current_key != env_key:
             logger.warning(

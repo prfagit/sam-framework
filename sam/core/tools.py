@@ -72,7 +72,14 @@ class ToolRegistry:
                 validated_args = model.model_dump()
             except ValidationError as ve:
                 # Keep error shape consistent and non-breaking
-                return {"error": f"Validation failed: {ve.errors()}"}
+                return {
+                    "success": False,
+                    "error": f"Validation failed: {ve.errors()}",
+                    "error_detail": {
+                        "code": "validation_error",
+                        "message": f"Validation failed: {ve.errors()}",
+                    },
+                }
 
         # Build middleware execution chain
         async def base_call(

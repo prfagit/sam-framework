@@ -51,6 +51,7 @@ class TestSharedHTTPClient:
     async def test_get_session_reuses_session(self):
         """Test that get_session reuses existing session."""
         import asyncio
+
         client = SharedHTTPClient()
         existing_session = AsyncMock()
         existing_session.closed = False
@@ -181,8 +182,9 @@ class TestSharedHTTPClient:
                     # Check timeout configuration
                     mock_timeout_class.assert_called_once()
                     timeout_call = mock_timeout_class.call_args
-                    assert timeout_call[1]["total"] == 60
-                    assert timeout_call[1]["connect"] == 10
+                    # In test mode (SAM_TEST_MODE=1), timeout is 20 seconds, otherwise 60
+                    assert timeout_call[1]["total"] in (20, 60)
+                    assert timeout_call[1]["connect"] in (5, 10)  # 5 in test mode, 10 in production
 
                     # Check session configuration
                     mock_session_class.assert_called_once()

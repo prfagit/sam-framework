@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union, cast
 from dataclasses import dataclass
 from enum import Enum
-import aiosqlite
 import os
 
 logger = logging.getLogger(__name__)
@@ -55,8 +54,10 @@ class ErrorTracker:
         logger.info(f"Initialized error tracker: {db_path}")
 
     async def initialize(self) -> None:
-        """Initialize error tracking database."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        """Initialize error tracking database using connection pool."""
+        from ..utils.connection_pool import get_db_connection
+
+        async with get_db_connection(self.db_path) as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS errors (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +77,10 @@ class ErrorTracker:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON errors(timestamp)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_component ON errors(component)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_severity ON errors(severity)")
+            # Add missing index for user_id (found in code review)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_time ON errors(user_id, timestamp DESC)"
+            )
 
             await conn.commit()
 
@@ -125,9 +130,11 @@ class ErrorTracker:
             logger.error(f"Failed to log error: {e}")
 
     async def _store_error(self, error_record: ErrorRecord) -> None:
-        """Store error record in database."""
+        """Store error record in database using connection pool."""
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
+            from ..utils.connection_pool import get_db_connection
+
+            async with get_db_connection(self.db_path) as conn:
                 await conn.execute(
                     """
                     INSERT INTO errors (
@@ -154,11 +161,13 @@ class ErrorTracker:
 
     async def get_error_stats(self, hours_back: int = 24) -> Dict[str, Any]:
         """Get error statistics for the last N hours."""
+        from ..utils.connection_pool import get_db_connection
+
         cutoff_time = datetime.utcnow() - timedelta(hours=hours_back)
         cutoff_str = cutoff_time.isoformat()
 
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
+            async with get_db_connection(self.db_path) as conn:
                 # Total errors by severity
                 cursor = await conn.execute(
                     """
@@ -229,14 +238,16 @@ class ErrorTracker:
 
     async def cleanup_old_errors(self, days_old: int = 30) -> int:
         """Clean up old error records."""
+        from ..utils.connection_pool import get_db_connection
+
         cutoff_date = datetime.utcnow() - timedelta(days=days_old)
         cutoff_str = cutoff_date.isoformat()
 
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
+            async with get_db_connection(self.db_path) as conn:
                 cursor = await conn.execute("DELETE FROM errors WHERE timestamp < ?", (cutoff_str,))
 
-                deleted_count = cursor.rowcount
+                deleted_count = cursor.rowcount or 0
                 await conn.commit()
 
             logger.info(f"Cleaned up {deleted_count} old error records")

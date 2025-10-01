@@ -9,7 +9,7 @@ from sam.utils.price_service import (
     get_sol_price,
     format_sol_usd,
     sol_to_usd,
-    cleanup_price_service
+    cleanup_price_service,
 )
 
 
@@ -19,11 +19,7 @@ class TestPriceData:
     def test_price_data_creation(self):
         """Test PriceData creation and properties."""
         timestamp = time.time()
-        price_data = PriceData(
-            price_usd=200.50,
-            timestamp=timestamp,
-            source="jupiter"
-        )
+        price_data = PriceData(price_usd=200.50, timestamp=timestamp, source="jupiter")
 
         assert price_data.price_usd == 200.50
         assert price_data.timestamp == timestamp
@@ -80,18 +76,19 @@ class TestPriceService:
         mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={
-            "data": {
-                "So11111111111111111111111111111111111111112": {
-                    "price": 215.75
-                }
+        mock_response.json = AsyncMock(
+            return_value={
+                "data": {"So11111111111111111111111111111111111111112": {"price": 215.75}}
             }
-        })
+        )
+
         class _ACM:
             def __init__(self, resp):
                 self.resp = resp
+
             async def __aenter__(self):
                 return self.resp
+
             async def __aexit__(self, exc_type, exc, tb):
                 return False
 
@@ -116,19 +113,17 @@ class TestPriceService:
         mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={
-            "pairs": [
-                {
-                    "liquidity": {"usd": 1000000},
-                    "priceUsd": "210.25"
-                }
-            ]
-        })
+        mock_response.json = AsyncMock(
+            return_value={"pairs": [{"liquidity": {"usd": 1000000}, "priceUsd": "210.25"}]}
+        )
+
         class _ACM:
             def __init__(self, resp):
                 self.resp = resp
+
             async def __aenter__(self):
                 return self.resp
+
             async def __aexit__(self, exc_type, exc, tb):
                 return False
 
@@ -158,15 +153,17 @@ class TestPriceService:
         # DexScreener succeeds
         dexscreener_response = AsyncMock()
         dexscreener_response.status = 200
-        dexscreener_response.json = AsyncMock(return_value={
-            "pairs": [{"liquidity": {"usd": 1000000}, "priceUsd": "205.50"}]
-        })
+        dexscreener_response.json = AsyncMock(
+            return_value={"pairs": [{"liquidity": {"usd": 1000000}, "priceUsd": "205.50"}]}
+        )
 
         class _ACM:
             def __init__(self, resp):
                 self.resp = resp
+
             async def __aenter__(self):
                 return self.resp
+
             async def __aexit__(self, exc_type, exc, tb):
                 return False
 
@@ -189,9 +186,7 @@ class TestPriceService:
         service = PriceService()
         cached_time = time.time() - 10  # 10 seconds ago
         service._price_cache["SOL"] = PriceData(
-            price_usd=220.0,
-            timestamp=cached_time,
-            source="cached"
+            price_usd=220.0, timestamp=cached_time, source="cached"
         )
 
         # Should not make HTTP request
@@ -205,11 +200,7 @@ class TestPriceService:
         """Test using stale cache when API fails."""
         service = PriceService()
         old_time = time.time() - 120  # 2 minutes ago (stale)
-        service._price_cache["SOL"] = PriceData(
-            price_usd=210.0,
-            timestamp=old_time,
-            source="stale"
-        )
+        service._price_cache["SOL"] = PriceData(price_usd=210.0, timestamp=old_time, source="stale")
 
         # Mock API failure with async context manager wrapper
         mock_session = MagicMock()
@@ -219,8 +210,10 @@ class TestPriceService:
         class _ACM:
             def __init__(self, resp):
                 self.resp = resp
+
             async def __aenter__(self):
                 return self.resp
+
             async def __aexit__(self, exc_type, exc, tb):
                 return False
 
@@ -249,8 +242,10 @@ class TestPriceService:
         class _ACM:
             def __init__(self, resp):
                 self.resp = resp
+
             async def __aenter__(self):
                 return self.resp
+
             async def __aexit__(self, exc_type, exc, tb):
                 return False
 
@@ -268,11 +263,7 @@ class TestPriceService:
         """Test fallback price using stale cache."""
         service = PriceService()
         old_time = time.time() - 120
-        service._price_cache["SOL"] = PriceData(
-            price_usd=208.0,
-            timestamp=old_time,
-            source="stale"
-        )
+        service._price_cache["SOL"] = PriceData(price_usd=208.0, timestamp=old_time, source="stale")
 
         price = await service._get_fallback_sol_price()
 
@@ -378,14 +369,10 @@ class TestPriceService:
 
         # Add some test data to cache
         service._price_cache["SOL"] = PriceData(
-            price_usd=200.0,
-            timestamp=current_time,
-            source="jupiter"
+            price_usd=200.0, timestamp=current_time, source="jupiter"
         )
         service._price_cache["USDC"] = PriceData(
-            price_usd=1.0,
-            timestamp=current_time - 60,
-            source="dexscreener"
+            price_usd=1.0, timestamp=current_time - 60, source="dexscreener"
         )
 
         stats = service.get_cache_stats()
@@ -418,6 +405,7 @@ class TestGlobalPriceService:
         """Test global price service singleton pattern."""
         # Reset global state
         import sam.utils.price_service
+
         sam.utils.price_service._global_price_service = None
 
         mock_lock.__aenter__ = AsyncMock()
@@ -439,6 +427,7 @@ class TestGlobalPriceService:
         mock_service.clear_cache = AsyncMock()
 
         import sam.utils.price_service
+
         sam.utils.price_service._global_price_service = mock_service
 
         await cleanup_price_service()
@@ -450,6 +439,7 @@ class TestGlobalPriceService:
     async def test_cleanup_price_service_no_service(self):
         """Test cleanup when no global service exists."""
         import sam.utils.price_service
+
         sam.utils.price_service._global_price_service = None
 
         # Should not raise exception

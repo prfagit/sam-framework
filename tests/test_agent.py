@@ -164,6 +164,9 @@ class TestSAMAgent:
         """Test clearing conversation context."""
         # Setup initial stats
         agent.session_stats = {"total_tokens": 100, "requests": 5, "context_length": 10}
+        agent.session_cache["balance_data"] = {"foo": "bar"}
+        agent.session_cache["balance_updated"] = 123.0
+        agent.session_cache["token_metadata"]["mint"] = {"symbol": "TEST"}
 
         mock_memory.clear_session = AsyncMock()
 
@@ -181,6 +184,11 @@ class TestSAMAgent:
         assert agent.session_stats["total_tokens"] == 0
         assert agent.session_stats["requests"] == 0
         assert agent.session_stats["context_length"] == 0
+
+        # Session cache reset
+        assert agent.session_cache["balance_data"] is None
+        assert agent.session_cache["balance_updated"] == 0.0
+        assert agent.session_cache["token_metadata"] == {}
 
     @pytest.mark.asyncio
     async def test_agent_compact_conversation(self, agent, mock_llm, mock_memory):
@@ -219,9 +227,7 @@ class TestSAMAgent:
 
         # Verify memory operations
         mock_memory.load_session.assert_awaited_once_with(session_id, user_id="default")
-        mock_memory.save_session.assert_awaited_once_with(
-            session_id, ANY, user_id="default"
-        )
+        mock_memory.save_session.assert_awaited_once_with(session_id, ANY, user_id="default")
 
         # Verify LLM was called for summary
         mock_llm.chat_completion.assert_called_once()

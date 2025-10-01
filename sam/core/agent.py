@@ -44,11 +44,7 @@ class SAMAgent:
         }
 
         # Session-based caching for better UX
-        self.session_cache: Dict[str, Any] = {
-            "balance_data": None,
-            "balance_updated": 0,
-            "token_metadata": {},  # {mint: metadata_dict}
-        }
+        self._reset_session_cache()
 
     async def run(
         self,
@@ -114,6 +110,7 @@ class SAMAgent:
         max_iterations = 5  # Reduced to prevent infinite loops more aggressively
         iteration = 0
         tool_call_history: List[tuple[str, str]] = []  # Track tool calls to prevent immediate loops
+        tool_call_counts: Dict[str, int] = {}  # Track calls per tool name
         error_count = 0  # Track consecutive tool errors
 
         while iteration < max_iterations:
@@ -187,13 +184,35 @@ class SAMAgent:
                             logger.error(f"Failed to parse tool arguments as JSON: {e}")
                             tool_args = {}
 
-                        # Check for immediate repetitive calls (more aggressive prevention)
+                        # Check for excessive tool calls (prevent spam)
                         call_signature = (tool_name, json.dumps(tool_args, sort_keys=True))
 
-                        # Prevent any tool from being called more than once with same args
-                        if call_signature in tool_call_history:
-                            logger.warning(f"Preventing duplicate tool call: {tool_name}")
-                            # Add a synthetic result to break the loop
+                        # Track per-tool call counts
+                        tool_call_counts[tool_name] = tool_call_counts.get(tool_name, 0) + 1
+
+                        # Define strict limits per tool type
+                        max_calls_per_tool = {
+                            # Info tools: only 1 call needed (they return complete data)
+                            "get_balance": 1,
+                            "get_token_info": 1,
+                            "get_pump_token_info": 1,
+                            "get_token_data": 1,
+                            # Trading tools: allow 2 calls max
+                            "hyperliquid_market_order": 2,
+                            "hyperliquid_close_position": 2,
+                            "pump_fun_buy": 2,
+                            "pump_fun_sell": 2,
+                            "jupiter_swap": 2,
+                            "smart_buy": 2,
+                            # Default: 2 calls max for any tool
+                        }
+
+                        limit = max_calls_per_tool.get(tool_name, 2)
+
+                        if tool_call_counts[tool_name] > limit:
+                            logger.warning(
+                                f"Tool {tool_name} exceeded call limit ({tool_call_counts[tool_name]} > {limit})"
+                            )
                             messages.append(
                                 {
                                     "role": "tool",
@@ -201,82 +220,14 @@ class SAMAgent:
                                     "name": tool_name,
                                     "content": json.dumps(
                                         {
-                                            "error": "TOOL_ALREADY_CALLED",
-                                            "message": f"The tool '{tool_name}' was already called in this conversation. Use the previous result instead of calling it again.",
-                                            "instructions": "Please provide a response based on the previous tool result rather than making another call.",
+                                            "error": "TOOL_CALL_LIMIT_EXCEEDED",
+                                            "message": f"Tool '{tool_name}' was called {tool_call_counts[tool_name]} times (limit: {limit}). Use previous results.",
+                                            "instructions": "Provide a final answer based on information you already have. Do not call this tool again.",
                                         }
                                     ),
                                 }
                             )
                             continue
-
-                        # Enhanced loop prevention for specific error-prone patterns
-                        if tool_name == "get_balance":
-                            balance_calls = [
-                                sig for sig in tool_call_history if sig[0] == "get_balance"
-                            ]
-                            if len(balance_calls) >= 1:
-                                logger.warning(
-                                    f"Preventing balance loop - already called {len(balance_calls)} times"
-                                )
-                                # Insert a strong system message to stop the loop
-                                messages.append(
-                                    {
-                                        "role": "system",
-                                        "content": "STOP: You already called get_balance() in this conversation. The previous result contains all wallet information. DO NOT call get_balance() again. Use the previous result to answer the user's question about their balance.",
-                                    }
-                                )
-                                messages.append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call_id,
-                                        "name": tool_name,
-                                        "content": json.dumps(
-                                            {
-                                                "error": "BALANCE_ALREADY_CHECKED",
-                                                "message": "Balance was already checked in this conversation. The previous balance result contains all wallet information including SOL balance, tokens, and wallet address.",
-                                                "instructions": "Use the previous balance data to answer the user's question. Do not call get_balance again.",
-                                            }
-                                        ),
-                                    }
-                                )
-                                continue
-
-                        # Prevent balance checks after transaction errors
-                        # Note: this must be an independent check (not `elif`),
-                        # otherwise it's unreachable when the first `if tool_name == "get_balance"` is false.
-                        if tool_name == "get_balance" and error_count > 0:
-                            # Check if recent errors were balance-related
-                            recent_balance_errors = any(
-                                "insufficient" in str(msg.get("content", "")).lower()
-                                for msg in messages[-5:]
-                                if msg.get("role") == "tool"
-                            )
-                            if recent_balance_errors:
-                                logger.warning(
-                                    "Preventing balance check after balance-related error"
-                                )
-                                messages.append(
-                                    {
-                                        "role": "system",
-                                        "content": "BALANCE ERROR DETECTED: Do not check balance again. The previous error already indicates insufficient balance. Explain the balance issue to the user and suggest adding funds.",
-                                    }
-                                )
-                                messages.append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call_id,
-                                        "name": tool_name,
-                                        "content": json.dumps(
-                                            {
-                                                "error": "BALANCE_CHECK_AFTER_ERROR",
-                                                "message": "Balance check skipped - previous transaction failed due to insufficient funds",
-                                                "instructions": "Explain the balance issue and suggest solutions without checking balance again",
-                                            }
-                                        ),
-                                    }
-                                )
-                                continue
 
                         # Track this tool call
                         tool_call_history.append(call_signature)
@@ -407,12 +358,8 @@ class SAMAgent:
                                     )
 
                                     # Also emit succeeded/failed events for the fallback
-                                    jup_success = (
-                                        isinstance(jup_res, dict)
-                                        and (
-                                            jup_res.get("success") is True
-                                            or "error" not in jup_res
-                                        )
+                                    jup_success = isinstance(jup_res, dict) and (
+                                        jup_res.get("success") is True or "error" not in jup_res
                                     )
                                     if jup_success:
                                         await self.events.publish(
@@ -506,6 +453,59 @@ class SAMAgent:
                                 else:
                                     error_details = {"message": error_msg, "type": "general"}
 
+                            # Add tool result FIRST to satisfy OpenAI's message format requirements
+                            # (tool messages must immediately follow assistant message with tool_calls)
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call_id,
+                                    "name": tool_name,
+                                    "content": json.dumps(result, default=str)
+                                    if isinstance(result, dict)
+                                    else str(result),
+                                }
+                            )
+
+                            # Now add guidance as system messages AFTER the tool response
+                            guidance_message: Optional[str] = None
+                            if error_type == "validation":
+                                missing = []
+                                if isinstance(result, dict):
+                                    details = result.get("details") or {}
+                                    if isinstance(details, dict) and isinstance(
+                                        details.get("missing_fields"), list
+                                    ):
+                                        missing = details.get("missing_fields")
+                                missing_text = (
+                                    f" Missing fields: {', '.join(missing)}." if missing else ""
+                                )
+                                guidance_message = (
+                                    f"TOOL VALIDATION ERROR: {error_details.get('message', '')}{missing_text}"
+                                    " You must gather the required parameters from the user or summarize"
+                                    " the plan before retrying. Do not claim the action succeeded until"
+                                    " the tool returns a success response."
+                                )
+                            elif error_type == "insufficient_balance":
+                                guidance_message = (
+                                    "TOOL BALANCE ERROR: The operation failed due to insufficient funds."
+                                    " Explain the issue, include the required amount if known, and suggest"
+                                    " next steps instead of retrying immediately."
+                                )
+                            elif error_type == "network":
+                                guidance_message = (
+                                    "TOOL NETWORK ERROR: There was a connectivity problem. Inform the user"
+                                    " and suggest trying again later rather than claiming success."
+                                )
+                            else:
+                                guidance_message = (
+                                    f"TOOL ERROR: {error_details.get('message', 'Unknown error')}"
+                                    " Do not state that the action completed. Provide the error details"
+                                    " to the user and propose what to do next."
+                                )
+
+                            if guidance_message:
+                                messages.append({"role": "system", "content": guidance_message})
+
                             # Provide specific guidance based on error type
                             if error_count >= 3:
                                 logger.warning(
@@ -523,6 +523,9 @@ class SAMAgent:
                                     guidance = f"MULTIPLE ERRORS: Several tool operations failed. Last error: {error_details.get('message', 'Unknown error')}. INSTRUCTIONS: 1) Explain what went wrong, 2) Provide alternative suggestions, 3) DO NOT make any more tool calls."
 
                                 messages.append({"role": "system", "content": guidance})
+
+                            # Skip adding tool result again below since we already added it
+                            continue_to_next_iteration = True
                         else:
                             error_count = 0  # Reset error count on successful tool call
                             try:
@@ -554,17 +557,21 @@ class SAMAgent:
                             except Exception:
                                 pass
 
-                        # Add tool result to message chain with tool_call_id
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call_id,
-                                "name": tool_name,
-                                "content": json.dumps(result, default=str)
-                                if isinstance(result, dict)
-                                else str(result),
-                            }
-                        )
+                            continue_to_next_iteration = False
+
+                        # Add tool result to message chain with tool_call_id (for success case only)
+                        # Error case already added the tool message above
+                        if not continue_to_next_iteration:
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call_id,
+                                    "name": tool_name,
+                                    "content": json.dumps(result, default=str)
+                                    if isinstance(result, dict)
+                                    else str(result),
+                                }
+                            )
 
                     # Continue the loop to process tool results
                     continue
@@ -574,9 +581,7 @@ class SAMAgent:
 
                     # Save session context (excluding system prompt) WITHOUT final assistant
                     # to match expected behavior in tests and avoid mutating the prompt list
-                    await self.memory.save_session(
-                        session_id, messages[1:], user_id=user_id
-                    )
+                    await self.memory.save_session(session_id, messages[1:], user_id=user_id)
 
                     # Update context length tracking (based on messages passed to LLM)
                     try:
@@ -633,6 +638,21 @@ class SAMAgent:
             "requests": 0,
             "context_length": 0,
         }
+
+        self._reset_session_cache()
+
+        try:
+            await self.events.publish(
+                "agent.status",
+                {
+                    "session_id": session_id,
+                    "user_id": uid,
+                    "state": "context_cleared",
+                    "message": "Conversation context cleared",
+                },
+            )
+        except Exception:
+            pass
 
         logger.info(f"Cleared context for session {session_id} (user {uid})")
         return "Context cleared! Starting fresh conversation."
@@ -737,6 +757,13 @@ Respond with just the bullet points, no preamble."""
         """Invalidate balance cache after transactions."""
         self.session_cache["balance_data"] = None
         self.session_cache["balance_updated"] = 0
+
+    def _reset_session_cache(self) -> None:
+        self.session_cache: Dict[str, Any] = {
+            "balance_data": None,
+            "balance_updated": 0.0,
+            "token_metadata": {},  # {mint: metadata_dict}
+        }
 
     async def close(self) -> None:
         """Close any resources owned or referenced by this agent.

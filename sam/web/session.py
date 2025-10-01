@@ -96,6 +96,7 @@ async def get_default_session_id(context: Optional[RequestContext] = None) -> st
         session_val = latest.get("session_id", "default")
         return session_val if isinstance(session_val, str) else "default"
     from datetime import datetime
+
     new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
     await agent.memory.create_session(new_id, user_id=user_id)
     return new_id
@@ -105,6 +106,7 @@ async def new_session_id(context: Optional[RequestContext] = None) -> str:
     """Create a new dated session and return its id."""
     agent = await get_agent(context)
     from datetime import datetime
+
     user_id = _context_user_id(context)
     new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
     await agent.memory.create_session(new_id, user_id=user_id)
@@ -118,7 +120,9 @@ async def clear_all_sessions(context: Optional[RequestContext] = None) -> int:
     return await agent.memory.clear_all_sessions(user_id=user_id)
 
 
-def run_once(prompt: str, session_id: str = "default", context: Optional[RequestContext] = None) -> str:
+def run_once(
+    prompt: str, session_id: str = "default", context: Optional[RequestContext] = None
+) -> str:
     """Synchronous helper for single-turn runs (non-streaming)."""
 
     async def _run() -> str:
@@ -176,9 +180,7 @@ async def run_with_events(
         try:
             agent = await get_agent(context)
             # Do not publish final event here; adapter will stream and publish
-            reply = await agent.run(
-                prompt, session_id, publish_final_event=False, context=context
-            )
+            reply = await agent.run(prompt, session_id, publish_final_event=False, context=context)
 
             # Simulate delta streaming for UIs that render progressively
             text = reply or ""

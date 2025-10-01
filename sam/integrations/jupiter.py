@@ -504,7 +504,11 @@ def create_jupiter_tools(jupiter_tools: JupiterTools) -> List[Tool]:
     ]
 
     return tools
-def _get_mapping(container: Mapping[str, Any] | Sequence[Any], key: str) -> Optional[Mapping[str, Any]]:
+
+
+def _get_mapping(
+    container: Mapping[str, Any] | Sequence[Any], key: str
+) -> Optional[Mapping[str, Any]]:
     if isinstance(container, Mapping):
         value = container.get(key)
         if isinstance(value, Mapping):

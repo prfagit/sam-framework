@@ -3,15 +3,24 @@
 Keeps behavior equivalent while avoiding tight coupling to CLI internals.
 """
 
-import os
 import getpass
+import os
+from typing import Any, Dict, Optional
 
+from ..config.profile_store import get_profile_store
 from ..config.settings import Settings
 from ..utils.cli_helpers import CLIFormatter
 from ..utils.env_files import find_env_path, write_env_file
 from ..utils.ascii_loader import show_sam_intro
 from ..utils.secure_storage import get_secure_storage
 from ..utils.crypto import generate_encryption_key
+from ..utils.wallets import (
+    WalletError,
+    derive_evm_address,
+    derive_solana_address,
+    generate_evm_wallet,
+    generate_solana_wallet,
+)
 
 
 async def run_onboarding() -> int:
@@ -19,6 +28,12 @@ async def run_onboarding() -> int:
     await show_sam_intro("static")
 
     print(CLIFormatter.header("SAM Setup"))
+
+    storage = get_secure_storage()
+    profile_store = get_profile_store()
+
+    profile_updates: Dict[str, Any] = {}
+    env_updates: Dict[str, str] = {}
 
     try:
         # Step 1: LLM Provider Configuration
@@ -37,9 +52,7 @@ async def run_onboarding() -> int:
             "4": "local",
         }
         provider = provider_map.get(provider_choice, "openai")
-
-        # Collect provider-specific config
-        config_data = {"LLM_PROVIDER": provider}
+        profile_updates["LLM_PROVIDER"] = provider
 
         if provider == "openai":
             print(CLIFormatter.info("OpenAI API Key (https://platform.openai.com/api-keys)"))
@@ -49,9 +62,10 @@ async def run_onboarding() -> int:
                 openai_key = getpass.getpass("Enter your OpenAI API Key: ").strip()
             model = input("OpenAI Model (default: gpt-4o-mini): ").strip() or "gpt-4o-mini"
             base_url = input("OpenAI Base URL (blank for default): ").strip()
-            config_data.update({"OPENAI_API_KEY": openai_key, "OPENAI_MODEL": model})
+            storage.store_api_key("openai_api_key", openai_key)
+            profile_updates["OPENAI_MODEL"] = model
             if base_url:
-                config_data["OPENAI_BASE_URL"] = base_url
+                profile_updates["OPENAI_BASE_URL"] = base_url
 
         elif provider == "anthropic":
             print(CLIFormatter.info("Anthropic API Key (https://console.anthropic.com/)"))
@@ -63,9 +77,10 @@ async def run_onboarding() -> int:
                 "claude-3-5-sonnet-latest"
             )
             base_url = input("Anthropic Base URL (blank for default): ").strip()
-            config_data.update({"ANTHROPIC_API_KEY": ant_key, "ANTHROPIC_MODEL": model})
+            storage.store_api_key("anthropic_api_key", ant_key)
+            profile_updates["ANTHROPIC_MODEL"] = model
             if base_url:
-                config_data["ANTHROPIC_BASE_URL"] = base_url
+                profile_updates["ANTHROPIC_BASE_URL"] = base_url
 
         elif provider == "xai":
             print(CLIFormatter.info("xAI API Key (https://docs.x.ai/ )"))
@@ -77,9 +92,8 @@ async def run_onboarding() -> int:
             base_url = input("xAI Base URL (default: https://api.x.ai/v1): ").strip() or (
                 "https://api.x.ai/v1"
             )
-            config_data.update(
-                {"XAI_API_KEY": xai_key, "XAI_MODEL": model, "XAI_BASE_URL": base_url}
-            )
+            storage.store_api_key("xai_api_key", xai_key)
+            profile_updates.update({"XAI_MODEL": model, "XAI_BASE_URL": base_url})
 
         elif provider == "local":
             print(CLIFormatter.info("Local OpenAI-compatible endpoint (e.g., Ollama/LM Studio)"))
@@ -88,9 +102,9 @@ async def run_onboarding() -> int:
             )
             model = input("Model name (e.g., llama3.1): ").strip() or "llama3.1"
             api_key = getpass.getpass("API Key if required (optional, hidden): ").strip()
-            config_data.update({"LOCAL_LLM_BASE_URL": base_url, "LOCAL_LLM_MODEL": model})
+            profile_updates.update({"LOCAL_LLM_BASE_URL": base_url, "LOCAL_LLM_MODEL": model})
             if api_key:
-                config_data["LOCAL_LLM_API_KEY"] = api_key
+                storage.store_api_key("local_llm_api_key", api_key)
 
         # Step 2: Solana Configuration
         print(CLIFormatter.header("Step 2: Solana Configuration"))
@@ -109,24 +123,145 @@ async def run_onboarding() -> int:
         else:
             rpc_url = "https://api.mainnet-beta.solana.com"
 
+        profile_updates["SAM_SOLANA_RPC_URL"] = rpc_url
+
+        solana_private_key: Optional[str] = None
+        solana_public_address: Optional[str] = None
+
         print(
             CLIFormatter.info(
                 "Your key enables trading and balance checks. It is encrypted and stored securely."
             )
         )
-        private_key = getpass.getpass("Enter your Solana private key (hidden): ").strip()
-        while not private_key:
-            print(CLIFormatter.warning("Private key is required for wallet operations."))
-            private_key = getpass.getpass("Enter your Solana private key: ").strip()
+        while solana_private_key is None:
+            wallet_choice = (
+                input(
+                    "Press Enter to import an existing Solana private key, or type 'generate' to create a new wallet: "
+                )
+                .strip()
+                .lower()
+            )
 
-        # Step 3: Brave Search API (Optional)
-        print(CLIFormatter.header("Step 3: Brave Search API (Optional)"))
+            if wallet_choice in {"generate", "g", "2"}:
+                solana_private_key, solana_public_address = generate_solana_wallet()
+                print(
+                    CLIFormatter.box(
+                        "Solana wallet generated",
+                        (
+                            f"Public address: {solana_public_address}\n"
+                            f"Private key (base58): {solana_private_key}\n\n"
+                            "Copy this private key to a secure password manager before continuing."
+                        ),
+                    )
+                )
+                break
+
+            provided_key = getpass.getpass("Enter your Solana private key (hidden): ").strip()
+            while not provided_key:
+                print(CLIFormatter.warning("Private key is required for wallet operations."))
+                provided_key = getpass.getpass("Enter your Solana private key: ").strip()
+
+            try:
+                solana_public_address = derive_solana_address(provided_key)
+            except WalletError as exc:
+                print(CLIFormatter.error(f"Could not parse Solana private key: {exc}"))
+                continue
+
+            solana_private_key = provided_key
+
+        print(
+            CLIFormatter.info(
+                f"Solana wallet configured with public address: {solana_public_address}"
+            )
+        )
+        if solana_public_address:
+            profile_updates["SAM_SOLANA_ADDRESS"] = solana_public_address
+
+        # Step 3: Hyperliquid Configuration (Optional)
+        print(CLIFormatter.header("Step 3: Hyperliquid Configuration"))
+        enable_hyperliquid_input = (
+            input("Enable Hyperliquid trading tools now? [y/N]: ").strip().lower()
+        )
+
+        hyperliquid_enabled = enable_hyperliquid_input in {"y", "yes"}
+        hyperliquid_private_key: Optional[str] = None
+        hyperliquid_wallet_address: Optional[str] = None
+
+        if hyperliquid_enabled:
+            wallet_choice = (
+                input(
+                    "Press Enter to import an existing Hyperliquid private key, or type 'generate' to create a new EVM wallet: "
+                )
+                .strip()
+                .lower()
+            )
+
+            if wallet_choice in {"generate", "g", "2"}:
+                hyperliquid_private_key, hyperliquid_wallet_address = generate_evm_wallet()
+                print(
+                    CLIFormatter.box(
+                        "EVM wallet generated",
+                        (
+                            f"Wallet address: {hyperliquid_wallet_address}\n"
+                            f"Private key (hex): {hyperliquid_private_key}\n\n"
+                            "Store this private key securely (usable for Hyperliquid or other EVM integrations)."
+                        ),
+                    )
+                )
+            else:
+                while True:
+                    provided_key = getpass.getpass(
+                        "Enter your Hyperliquid private key (hex, hidden): "
+                    ).strip()
+                    if not provided_key:
+                        print(
+                            CLIFormatter.warning("Private key is required for Hyperliquid trading.")
+                        )
+                        continue
+                    try:
+                        hyperliquid_wallet_address = derive_evm_address(provided_key)
+                    except WalletError as exc:
+                        print(CLIFormatter.error(f"Invalid Hyperliquid private key: {exc}"))
+                        continue
+                    hyperliquid_private_key = provided_key
+                    break
+
+            if hyperliquid_wallet_address is None and hyperliquid_private_key:
+                hyperliquid_wallet_address = derive_evm_address(hyperliquid_private_key)
+
+            if hyperliquid_wallet_address:
+                print(
+                    CLIFormatter.info(
+                        "Hyperliquid account configured to use your EVM wallet address: "
+                        f"{hyperliquid_wallet_address}"
+                    )
+                )
+
+            profile_updates["ENABLE_HYPERLIQUID_TOOLS"] = True
+            if hyperliquid_private_key:
+                if not storage.store_private_key(
+                    "hyperliquid_private_key", hyperliquid_private_key
+                ):
+                    print(CLIFormatter.error("Failed to store Hyperliquid private key securely."))
+                    return 1
+            if hyperliquid_wallet_address:
+                profile_updates["EVM_WALLET_ADDRESS"] = hyperliquid_wallet_address
+                if not storage.store_api_key(
+                    "hyperliquid_account_address", hyperliquid_wallet_address
+                ):
+                    print(CLIFormatter.error("Failed to store Hyperliquid account address."))
+                    return 1
+        else:
+            profile_updates["ENABLE_HYPERLIQUID_TOOLS"] = False
+
+        # Step 4: Brave Search API (Optional)
+        print(CLIFormatter.header("Step 4: Brave Search API (Optional)"))
         print(CLIFormatter.info("Enables web search functionality. Leave empty to skip."))
         print(CLIFormatter.info("Get API key from: https://api.search.brave.com/"))
         brave_key = getpass.getpass("Enter Brave API Key (optional, hidden): ").strip()
 
-        # Step 4: Legal & Risk Disclosure
-        print(CLIFormatter.header("Step 4: Legal & Risk Disclosure"))
+        # Step 5: Legal & Risk Disclosure
+        print(CLIFormatter.header("Step 5: Legal & Risk Disclosure"))
         print(
             CLIFormatter.info(
                 "SAM is an automation framework that can use tools to access networks and execute blockchain transactions you authorize."
@@ -144,47 +279,68 @@ async def run_onboarding() -> int:
         fernet_key = generate_encryption_key()
 
         # Merge common config defaults
-        config_data.update(
+        profile_updates.update(
             {
-                "SAM_FERNET_KEY": fernet_key,
                 "SAM_DB_PATH": ".sam/sam_memory.db",
-                "SAM_SOLANA_RPC_URL": rpc_url,
-                "RATE_LIMITING_ENABLED": "false",
-                "MAX_TRANSACTION_SOL": "1000",
-                "DEFAULT_SLIPPAGE": "1",
+                "RATE_LIMITING_ENABLED": False,
+                "MAX_TRANSACTION_SOL": 1000,
+                "DEFAULT_SLIPPAGE": 1,
                 "LOG_LEVEL": "NO",
-                "SAM_LEGAL_ACCEPTED": "true",
+                "SAM_LEGAL_ACCEPTED": True,
             }
         )
-        if brave_key:
-            config_data["BRAVE_API_KEY"] = brave_key
 
-        # Update .env
+        env_updates["SAM_FERNET_KEY"] = fernet_key
+        env_updates["SAM_DB_PATH"] = profile_updates["SAM_DB_PATH"]
+        if brave_key:
+            storage.store_api_key("brave_api_key", brave_key)
+
+        # Persist profile settings
+        profile_store.update(profile_updates)
+
+        # Persist bootstrap env file
         env_path = find_env_path()
-        write_env_file(env_path, config_data)
+        write_env_file(env_path, env_updates)
 
         # Ensure DB dir exists
-        db_path = config_data["SAM_DB_PATH"]
+        db_path = profile_updates["SAM_DB_PATH"]
         db_dir = os.path.dirname(db_path)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
 
         # Apply to current environment
-        for key, value in config_data.items():
+        for key, value in profile_updates.items():
+            if isinstance(value, bool):
+                os.environ[key] = "true" if value else "false"
+            else:
+                os.environ[key] = str(value)
+        for key, value in env_updates.items():
             os.environ[key] = value
         Settings.refresh_from_env()
 
-        # Store private key securely
-        storage = get_secure_storage()
-        success = storage.store_private_key("default", private_key)
-        if not success:
-            print(CLIFormatter.error("Failed to store private key securely."))
+        # Store private keys securely
+        if not solana_private_key:
+            print(CLIFormatter.error("Solana private key was not captured."))
             return 1
 
-        # Verify storage
-        if not storage.get_private_key("default"):
-            print(CLIFormatter.error("Could not verify private key storage."))
+        if not storage.store_private_key("default", solana_private_key):
+            print(CLIFormatter.error("Failed to store Solana private key securely."))
             return 1
+
+        if not storage.get_private_key("default"):
+            print(CLIFormatter.error("Could not verify Solana private key storage."))
+            return 1
+
+        summary_lines = [f"Solana wallet: {solana_public_address}"]
+        if hyperliquid_enabled and hyperliquid_wallet_address:
+            summary_lines.append(f"Hyperliquid wallet: {hyperliquid_wallet_address}")
+
+        print(
+            CLIFormatter.box(
+                "Wallet Summary",
+                "\n".join(summary_lines),
+            )
+        )
 
         print(CLIFormatter.success("SAM configured successfully!"))
         return 0

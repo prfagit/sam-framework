@@ -144,13 +144,9 @@ class MemoryManager:
             )
 
             await conn.commit()
-            logger.debug(
-                f"Saved session {session_id} for user {uid} with {len(messages)} messages"
-            )
+            logger.debug(f"Saved session {session_id} for user {uid} with {len(messages)} messages")
 
-    async def load_session(
-        self, session_id: str, user_id: Optional[str] = None
-    ) -> List[Message]:
+    async def load_session(self, session_id: str, user_id: Optional[str] = None) -> List[Message]:
         """Load session messages from database."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
@@ -165,9 +161,7 @@ class MemoryManager:
             else:
                 messages = []
 
-        logger.debug(
-            f"Loaded session {session_id} for user {uid} with {len(messages)} messages"
-        )
+        logger.debug(f"Loaded session {session_id} for user {uid} with {len(messages)} messages")
         return messages
 
     async def save_user_preference(self, user_id: str, key: str, value: str) -> None:
@@ -297,14 +291,10 @@ class MemoryManager:
             else:
                 data = None
 
-        logger.debug(
-            f"Retrieved secure data for user {uid}: {'found' if data else 'not found'}"
-        )
+        logger.debug(f"Retrieved secure data for user {uid}: {'found' if data else 'not found'}")
         return data
 
-    async def cleanup_old_sessions(
-        self, days_old: int = 30, user_id: Optional[str] = None
-    ) -> int:
+    async def cleanup_old_sessions(self, days_old: int = 30, user_id: Optional[str] = None) -> int:
         """Clean up sessions older than specified days."""
         uid = self._normalize_user_id(user_id) if user_id is not None else None
         async with get_db_connection(self.db_path) as conn:
@@ -331,9 +321,7 @@ class MemoryManager:
         )
         return deleted_count
 
-    async def cleanup_old_trades(
-        self, days_old: int = 90, user_id: Optional[str] = None
-    ) -> int:
+    async def cleanup_old_trades(self, days_old: int = 90, user_id: Optional[str] = None) -> int:
         """Clean up old trade history."""
         uid = self._normalize_user_id(user_id) if user_id is not None else None
         async with get_db_connection(self.db_path) as conn:
@@ -341,9 +329,7 @@ class MemoryManager:
             cutoff_str = cutoff_date.isoformat()
 
             if uid is None:
-                cursor = await conn.execute(
-                    "DELETE FROM trades WHERE timestamp < ?", (cutoff_str,)
-                )
+                cursor = await conn.execute("DELETE FROM trades WHERE timestamp < ?", (cutoff_str,))
             else:
                 cursor = await conn.execute(
                     "DELETE FROM trades WHERE timestamp < ? AND user_id = ?",
@@ -502,9 +488,7 @@ class MemoryManager:
             if uid is None:
                 cursor = await conn.execute("DELETE FROM sessions")
             else:
-                cursor = await conn.execute(
-                    "DELETE FROM sessions WHERE user_id = ?", (uid,)
-                )
+                cursor = await conn.execute("DELETE FROM sessions WHERE user_id = ?", (uid,))
             count = cursor.rowcount or 0
             await conn.commit()
         logger.info(
@@ -514,9 +498,7 @@ class MemoryManager:
         )
         return count
 
-    async def get_latest_session(
-        self, user_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    async def get_latest_session(self, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get the most recently updated session, or None if no sessions exist."""
         uid = self._normalize_user_id(user_id) if user_id is not None else None
         async with get_db_connection(self.db_path) as conn:

@@ -8,7 +8,7 @@ from sam.utils.memory_monitor import (
     MemoryMonitor,
     get_memory_monitor,
     start_memory_monitoring,
-    monitor_memory
+    monitor_memory,
 )
 
 
@@ -25,7 +25,7 @@ class TestMemoryStats:
             process_rss=512 * 1024**2,  # 512 MB
             process_vms=1024 * 1024**2,  # 1 GB
             process_percentage=3.2,
-            gc_objects=10000
+            gc_objects=10000,
         )
 
         assert stats.total_ram == 16 * 1024**3
@@ -53,10 +53,7 @@ class TestMemoryThresholds:
     def test_memory_thresholds_custom_values(self):
         """Test MemoryThresholds with custom values."""
         thresholds = MemoryThresholds(
-            warning_threshold=70.0,
-            critical_threshold=85.0,
-            max_cache_size_mb=200,
-            gc_frequency=50
+            warning_threshold=70.0, critical_threshold=85.0, max_cache_size_mb=200, gc_frequency=50
         )
 
         assert thresholds.warning_threshold == 70.0
@@ -278,7 +275,7 @@ class TestMemoryMonitor:
         mock_process = MagicMock()
         mock_process.memory_info.side_effect = [
             MagicMock(rss=100 * 1024**2),  # Before
-            MagicMock(rss=80 * 1024**2)    # After
+            MagicMock(rss=80 * 1024**2),  # After
         ]
         mock_process_class.return_value = mock_process
 
@@ -306,8 +303,15 @@ class TestMemoryMonitor:
     @patch("psutil.cpu_percent")
     @patch("gc.get_objects")
     @patch("gc.garbage")
-    def test_get_system_info(self, mock_gc_garbage, mock_gc_objects, mock_cpu_percent,
-                           mock_cpu_count, mock_process_class, mock_virtual_memory):
+    def test_get_system_info(
+        self,
+        mock_gc_garbage,
+        mock_gc_objects,
+        mock_cpu_percent,
+        mock_cpu_count,
+        mock_process_class,
+        mock_virtual_memory,
+    ):
         """Test comprehensive system information retrieval."""
         # Mock system memory
         mock_system_mem = MagicMock()
@@ -354,9 +358,10 @@ class TestMemoryMonitor:
         """Test periodic memory check under normal conditions."""
         monitor = MemoryMonitor()
 
-        with patch.object(monitor, "check_memory_thresholds", return_value={}), \
-             patch.object(monitor, "should_run_gc", return_value=False):
-
+        with (
+            patch.object(monitor, "check_memory_thresholds", return_value={}),
+            patch.object(monitor, "should_run_gc", return_value=False),
+        ):
             # Run periodic check briefly
             task = asyncio.create_task(monitor.periodic_check(interval=0.01))
             await asyncio.sleep(0.02)  # Let it run briefly
@@ -375,9 +380,12 @@ class TestMemoryMonitor:
         """Test periodic memory check with alerts."""
         monitor = MemoryMonitor()
 
-        with patch.object(monitor, "check_memory_thresholds", return_value={"warning": "High memory"}), \
-             patch.object(monitor, "should_run_gc", return_value=False):
-
+        with (
+            patch.object(
+                monitor, "check_memory_thresholds", return_value={"warning": "High memory"}
+            ),
+            patch.object(monitor, "should_run_gc", return_value=False),
+        ):
             # Run periodic check briefly
             task = asyncio.create_task(monitor.periodic_check(interval=0.01))
             await asyncio.sleep(0.02)
@@ -396,10 +404,13 @@ class TestMemoryMonitor:
         """Test periodic memory check triggering GC."""
         monitor = MemoryMonitor()
 
-        with patch.object(monitor, "check_memory_thresholds", return_value={"critical": "Very high memory"}), \
-             patch.object(monitor, "should_run_gc", return_value=True), \
-             patch.object(monitor, "run_garbage_collection") as mock_gc:
-
+        with (
+            patch.object(
+                monitor, "check_memory_thresholds", return_value={"critical": "Very high memory"}
+            ),
+            patch.object(monitor, "should_run_gc", return_value=True),
+            patch.object(monitor, "run_garbage_collection") as mock_gc,
+        ):
             # Run periodic check briefly
             task = asyncio.create_task(monitor.periodic_check(interval=0.01))
             await asyncio.sleep(0.02)
@@ -420,7 +431,6 @@ class TestMemoryMonitor:
         monitor = MemoryMonitor()
 
         with patch.object(monitor, "check_memory_thresholds", side_effect=Exception("Test error")):
-
             # Run periodic check briefly
             task = asyncio.create_task(monitor.periodic_check(interval=0.01))
             await asyncio.sleep(0.02)
@@ -441,6 +451,7 @@ class TestGlobalMemoryMonitor:
         """Test global memory monitor singleton pattern."""
         # Reset global state
         import sam.utils.memory_monitor
+
         sam.utils.memory_monitor._global_monitor = None
 
         monitor1 = get_memory_monitor()
@@ -453,6 +464,7 @@ class TestGlobalMemoryMonitor:
         """Test global memory monitor with custom thresholds."""
         # Reset global state
         import sam.utils.memory_monitor
+
         sam.utils.memory_monitor._global_monitor = None
 
         thresholds = MemoryThresholds(warning_threshold=75.0)
@@ -487,10 +499,11 @@ class TestGlobalMemoryMonitor:
         def test_function():
             return [1, 2, 3, 4, 5]  # Some data to measure
 
-        with patch("sam.utils.memory_monitor.get_memory_monitor", return_value=monitor), \
-             patch.object(monitor, "should_run_gc", return_value=False), \
-             patch.object(monitor, "register_cache_usage") as mock_register:
-
+        with (
+            patch("sam.utils.memory_monitor.get_memory_monitor", return_value=monitor),
+            patch.object(monitor, "should_run_gc", return_value=False),
+            patch.object(monitor, "register_cache_usage") as mock_register,
+        ):
             result = test_function()
 
             assert result == [1, 2, 3, 4, 5]
@@ -504,10 +517,11 @@ class TestGlobalMemoryMonitor:
         def test_function():
             return "test result"
 
-        with patch("sam.utils.memory_monitor.get_memory_monitor", return_value=monitor), \
-             patch.object(monitor, "should_run_gc", return_value=True), \
-             patch.object(monitor, "run_garbage_collection") as mock_gc:
-
+        with (
+            patch("sam.utils.memory_monitor.get_memory_monitor", return_value=monitor),
+            patch.object(monitor, "should_run_gc", return_value=True),
+            patch.object(monitor, "run_garbage_collection") as mock_gc,
+        ):
             result = test_function()
 
             assert result == "test result"
@@ -521,10 +535,11 @@ class TestGlobalMemoryMonitor:
         def test_function():
             return "test result"
 
-        with patch("sam.utils.memory_monitor.get_memory_monitor", return_value=monitor), \
-             patch.object(monitor, "should_run_gc", return_value=False), \
-             patch.object(monitor, "register_cache_usage") as mock_register:
-
+        with (
+            patch("sam.utils.memory_monitor.get_memory_monitor", return_value=monitor),
+            patch.object(monitor, "should_run_gc", return_value=False),
+            patch.object(monitor, "register_cache_usage") as mock_register,
+        ):
             result = test_function()
 
             assert result == "test result"

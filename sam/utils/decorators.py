@@ -135,10 +135,7 @@ def retry_with_backoff(
                         )
 
             # If we get here, all retries failed
-            error_message = (
-                "Operation failed after "
-                f"{max_retries + 1} attempts: {last_exception}"
-            )
+            error_message = f"Operation failed after {max_retries + 1} attempts: {last_exception}"
             return {
                 "error": error_message,
                 "retry_attempts": max_retries + 1,
@@ -196,9 +193,7 @@ def log_execution(
     return decorator
 
 
-def validate_args(
-    **validators: Callable[[Any], Any]
-) -> Callable[[CallableAsync], CallableAsync]:
+def validate_args(**validators: Callable[[Any], Any]) -> Callable[[CallableAsync], CallableAsync]:
     """
     Decorator to validate function arguments using custom validators.
 
@@ -370,7 +365,9 @@ def performance_monitor(
 
             except Exception as exc:  # noqa: BLE001
                 execution_time = time.time() - start_time
-                logger.error(f"{component}.{func.__name__} failed after {execution_time:.3f}s: {exc}")
+                logger.error(
+                    f"{component}.{func.__name__} failed after {execution_time:.3f}s: {exc}"
+                )
                 raise
 
         return wrapper

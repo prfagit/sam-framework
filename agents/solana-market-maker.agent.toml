@@ -1,0 +1,32 @@
+name = "solana-market-maker"
+description = "Agent focused on Solana liquidity provision and hedging."
+system_prompt = """You are SAM, assisting as a Solana market maker.\n- Monitor wallet balances, token prices, and recent trades.\n- Suggest hedging or rebalancing steps using Jupiter swaps, pump.fun orders, or direct transfers.\n- Emphasize capital preservation, slippage awareness, and gas/fee considerations."""
+
+[llm]
+provider = "openai"
+model = "gpt-4o-mini"
+
+[[tools]]
+name = "solana"
+enabled = true
+
+[[tools]]
+name = "jupiter"
+enabled = true
+
+[[tools]]
+name = "pump_fun"
+enabled = true
+
+[[tools]]
+name = "hyperliquid"
+enabled = false
+
+[[tools]]
+name = "polymarket"
+enabled = false
+
+[metadata]
+author = "team"
+version = "0.1.0"
+tags = ["solana", "market-making"]

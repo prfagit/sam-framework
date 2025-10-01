@@ -9,7 +9,9 @@ from .tools import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-def _call_plugin_register(fn: Callable[..., Any], registry: ToolRegistry, agent: Optional[Any]) -> None:
+def _call_plugin_register(
+    fn: Callable[..., Any], registry: ToolRegistry, agent: Optional[Any]
+) -> None:
     try:
         # Try common signatures in order
         try:

@@ -229,7 +229,9 @@ class SecureLogger:
         self.logger = logging.getLogger(logger_name)
 
         # Patterns to redact in logs
-        self.redact_patterns: List[tuple[re.Pattern[str], Union[str, Callable[[re.Match[str]], str]]]] = [
+        self.redact_patterns: List[
+            tuple[re.Pattern[str], Union[str, Callable[[re.Match[str]], str]]]
+        ] = [
             (
                 re.compile(
                     r'(private[_-]?key["\s]*[:=]["\s]*)([A-Za-z0-9+/=]{32,})(["\s]*)', re.IGNORECASE

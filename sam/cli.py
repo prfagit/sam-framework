@@ -12,6 +12,7 @@ import asyncio
 import importlib
 import logging
 import os
+import re
 import shutil
 import sys
 import textwrap
@@ -27,7 +28,7 @@ except ImportError:
 
 from .core.agent import SAMAgent
 from .core.builder import cleanup_agent_fast
-from .core.agent_factory import get_default_factory
+from .core.agent_factory import AgentFactory, get_default_factory
 from .core.context import RequestContext
 from .config.plugin_policy import PluginPolicy, load_allowlist_document
 from .config.settings import Settings, setup_logging
@@ -46,6 +47,18 @@ from .commands.providers import (
     show_current_provider as cmd_show_current_provider,
     switch_provider as cmd_switch_provider,
     test_provider as cmd_test_provider,
+)
+from .commands.agents import (
+    init_agent_command as cmd_init_agent,
+    list_agents_command as cmd_list_agents,
+    load_agent_definition,
+    run_agent_definition,
+)
+from .commands.config import (
+    edit_profile as cmd_config_edit,
+    migrate_env_to_profile as cmd_migrate_profile,
+    repair_fernet_key as cmd_config_repair_fernet,
+    show_profile as cmd_config_show,
 )
 from .commands.onboard import run_onboarding
 from .commands.keys import (
@@ -116,6 +129,13 @@ TOOL_DISPLAY_NAMES = {
     "polymarket_list_markets": "🎯 Listing Polymarket markets",
     "polymarket_opportunity_scan": "🎯 Scanning Polymarket opportunities",
     "polymarket_strategy_brief": "🧠 Crafting Polymarket strategy",
+    "hyperliquid_balance": "🌊 Hyperliquid balance",
+    "hyperliquid_positions": "🌊 Hyperliquid positions",
+    "hyperliquid_open_orders": "🌊 Hyperliquid open orders",
+    "hyperliquid_market_order": "🌊 Hyperliquid market order",
+    "hyperliquid_close_position": "🌊 Hyperliquid close position",
+    "hyperliquid_cancel_order": "🌊 Hyperliquid cancel order",
+    "hyperliquid_user_fills": "🌊 Hyperliquid user fills",
 }
 
 
@@ -132,6 +152,7 @@ class Style:
     FG_GREEN = "\033[32m"
     FG_YELLOW = "\033[33m"
     FG_BLUE = "\033[34m"
+    FG_MAGENTA = "\033[35m"
     FG_GRAY = "\033[90m"
 
 
@@ -165,6 +186,89 @@ def banner(title: str) -> str:
     """Clean, minimal banner with subtle styling (use title)."""
     left = f"🤖 {title}" if title else "🤖 SAM"
     return f"{colorize(left, Style.BOLD, Style.FG_CYAN)} {colorize('• Solana Agent •', Style.DIM, Style.FG_GRAY)}"
+
+
+_BOLD_PATTERN = re.compile(r"\*\*(.+?)\*\*")
+_ITALIC_PATTERN = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_INLINE_CODE_PATTERN = re.compile(r"`([^`]+)`")
+_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
+def _apply_inline_styles(text: str) -> str:
+    """Apply inline markdown styling to a single line using ANSI colours."""
+
+    def bold_repl(match: re.Match[str]) -> str:
+        return colorize(match.group(1), Style.BOLD, Style.FG_GREEN)
+
+    def italic_repl(match: re.Match[str]) -> str:
+        return colorize(match.group(1), Style.FG_MAGENTA)
+
+    def code_repl(match: re.Match[str]) -> str:
+        return colorize(match.group(1), Style.FG_YELLOW)
+
+    def link_repl(match: re.Match[str]) -> str:
+        label, url = match.group(1), match.group(2)
+        return f"{colorize(label, Style.FG_CYAN)} {colorize(url, Style.DIM, Style.FG_GRAY)}"
+
+    styled = _BOLD_PATTERN.sub(bold_repl, text)
+    styled = _LINK_PATTERN.sub(link_repl, styled)
+    styled = _INLINE_CODE_PATTERN.sub(code_repl, styled)
+    styled = _ITALIC_PATTERN.sub(italic_repl, styled)
+    return styled
+
+
+def format_markdown_to_cli(text: str) -> str:
+    """Lightweight markdown formatting tuned for the SAM CLI output."""
+
+    if not text:
+        return ""
+
+    formatted_lines: list[str] = []
+    in_code_block = False
+
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            fence = stripped[3:].strip()
+            marker = f"``` {fence}".rstrip()
+            formatted_lines.append(colorize(marker, Style.DIM, Style.FG_GRAY))
+            continue
+
+        if in_code_block:
+            formatted_lines.append(colorize(raw_line, Style.FG_YELLOW))
+            continue
+
+        heading_match = re.match(r"^(#{1,6})\s+(.*)$", raw_line)
+        if heading_match:
+            level = len(heading_match.group(1))
+            heading_text = heading_match.group(2).strip()
+            if level == 1:
+                formatted_lines.append(colorize(heading_text, Style.BOLD, Style.FG_CYAN))
+            elif level == 2:
+                formatted_lines.append(colorize(heading_text, Style.BOLD, Style.FG_BLUE))
+            else:
+                formatted_lines.append(colorize(heading_text, Style.BOLD, Style.FG_GREEN))
+            continue
+
+        bullet_match = re.match(r"^(\s*)[-*]\s+(.*)$", raw_line)
+        if bullet_match:
+            indent, body = bullet_match.groups()
+            formatted_lines.append(
+                f"{indent}{colorize('•', Style.FG_CYAN)} {_apply_inline_styles(body)}"
+            )
+            continue
+
+        quote_match = re.match(r"^\s*>\s?(.*)$", raw_line)
+        if quote_match:
+            body = quote_match.group(1)
+            formatted_lines.append(colorize(_apply_inline_styles(body.strip()), Style.FG_BLUE))
+            continue
+
+        formatted_lines.append(_apply_inline_styles(raw_line))
+
+    return "\n".join(formatted_lines)
 
 
 class Spinner:
@@ -224,23 +328,35 @@ class Spinner:
             sys.stdout.flush()
 
 
-async def setup_agent() -> SAMAgent:
-    """Initialize the SAM agent with all tools and integrations.
+async def setup_agent(
+    factory: AgentFactory | None = None,
+    context: RequestContext | None = None,
+) -> SAMAgent:
+    """Initialize the SAM agent with all tools and integrations."""
 
-    Delegates to core.AgentBuilder for modular construction.
-    """
-    return await CLI_FACTORY.get_agent(CLI_CONTEXT)
+    active_factory = factory or CLI_FACTORY
+    active_context = context or CLI_CONTEXT
+    return await active_factory.get_agent(active_context)
 
 
-async def cleanup_agent(agent: SAMAgent | None) -> None:
+async def cleanup_agent(
+    agent: SAMAgent | None,
+    *,
+    factory: AgentFactory | None = None,
+    context: RequestContext | None = None,
+) -> None:
     """Clean up agent resources quickly (delegated)."""
+
+    active_factory = factory or CLI_FACTORY
+    active_context = context or CLI_CONTEXT
+
     try:
         if agent is not None:
             try:
                 await asyncio.wait_for(agent.close(), timeout=1.0)
             except Exception:
                 pass
-        await CLI_FACTORY.clear(CLI_CONTEXT)
+        await active_factory.clear(active_context)
     except Exception:
         pass
     # Also run shared cleanup (HTTP client, DB pool, rate limiter, price service)
@@ -252,26 +368,37 @@ async def run_interactive_session(
     no_animation: bool = False,
     *,
     clear_sessions: bool = False,
+    factory: AgentFactory | None = None,
+    agent_context: RequestContext | None = None,
+    agent_name: str | None = None,
+    agent_description: str | None = None,
+    agent_tags: list[str] | None = None,
 ) -> int:
     """Run interactive REPL session."""
     # Show fast glitch intro (unless disabled)
     if not no_animation:
         await show_sam_intro("glitch")
 
+    active_factory = factory or CLI_FACTORY
+    active_context = agent_context or CLI_CONTEXT
+
     agent: SAMAgent | None = None
     # Initialize agent
     try:
         async with Spinner("Loading SAM"):
-            agent = await setup_agent()
+            agent = await setup_agent(factory=active_factory, context=active_context)
 
     except Exception as e:
         print(f"{colorize('❌ Failed to initialize agent:', Style.FG_YELLOW)} {e}")
         return 1
 
+    agent_tags = agent_tags or []
+    display_agent_name = agent_name or "SAM"
+
     # Optionally clear all saved sessions before proceeding
     try:
         if clear_sessions:
-            _ = await agent.memory.clear_all_sessions(user_id=CLI_CONTEXT.user_id)
+            _ = await agent.memory.clear_all_sessions(user_id=active_context.user_id)
     except Exception:
         pass
 
@@ -279,7 +406,7 @@ async def run_interactive_session(
     # switch to the most recently updated session, creating a new dated one if none exists.
     try:
         if not session_id or session_id in {"default", "latest"}:
-            latest = await agent.memory.get_latest_session(user_id=CLI_CONTEXT.user_id)
+            latest = await agent.memory.get_latest_session(user_id=active_context.user_id)
             if latest:
                 session_id = latest.get("session_id", "default")
             else:
@@ -287,7 +414,7 @@ async def run_interactive_session(
                 from datetime import datetime
 
                 new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
-                await agent.memory.create_session(new_id, user_id=CLI_CONTEXT.user_id)
+                await agent.memory.create_session(new_id, user_id=active_context.user_id)
                 session_id = new_id
     except Exception:
         pass
@@ -300,16 +427,25 @@ async def run_interactive_session(
         print("\033[2J\033[H")  # Clear screen
 
     print()
-    print(banner("SAM"))
+    print(banner(display_agent_name.upper()))
     print(
         colorize(f"✨ Ready! {tools_count} tools loaded. Type", Style.FG_GREEN),
         colorize("/help", Style.FG_CYAN),
         colorize("for commands.", Style.FG_GREEN),
     )
+    print(
+        colorize("Agent:", Style.FG_BLUE),
+        colorize(display_agent_name, Style.BOLD + Style.FG_GREEN),
+    )
+    if agent_description:
+        print(colorize(agent_description, Style.FG_GRAY))
+    if agent_tags:
+        tags = " ".join(f"#{tag}" for tag in agent_tags)
+        print(colorize(tags, Style.FG_MAGENTA))
 
     # Show recent sessions (top 5) to help users resume
     try:
-        recent = await agent.memory.list_sessions(limit=5, user_id=CLI_CONTEXT.user_id)
+        recent = await agent.memory.list_sessions(limit=5, user_id=active_context.user_id)
         if recent:
             labels = []
             for s in recent:
@@ -377,53 +513,83 @@ async def run_interactive_session(
 
     async def show_tools() -> None:
         specs = agent.tools.list_specs()
+        tool_categories = {
+            "get_balance": "💰 Wallet & Balance",
+            "transfer_sol": "💰 Wallet & Balance",
+            "get_token_data": "📊 Token Data",
+            "get_token_pairs": "📊 Token Data",
+            "search_pairs": "📊 Token Data",
+            "get_solana_pair": "📊 Token Data",
+            "smart_buy": "🧠 Smart Trader",
+            "smart_sell": "🧠 Smart Trader",
+            "pump_fun_buy": "🚀 Pump.fun",
+            "pump_fun_sell": "🚀 Pump.fun",
+            "get_pump_token_info": "🚀 Pump.fun",
+            "get_token_trades": "🚀 Pump.fun",
+            "get_swap_quote": "🌌 Jupiter Swaps",
+            "jupiter_swap": "🌌 Jupiter Swaps",
+            "get_trending_pairs": "📈 Market Data",
+            "polymarket_list_markets": "🎯 Polymarket",
+            "polymarket_opportunity_scan": "🎯 Polymarket",
+            "polymarket_strategy_brief": "🎯 Polymarket",
+            "search_web": "🌐 Web Search",
+            "search_news": "🌐 Web Search",
+            "aster_account_balance": "⚡ Aster Futures",
+            "aster_account_info": "⚡ Aster Futures",
+            "aster_position_check": "⚡ Aster Futures",
+            "aster_trade_history": "⚡ Aster Futures",
+            "aster_open_long": "⚡ Aster Futures",
+            "aster_close_position": "⚡ Aster Futures",
+            "hyperliquid_positions": "🌊 Hyperliquid",
+            "hyperliquid_open_orders": "🌊 Hyperliquid",
+            "hyperliquid_market_order": "🌊 Hyperliquid",
+            "hyperliquid_close_position": "🌊 Hyperliquid",
+            "hyperliquid_cancel_order": "🌊 Hyperliquid",
+            "hyperliquid_user_fills": "🌊 Hyperliquid",
+            "hyperliquid_balance": "🌊 Hyperliquid",
+        }
+
+        grouped: dict[str, list[str]] = {}
+        for spec in specs:
+            name = spec.get("name")
+            if not name:
+                continue
+            category = tool_categories.get(name, "🔧 Other")
+            grouped.setdefault(category, []).append(name)
+
+        category_order = [
+            "💰 Wallet & Balance",
+            "📊 Token Data",
+            "🧠 Smart Trader",
+            "🚀 Pump.fun",
+            "🌌 Jupiter Swaps",
+            "📈 Market Data",
+            "🎯 Polymarket",
+            "🌐 Web Search",
+            "🌊 Hyperliquid",
+            "⚡ Aster Futures",
+            "🔧 Other",
+        ]
+
         print()
         print(colorize("🔧 Available Tools", Style.BOLD, Style.FG_CYAN))
         print()
 
-        # Group tools by category
-        categories: dict[str, list[str]] = {
-            "💰 Wallet & Balance": ["get_balance", "transfer_sol"],
-            "📊 Token Data": [
-                "get_token_data",
-                "get_token_pairs",
-                "search_pairs",
-                "get_solana_pair",
-            ],
-            "🧠 Smart Trader": ["smart_buy", "smart_sell"],
-            "🚀 Pump.fun": [
-                "pump_fun_buy",
-                "pump_fun_sell",
-                "get_pump_token_info",
-                "get_token_trades",
-            ],
-            "🌌 Jupiter Swaps": ["get_swap_quote", "jupiter_swap"],
-            "📈 Market Data": ["get_trending_pairs"],
-            "🎯 Polymarket": [
-                "polymarket_list_markets",
-                "polymarket_opportunity_scan",
-                "polymarket_strategy_brief",
-            ],
-            "🌐 Web Search": ["search_web", "search_news"],
-            "⚡ Aster Futures": [
-                "aster_account_balance",
-                "aster_account_info",
-                "aster_position_check",
-                "aster_trade_history",
-                "aster_open_long",
-                "aster_close_position",
-            ],
-        }
-
-        for category, tool_names in categories.items():
+        printed = False
+        for category in category_order:
+            names = grouped.get(category)
+            if not names:
+                continue
+            printed = True
             print(colorize(category, Style.BOLD))
-            for spec in specs:
-                name = spec.get("name", "")
-                if name in tool_names:
-                    emoji = TOOL_DISPLAY_NAMES.get(name, name).split(" ")[0]
-                    print(f"   {emoji} {colorize(name, Style.FG_GREEN)}")
+            for name in sorted(names):
+                display = TOOL_DISPLAY_NAMES.get(name, f"🔧 {name}")
+                print(f"   {display}")
             print()
-        print()
+
+        if not printed:
+            print(colorize("(No tools enabled for this agent)", Style.DIM))
+            print()
 
     def show_config() -> None:
         print(colorize(hr(), Style.FG_GRAY))
@@ -464,7 +630,7 @@ async def run_interactive_session(
             f"  - Polymarket: {'On' if Settings.ENABLE_POLYMARKET_TOOLS else 'Off'}\n"
             f"  - Search:    {'On' if Settings.ENABLE_SEARCH_TOOLS else 'Off'}"
         )
-        brave_set = "Yes" if os.environ.get("BRAVE_API_KEY") else "No"
+        brave_set = "Yes" if Settings.BRAVE_API_KEY else "No"
         print(f" Brave API Key configured: {brave_set}")
         try:
             wallet = getattr(getattr(agent, "_solana_tools", None), "wallet_address", None)
@@ -520,7 +686,7 @@ async def run_interactive_session(
 
     async def show_history(limit: Optional[int] = None) -> None:
         try:
-            ctx = await agent.memory.load_session(session_id, user_id=CLI_CONTEXT.user_id)
+            ctx = await agent.memory.load_session(session_id, user_id=active_context.user_id)
         except Exception as e:
             print(colorize(f"Failed to load history: {e}", Style.FG_YELLOW))
             return
@@ -553,9 +719,7 @@ async def run_interactive_session(
     async def list_and_maybe_switch_session() -> None:
         nonlocal session_id
         try:
-            sessions = await agent.memory.list_sessions(
-                limit=25, user_id=CLI_CONTEXT.user_id
-            )
+            sessions = await agent.memory.list_sessions(limit=25, user_id=active_context.user_id)
         except Exception as e:
             print(colorize(f"Failed to list sessions: {e}", Style.FG_YELLOW))
             return
@@ -567,7 +731,10 @@ async def run_interactive_session(
         for i, s in enumerate(sessions, 1):
             sid = s.get("session_id")
             mark = " (current)" if sid == session_id else ""
-            print(f" {i:2d}. {sid}  msgs:{s.get('message_count',0)}  updated:{s.get('updated_at','')}" + mark)
+            print(
+                f" {i:2d}. {sid}  msgs:{s.get('message_count', 0)}  updated:{s.get('updated_at', '')}"
+                + mark
+            )
         print(colorize(hr(), Style.FG_GRAY))
         # Offer interactive switch if inquirer available
         if _ensure_inquirer():
@@ -668,7 +835,7 @@ async def run_interactive_session(
                     if ctx_len >= MAX_CONTEXT_MSGS and ctx_len != last_compacted_at:
                         async with Spinner("Auto-compacting conversation"):
                             msg = await agent.compact_conversation(
-                                session_id, keep_recent=0, user_id=CLI_CONTEXT.user_id
+                                session_id, keep_recent=0, user_id=active_context.user_id
                             )
                         print(colorize(f"📋 {msg}", Style.FG_GREEN))
                         # Show the now-clean summary-only conversation
@@ -680,60 +847,79 @@ async def run_interactive_session(
                 except Exception:
                     pass
 
-                prompt_text = colorize("🤖 ", Style.FG_CYAN) + colorize("» ", Style.DIM)
+                prompt_text = colorize("🤖 ", Style.FG_CYAN) + colorize(
+                    f"{display_agent_name} » ", Style.DIM
+                )
+
                 user_input = input(prompt_text).strip()
-                # Render status just below the input line for a cleaner look
+
                 if user_input:
                     show_context_info()
-                    print()  # spacer before handling output/menus
+                    print()
 
                 if not user_input:
                     continue
 
-                # Slash-commands
+                # Slash commands
                 if user_input in ("exit", "quit", "bye", "/exit", "/quit"):
                     print("👋 Goodbye!")
                     break
+
                 if user_input in ("help", "/help", "/?"):
                     print_help()
                     continue
+
                 if user_input in ("/tools",):
                     await show_tools()
                     continue
+
                 if user_input in ("/config",):
                     show_config()
                     continue
+
                 if user_input in ("/sessions",):
                     await list_and_maybe_switch_session()
                     continue
+
                 if user_input in ("/clear-sessions",):
-                    ok = interactive_confirm("Delete ALL saved sessions? This cannot be undone.", False)
+                    ok = interactive_confirm(
+                        "Delete ALL saved sessions? This cannot be undone.", False
+                    )
                     if ok:
                         try:
                             deleted = await agent.memory.clear_all_sessions(
-                                user_id=CLI_CONTEXT.user_id
+                                user_id=active_context.user_id
                             )
                             from datetime import datetime
+
                             new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
                             await agent.memory.create_session(
-                                new_id, user_id=CLI_CONTEXT.user_id
+                                new_id, user_id=active_context.user_id
                             )
                             session_id = new_id
-                            print(colorize(f"Deleted {deleted} sessions. Started new session: {session_id}", Style.FG_GREEN))
+                            print(
+                                colorize(
+                                    f"Deleted {deleted} sessions. Started new session: {session_id}",
+                                    Style.FG_GREEN,
+                                )
+                            )
                             await show_history(limit=None)
                         except Exception as e:
                             print(colorize(f"Failed to clear sessions: {e}", Style.FG_YELLOW))
                     continue
+
                 if user_input in ("/new",):
                     from datetime import datetime
+
                     new_id = f"sess-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
                     try:
-                        await agent.memory.create_session(new_id, user_id=CLI_CONTEXT.user_id)
+                        await agent.memory.create_session(new_id, user_id=active_context.user_id)
                         session_id = new_id
                         print(colorize(f"Created new session: {session_id}", Style.FG_GREEN))
                     except Exception as e:
                         print(colorize(f"Failed to create session: {e}", Style.FG_YELLOW))
                     continue
+
                 if user_input.startswith("/history"):
                     parts = user_input.split()
                     if len(parts) == 1:
@@ -748,6 +934,7 @@ async def run_interactive_session(
                             except Exception:
                                 await show_history(limit=None)
                     continue
+
                 if user_input in ("/settings",):
                     from .interactive_settings import run_interactive_settings
 
@@ -760,6 +947,7 @@ async def run_interactive_session(
                     except Exception as e:
                         print(f"❌ Error with interactive settings: {e}")
                     continue
+
                 if user_input in ("/provider", "/providers"):
                     sel = interactive_select(
                         "Provider actions:",
@@ -796,6 +984,7 @@ async def run_interactive_session(
                                     )
                                 )
                     continue
+
                 if user_input.startswith("/switch "):
                     provider = user_input.split(" ", 1)[1] if len(user_input.split(" ")) > 1 else ""
                     if provider:
@@ -807,48 +996,53 @@ async def run_interactive_session(
                     else:
                         print(colorize("Usage: /switch <provider>", Style.FG_YELLOW))
                     continue
+
                 if user_input in ("/clear", "/cls"):
                     clear_screen()
                     continue
+
                 if user_input in ("/clear-context",):
                     async with Spinner("Clearing conversation context"):
-                        clear_message = await agent.clear_context(session_id)
+                        clear_message = await agent.clear_context(
+                            session_id, user_id=active_context.user_id
+                        )
                     print(colorize("✨ " + clear_message, Style.FG_GREEN))
                     continue
+
                 if user_input in ("/compact",):
                     async with Spinner("Compacting conversation"):
                         compact_message = await agent.compact_conversation(
-                            session_id, keep_recent=0
+                            session_id, keep_recent=0, user_id=active_context.user_id
                         )
                     print(colorize("📋 " + compact_message, Style.FG_GREEN))
                     await show_history(limit=None)
                     continue
-                # Diagnostics: /wallet and /balance [address]
-                if user_input in ("/wallet",):
-                    w = getattr(agent, "_solana_tools", None)
-                    addr = getattr(w, "wallet_address", None) if w else None
-                    if addr:
-                        print(colorize(hr(), Style.FG_GRAY))
-                        print(f" Wallet: {addr}")
-                        print(colorize(hr(), Style.FG_GRAY))
-                    else:
-                        print(colorize("No wallet configured.", Style.FG_YELLOW))
-                    continue
-                if user_input.startswith("/balance"):
-                    parts = user_input.split()
-                    address = parts[1] if len(parts) > 1 else None
-                    if not address:
-                        address = interactive_text("Address (leave blank for default):", "")
-                    w = getattr(agent, "_solana_tools", None)
-                    if not w:
-                        print(colorize("Solana tools unavailable.", Style.FG_YELLOW))
+                    # Diagnostics: /wallet and /balance [address]
+                    if user_input in ("/wallet",):
+                        w = getattr(agent, "_solana_tools", None)
+                        addr = getattr(w, "wallet_address", None) if w else None
+                        if addr:
+                            print(colorize(hr(), Style.FG_GRAY))
+                            print(f" Wallet: {addr}")
+                            print(colorize(hr(), Style.FG_GRAY))
+                        else:
+                            print(colorize("No wallet configured.", Style.FG_YELLOW))
                         continue
-                    async with Spinner("Querying balance"):
-                        balance_info = await w.get_balance(address or None)
-                    print(colorize(hr(), Style.FG_GRAY))
-                    print(wrap(str(balance_info)))
-                    print(colorize(hr(), Style.FG_GRAY))
-                    continue
+                    if user_input.startswith("/balance"):
+                        parts = user_input.split()
+                        address = parts[1] if len(parts) > 1 else None
+                        if not address:
+                            address = interactive_text("Address (leave blank for default):", "")
+                        w = getattr(agent, "_solana_tools", None)
+                        if not w:
+                            print(colorize("Solana tools unavailable.", Style.FG_YELLOW))
+                            continue
+                        async with Spinner("Querying balance"):
+                            balance_info = await w.get_balance(address or None)
+                        print(colorize(hr(), Style.FG_GRAY))
+                        print(wrap(str(balance_info)))
+                        print(colorize(hr(), Style.FG_GRAY))
+                        continue
 
                 # Unknown slash command → show help
                 if user_input.startswith("/"):
@@ -910,7 +1104,7 @@ async def run_interactive_session(
                     current_spinner = spinner
                     agent.tool_callback = tool_callback
                     task: asyncio.Task[str] = asyncio.create_task(
-                        agent.run(user_input, session_id, context=CLI_CONTEXT)
+                        agent.run(user_input, session_id, context=active_context)
                     )
                     esc_task: asyncio.Task[None] = asyncio.create_task(_listen_for_escape(task))
                     response: str = ""
@@ -932,7 +1126,10 @@ async def run_interactive_session(
                 print(colorize("│", Style.FG_CYAN), end=" ")
 
                 # Format response with casual styling
-                formatted_response = response.replace("\n", f"\n{colorize('│', Style.FG_CYAN)} ")
+                formatted_response = format_markdown_to_cli(response)
+                formatted_response = formatted_response.replace(
+                    "\n", f"\n{colorize('│', Style.FG_CYAN)} "
+                )
                 print(formatted_response)
                 print()
 
@@ -948,7 +1145,10 @@ async def run_interactive_session(
         # Fast cleanup with timeout
         if agent:
             try:
-                await asyncio.wait_for(cleanup_agent(agent), timeout=2.0)
+                await asyncio.wait_for(
+                    cleanup_agent(agent, factory=active_factory, context=active_context),
+                    timeout=2.0,
+                )
             except asyncio.TimeoutError:
                 # Force exit if cleanup takes too long
                 pass
@@ -986,6 +1186,7 @@ def print_help() -> None:
     print("   • search for BONK pairs")
     print("   • /history 10  # show last 10 messages")
     print()
+
 
 def import_private_key() -> int:
     """Shim delegating to commands.keys.import_private_key."""
@@ -1042,6 +1243,11 @@ async def main() -> int:
         action="store_true",
         help="Delete all saved conversation sessions before starting",
     )
+    run_parser.add_argument(
+        "--agent",
+        dest="agent_definition",
+        help="Run using a declarative agent definition (name or path)",
+    )
 
     # Key management
     key_parser = subparsers.add_parser("key", help="Private key management")
@@ -1073,6 +1279,52 @@ async def main() -> int:
     switch_parser.add_argument("name", help="Provider name (openai, anthropic, xai, local)")
     test_parser = provider_subparsers.add_parser("test", help="Test provider connection")
     test_parser.add_argument("--provider", help="Provider to test (defaults to current)")
+
+    # Agent management
+    agent_parser = subparsers.add_parser("agent", help="Manage declarative agents")
+    agent_subparsers = agent_parser.add_subparsers(dest="agent_action")
+
+    agent_subparsers.add_parser("list", help="List available agents")
+
+    agent_init_parser = agent_subparsers.add_parser("init", help="Create a new agent definition")
+    agent_init_parser.add_argument("name", help="Agent name (used for the .agent.toml file)")
+    agent_init_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite the definition if it already exists",
+    )
+
+    agent_run_parser = agent_subparsers.add_parser("run", help="Run an agent definition")
+    agent_run_parser.add_argument("name", help="Agent name or path to .agent.toml")
+    agent_run_parser.add_argument(
+        "--session",
+        "-s",
+        dest="session_id",
+        default="default",
+        help="Session ID for conversation context",
+    )
+    agent_run_parser.add_argument(
+        "--no-animation",
+        action="store_true",
+        help="Skip startup animation",
+    )
+    agent_run_parser.add_argument(
+        "--clear-sessions",
+        action="store_true",
+        help="Delete saved sessions before starting",
+    )
+
+    # Config management
+    config_parser = subparsers.add_parser("config", help="Configuration utilities")
+    config_subparsers = config_parser.add_subparsers(dest="config_action")
+    config_subparsers.add_parser("migrate", help="Migrate .env values into profile store")
+    config_subparsers.add_parser("show", help="Show profile configuration and secret status")
+    config_edit_parser = config_subparsers.add_parser("edit", help="Edit profile values")
+    config_edit_parser.add_argument("key")
+    config_edit_parser.add_argument("value", nargs="?")
+    config_edit_parser.add_argument("--clear", action="store_true")
+    config_edit_parser.add_argument("--secret", action="store_true")
+    config_subparsers.add_parser("repair-fernet", help="Synchronise SAM_FERNET_KEY with keyring")
 
     # Other commands
     subparsers.add_parser("setup", help="Check setup status and configuration")
@@ -1106,6 +1358,28 @@ async def main() -> int:
     )
 
     args = parser.parse_args()
+
+    # Support legacy `sam agent <name>` invocation by treating the first argument
+    # after `agent` as the agent name rather than a subcommand.
+    if getattr(args, "command", None) == "agent":
+        action = getattr(args, "agent_action", None)
+        valid_actions = {None, "list", "init", "run"}
+        if action not in valid_actions:
+            legacy_name = action
+            setattr(args, "agent_action", "run")
+            setattr(args, "name", legacy_name)
+            if not hasattr(args, "session_id"):
+                args.session_id = "default"
+            if not hasattr(args, "no_animation"):
+                args.no_animation = False
+            if not hasattr(args, "clear_sessions"):
+                args.clear_sessions = False
+            print(
+                CLIFormatter.info(
+                    "`sam agent <name>` is deprecated; use `sam agent run <name>`. "
+                    f"Continuing with '{legacy_name}'."
+                )
+            )
 
     # Default to run command if no command specified
     if args.command is None:
@@ -1159,6 +1433,55 @@ async def main() -> int:
             print("Usage: sam provider {list|current|switch|test}")
             return 1
 
+    if args.command == "agent":
+        action = getattr(args, "agent_action", None)
+        if action == "list":
+            return cmd_list_agents()
+        if action == "init":
+            name = getattr(args, "name", None)
+            if not name:
+                print("Usage: sam agent init <name>")
+                return 1
+            overwrite = bool(getattr(args, "overwrite", False))
+            return cmd_init_agent(name, overwrite=overwrite)
+        if action == "run":
+            name = getattr(args, "name", None)
+            if not name:
+                print("Usage: sam agent run <name>")
+                return 1
+            definition = load_agent_definition(name)
+            if not definition:
+                return 1
+            session_id = getattr(args, "session_id", "default")
+            no_animation = bool(getattr(args, "no_animation", False))
+            clear_sessions_flag = bool(getattr(args, "clear_sessions", False))
+            return await run_agent_definition(
+                definition,
+                session_id=session_id,
+                no_animation=no_animation,
+                clear_sessions=clear_sessions_flag,
+            )
+        print("Usage: sam agent {list|init|run}")
+        return 1
+
+    if args.command == "config":
+        action = getattr(args, "config_action", None)
+        if action == "migrate":
+            return cmd_migrate_profile()
+        if action == "show":
+            return cmd_config_show()
+        if action == "edit":
+            return cmd_config_edit(
+                getattr(args, "key"),
+                getattr(args, "value", None),
+                clear=bool(getattr(args, "clear", False)),
+                secret=bool(getattr(args, "secret", False)),
+            )
+        if action == "repair-fernet":
+            return cmd_config_repair_fernet()
+        print("Usage: sam config {migrate|show|edit|repair-fernet}")
+        return 1
+
     if args.command == "setup":
         show_setup_status(verbose=True)
         setup_status = check_setup_status()
@@ -1200,6 +1523,48 @@ async def main() -> int:
             {"name": "search_news", "description": "Search news articles"},
         ]
 
+        polymarket_specs = [
+            {"name": "polymarket_list_markets", "description": "List active Polymarket markets"},
+            {
+                "name": "polymarket_opportunity_scan",
+                "description": "Scan markets for pricing edges",
+            },
+            {
+                "name": "polymarket_strategy_brief",
+                "description": "Summarize strategies for a market",
+            },
+        ]
+
+        aster_specs = [
+            {"name": "aster_account_info", "description": "View Aster account state"},
+            {"name": "aster_account_balance", "description": "Check Aster balances"},
+            {"name": "aster_trade_history", "description": "Review recent Aster trades"},
+            {"name": "aster_open_long", "description": "Open a long futures position"},
+            {"name": "aster_close_position", "description": "Close an open futures position"},
+            {"name": "aster_position_check", "description": "Inspect open futures positions"},
+        ]
+
+        hyperliquid_specs = [
+            {"name": "hyperliquid_balance", "description": "Summarize Hyperliquid margin balances"},
+            {"name": "hyperliquid_positions", "description": "Fetch Hyperliquid account state"},
+            {"name": "hyperliquid_open_orders", "description": "List open Hyperliquid orders"},
+            {"name": "hyperliquid_market_order", "description": "Submit a market order"},
+            {"name": "hyperliquid_close_position", "description": "Close an open position"},
+            {"name": "hyperliquid_cancel_order", "description": "Cancel an order by id or cloid"},
+            {"name": "hyperliquid_user_fills", "description": "Review recent fills"},
+        ]
+
+        smart_specs = [
+            {
+                "name": "smart_buy",
+                "description": "Route best-effort buy between Pump.fun and Jupiter",
+            },
+            {
+                "name": "smart_sell",
+                "description": "Route best-effort sell between Pump.fun and Jupiter",
+            },
+        ]
+
         print(colorize("🔧 Available Tools", Style.BOLD, Style.FG_CYAN))
         print()
 
@@ -1209,6 +1574,10 @@ async def main() -> int:
             ("🌌 Jupiter Swaps", jupiter_specs),
             ("📈 Market Data", dex_specs),
             ("🌐 Web Search", search_specs),
+            ("🎯 Polymarket", polymarket_specs),
+            ("⚡ Aster Futures", aster_specs),
+            ("🌊 Hyperliquid", hyperliquid_specs),
+            ("🧠 Smart Trader", smart_specs),
         ]:
             print(colorize(category, Style.BOLD))
             for spec in specs:
@@ -1351,7 +1720,24 @@ async def main() -> int:
         Settings.log_config()
         session_id = getattr(args, "session", "default")
         no_animation = getattr(args, "no_animation", False)
-        return await run_interactive_session(session_id, no_animation, clear_sessions=getattr(args, "clear_sessions", False))
+        agent_definition_name = getattr(args, "agent_definition", None)
+        clear_sessions_flag = getattr(args, "clear_sessions", False)
+        if agent_definition_name:
+            definition = load_agent_definition(agent_definition_name)
+            if not definition:
+                return 1
+            return await run_agent_definition(
+                definition,
+                session_id=session_id,
+                no_animation=no_animation,
+                clear_sessions=clear_sessions_flag,
+            )
+
+        return await run_interactive_session(
+            session_id,
+            no_animation,
+            clear_sessions=clear_sessions_flag,
+        )
 
     return 1
 

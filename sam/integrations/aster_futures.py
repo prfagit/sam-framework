@@ -145,7 +145,10 @@ class AsterFuturesClient:
         self._ensure_credentials()
         url = f"{self.base_url}{path}"
         session = await get_session()
-        headers = {"X-MBX-APIKEY": self.api_key, "Content-Type": "application/x-www-form-urlencoded"}
+        headers = {
+            "X-MBX-APIKEY": self.api_key,
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
         async with session.post(url, data=data, headers=headers) as response:
             return await self._normalize_response(path, response, request_payload={"data": data})
 
@@ -155,7 +158,9 @@ class AsterFuturesClient:
         session = await get_session()
         headers = {"X-MBX-APIKEY": self.api_key}
         async with session.get(url, params=params, headers=headers) as response:
-            return await self._normalize_response(path, response, request_payload={"params": params})
+            return await self._normalize_response(
+                path, response, request_payload={"params": params}
+            )
 
     async def _get_symbol_filters(self, symbol: str) -> Dict[str, Decimal]:
         symbol_key = symbol.upper()
@@ -241,7 +246,9 @@ class AsterFuturesClient:
         url = f"{self.base_url}{path}"
         session = await get_session()
         async with session.get(url, params=params) as response:
-            return await self._normalize_response(path, response, request_payload={"params": params})
+            return await self._normalize_response(
+                path, response, request_payload={"params": params}
+            )
 
     async def _normalize_response(
         self,
@@ -256,7 +263,9 @@ class AsterFuturesClient:
             data = text
 
         if response.status >= 400:
-            logger.error("Aster %s %s failed (%s): %s", response.method, path, response.status, data)
+            logger.error(
+                "Aster %s %s failed (%s): %s", response.method, path, response.status, data
+            )
             return {
                 "error": f"HTTP {response.status}",
                 "endpoint": path,
@@ -412,18 +421,10 @@ class BalanceInput(BaseModel):
 
 class TradeHistoryInput(BaseModel):
     symbol: str = Field(..., description="Perpetual symbol to query")
-    start_time: Optional[int] = Field(
-        None, description="Optional start timestamp (ms)"
-    )
-    end_time: Optional[int] = Field(
-        None, description="Optional end timestamp (ms)"
-    )
-    from_id: Optional[int] = Field(
-        None, description="Optional trade id offset"
-    )
-    limit: Optional[int] = Field(
-        None, ge=1, le=1000, description="Number of records to return"
-    )
+    start_time: Optional[int] = Field(None, description="Optional start timestamp (ms)")
+    end_time: Optional[int] = Field(None, description="Optional end timestamp (ms)")
+    from_id: Optional[int] = Field(None, description="Optional trade id offset")
+    limit: Optional[int] = Field(None, ge=1, le=1000, description="Number of records to return")
     recv_window: Optional[int] = Field(
         None, ge=1000, le=60000, description="Override recvWindow in milliseconds"
     )
@@ -737,7 +738,11 @@ def create_aster_futures_tools(client: AsterFuturesClient) -> List[Tool]:
                 input_schema={
                     "type": "object",
                     "properties": {
-                        "symbol": {"type": "string", "description": "Perpetual symbol", "default": "SOLUSDT"},
+                        "symbol": {
+                            "type": "string",
+                            "description": "Perpetual symbol",
+                            "default": "SOLUSDT",
+                        },
                         "quantity": {
                             "type": "number",
                             "description": "Contract size to buy (use this OR usd_notional)",

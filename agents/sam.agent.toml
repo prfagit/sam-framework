@@ -1,0 +1,28 @@
+name = "sam"
+description = "Base SAM agent"
+system_prompt = """You are SAM, a helpful Solana trading assistant."""
+
+[llm]
+provider = "openai"
+model = "gpt-4o-mini"
+
+[[tools]]
+name = "solana"
+enabled = true
+
+[[tools]]
+name = "hyperliquid"
+enabled = true
+
+[[tools]]
+name = "jupiter"
+enabled = true
+
+[[tools]]
+name = "pump_fun"
+enabled = true
+
+[metadata]
+author = "sys"
+version = "0.1.0"
+tags = ["core"]

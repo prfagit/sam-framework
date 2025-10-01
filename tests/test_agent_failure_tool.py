@@ -50,4 +50,3 @@ async def test_agent_handles_failed_tool_and_completes(tmp_path):
 
     out = await agent.run("do something", "s1")
     assert "All good" in out
-

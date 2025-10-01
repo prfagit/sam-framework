@@ -102,7 +102,11 @@ class SolanaTools:
         need_new = (
             self.client is None
             or loop_closed
-            or (self._loop is not None and current_loop is not None and self._loop is not current_loop)
+            or (
+                self._loop is not None
+                and current_loop is not None
+                and self._loop is not current_loop
+            )
         )
 
         if need_new:
@@ -135,7 +139,6 @@ class SolanaTools:
             return {"error": "No address provided and no wallet configured"}
 
         try:
-
             # Convert address string to Pubkey
             pubkey = Pubkey.from_string(target_address)
 
@@ -333,7 +336,9 @@ class SolanaTools:
                     try:
                         info = None
                         account_data = getattr(account_info.account, "data", None)
-                        parsed_data = getattr(account_data, "parsed", None) if account_data else None
+                        parsed_data = (
+                            getattr(account_data, "parsed", None) if account_data else None
+                        )
                         if isinstance(parsed_data, Mapping):
                             info = parsed_data.get("info")
                         if info is None:
@@ -434,21 +439,17 @@ class SolanaTools:
             logger.error(f"Failed to get token metadata: {e}")
             return {"error": str(e)}
 
+
 class SolanaAgentProtocol(Protocol):
-    def get_cached_balance(self) -> Optional[Dict[str, Any]]:
-        ...
+    def get_cached_balance(self) -> Optional[Dict[str, Any]]: ...
 
-    def cache_balance_data(self, data: Dict[str, Any]) -> None:
-        ...
+    def cache_balance_data(self, data: Dict[str, Any]) -> None: ...
 
-    def invalidate_balance_cache(self) -> None:
-        ...
+    def invalidate_balance_cache(self) -> None: ...
 
-    def get_cached_token_metadata(self, mint: str) -> Optional[Dict[str, Any]]:
-        ...
+    def get_cached_token_metadata(self, mint: str) -> Optional[Dict[str, Any]]: ...
 
-    def cache_token_metadata(self, mint: str, data: Dict[str, Any]) -> None:
-        ...
+    def cache_token_metadata(self, mint: str, data: Dict[str, Any]) -> None: ...
 
 
 def create_solana_tools(

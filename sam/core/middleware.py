@@ -155,7 +155,7 @@ class RateLimitMiddleware:
                 if (
                     isinstance(result, dict)
                     and "error" not in result
-                    and 'info' in locals()
+                    and "info" in locals()
                     and isinstance(info, dict)
                 ):
                     result.setdefault(

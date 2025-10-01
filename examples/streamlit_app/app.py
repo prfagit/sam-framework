@@ -216,9 +216,7 @@ def render_chat():
                                 break
                         if prev_assistant_idx is not None:
                             prev_content = _norm(
-                                st.session_state["messages"][prev_assistant_idx].get(
-                                    "content", ""
-                                )
+                                st.session_state["messages"][prev_assistant_idx].get("content", "")
                             )
                             if _norm(reply) == prev_content:
                                 # Remove the duplicate last assistant message and rerun

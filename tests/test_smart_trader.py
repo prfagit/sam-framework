@@ -72,4 +72,3 @@ async def test_smart_sell_uses_pump_when_available():
     assert pump.called is True
     # Ensure no Jupiter call when pump succeeds
     assert not jup.calls
-

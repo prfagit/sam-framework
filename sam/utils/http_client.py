@@ -128,22 +128,48 @@ class SharedHTTPClient:
 
 # Global instance functions
 _global_client: Optional[SharedHTTPClient] = None
+_client_lock: Optional[asyncio.Lock] = None
+
+
+def _get_lock() -> asyncio.Lock:
+    """Get or create the client initialization lock."""
+    global _client_lock
+    if _client_lock is None:
+        _client_lock = asyncio.Lock()
+    return _client_lock
 
 
 async def get_http_client() -> SharedHTTPClient:
-    """Get global HTTP client instance."""
+    """Get global HTTP client instance (thread-safe with double-check locking)."""
     global _global_client
-    if _global_client is None:
-        _global_client = await SharedHTTPClient.get_instance()
-    return _global_client
+
+    # First check without lock (fast path)
+    if _global_client is not None:
+        return _global_client
+
+    # Acquire lock for initialization
+    lock = _get_lock()
+    async with lock:
+        # Double-check inside lock to prevent race condition
+        if _global_client is None:
+            _global_client = await SharedHTTPClient.get_instance()
+        return _global_client
 
 
 async def cleanup_http_client() -> None:
-    """Cleanup global HTTP client."""
-    global _global_client
-    if _global_client:
-        await _global_client.close()
-        _global_client = None
+    """Cleanup global HTTP client (thread-safe)."""
+    global _global_client, _client_lock
+
+    if _global_client is None:
+        return
+
+    lock = _get_lock()
+    async with lock:
+        if _global_client:
+            await _global_client.close()
+            _global_client = None
+        # Reset lock for potential re-initialization
+        _client_lock = None
 
 
 # Convenience functions

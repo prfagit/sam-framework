@@ -153,9 +153,7 @@ async def test_provider(provider_name: Optional[str] = None) -> int:
         Settings.LLM_PROVIDER = target_provider
 
         llm = create_llm_provider()
-        test_messages = [
-            {"role": "user", "content": "Say 'Hello from SAM!' and nothing else."}
-        ]
+        test_messages = [{"role": "user", "content": "Say 'Hello from SAM!' and nothing else."}]
 
         response = await llm.chat_completion(test_messages)
 

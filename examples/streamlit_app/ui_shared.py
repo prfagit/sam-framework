@@ -33,9 +33,7 @@ def ensure_session_init():
         try:
             from sam.web.session import get_default_session_id
 
-            st.session_state["session_id"] = run_sync(
-                get_default_session_id(get_local_context())
-            )
+            st.session_state["session_id"] = run_sync(get_default_session_id(get_local_context()))
         except Exception:
             # Fallback to a generated id if web adapter fails
             from uuid import uuid4

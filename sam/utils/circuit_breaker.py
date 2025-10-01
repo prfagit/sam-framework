@@ -64,9 +64,7 @@ class CircuitBreaker:
         self._lock = asyncio.Lock()
         logger.info(f"Circuit breaker '{name}' initialized with config: {self.config}")
 
-    async def call(
-        self, func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
-    ) -> T:
+    async def call(self, func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T:
         """Execute a function with circuit breaker protection."""
         async with self._lock:
             await self._check_state()

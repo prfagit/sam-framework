@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-import aiohttp
 import asyncio
 import json
 import logging
+import os
 from importlib.metadata import entry_points
+
+import aiohttp
 
 from ..config.settings import Settings
 from ..utils.http_client import get_session
@@ -562,9 +564,25 @@ class AnthropicProvider(LLMProvider):
         raise Exception("Maximum retries exceeded for Anthropic request")
 
 
-def create_llm_provider() -> LLMProvider:
-    """Factory to create the configured LLM provider from Settings."""
-    provider = Settings.LLM_PROVIDER
+def _resolve_api_key(overrides: Dict[str, Any], fallback: Optional[str]) -> str:
+    """Resolve API key from overrides or fall back to provided default."""
+
+    if "api_key" in overrides and overrides.get("api_key"):
+        return str(overrides["api_key"])
+
+    env_var = overrides.get("api_key_env")
+    if isinstance(env_var, str) and env_var:
+        return os.getenv(env_var, fallback or "")
+
+    return fallback or ""
+
+
+def create_llm_provider(overrides: Optional[Dict[str, Any]] = None) -> LLMProvider:
+    """Factory to create the configured LLM provider from Settings or overrides."""
+
+    config = overrides.copy() if overrides else {}
+    provider_raw = config.get("provider") or Settings.LLM_PROVIDER
+    provider = str(provider_raw).lower() if provider_raw else Settings.LLM_PROVIDER
 
     # Try external provider plugins first (entry points)
     try:
@@ -574,9 +592,12 @@ def create_llm_provider() -> LLMProvider:
                 try:
                     factory = ep.load()
                     try:
-                        inst = factory(Settings)  # prefer settings-aware factories
+                        inst = factory(Settings, config)
                     except TypeError:
-                        inst = factory()
+                        try:
+                            inst = factory(Settings)  # prefer settings-aware factories
+                        except TypeError:
+                            inst = factory()
                     if isinstance(inst, LLMProvider):
                         logger.info(f"Loaded external LLM provider via plugin: {provider}")
                         return inst
@@ -588,38 +609,52 @@ def create_llm_provider() -> LLMProvider:
         pass
 
     if provider == "openai":
+        api_key = _resolve_api_key(config, Settings.OPENAI_API_KEY)
+        model = config.get("model") or Settings.OPENAI_MODEL
+        base_url = config.get("base_url") or Settings.OPENAI_BASE_URL or "https://api.openai.com/v1"
         return OpenAICompatibleProvider(
-            api_key=Settings.OPENAI_API_KEY,
-            model=Settings.OPENAI_MODEL,
-            base_url=Settings.OPENAI_BASE_URL or "https://api.openai.com/v1",
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
         )
 
     if provider == "xai":
+        api_key = _resolve_api_key(config, Settings.XAI_API_KEY or "")
+        model = config.get("model") or Settings.XAI_MODEL
+        base_url = config.get("base_url") or Settings.XAI_BASE_URL
         # xAI Grok with custom handling for tool schemas
         return XAIProvider(
-            api_key=Settings.XAI_API_KEY or "",
-            model=Settings.XAI_MODEL,
-            base_url=Settings.XAI_BASE_URL,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
         )
 
     if provider in ("openai_compat", "local"):
         # Generic OpenAI-compatible server (e.g., Ollama/LM Studio/vLLM)
-        base_url = (
+        default_base = (
             Settings.OPENAI_BASE_URL if provider == "openai_compat" else Settings.LOCAL_LLM_BASE_URL
         )
-        api_key = (
+        base_url = config.get("base_url") or default_base
+        default_api_key = (
             Settings.OPENAI_API_KEY
             if provider == "openai_compat"
             else (Settings.LOCAL_LLM_API_KEY or "")
         )
-        model = Settings.OPENAI_MODEL if provider == "openai_compat" else Settings.LOCAL_LLM_MODEL
+        api_key = _resolve_api_key(config, default_api_key)
+        model_default = (
+            Settings.OPENAI_MODEL if provider == "openai_compat" else Settings.LOCAL_LLM_MODEL
+        )
+        model = config.get("model") or model_default
         return OpenAICompatibleProvider(api_key=api_key, model=model, base_url=base_url)
 
     if provider == "anthropic":
+        api_key = _resolve_api_key(config, Settings.ANTHROPIC_API_KEY or "")
+        model = config.get("model") or Settings.ANTHROPIC_MODEL
+        base_url = config.get("base_url") or Settings.ANTHROPIC_BASE_URL
         return AnthropicProvider(
-            api_key=Settings.ANTHROPIC_API_KEY or "",
-            model=Settings.ANTHROPIC_MODEL,
-            base_url=Settings.ANTHROPIC_BASE_URL,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
         )
 
     # Fallback
@@ -627,7 +662,7 @@ def create_llm_provider() -> LLMProvider:
         f"Unknown LLM_PROVIDER '{provider}', defaulting to OpenAI-compatible with OPENAI settings"
     )
     return OpenAICompatibleProvider(
-        api_key=Settings.OPENAI_API_KEY,
-        model=Settings.OPENAI_MODEL,
-        base_url=Settings.OPENAI_BASE_URL or "https://api.openai.com/v1",
+        api_key=_resolve_api_key(config, Settings.OPENAI_API_KEY),
+        model=config.get("model") or Settings.OPENAI_MODEL,
+        base_url=config.get("base_url") or Settings.OPENAI_BASE_URL or "https://api.openai.com/v1",
     )

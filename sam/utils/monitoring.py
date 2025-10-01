@@ -2,12 +2,13 @@
 
 import asyncio
 from asyncio import Task
+from collections import deque
 import functools
 import logging
 import time
 import psutil
 import os
-from typing import Any, Awaitable, Callable, Dict, List, Optional, TypeVar, cast
+from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional, TypeVar, cast
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -43,27 +44,29 @@ class ComponentMetric:
 
 
 class MetricsCollector:
-    """Collect and track performance metrics."""
+    """Collect and track performance metrics with automatic memory management."""
 
     def __init__(self, max_metrics: int = 1000, collection_interval: int = 60) -> None:
         self.max_metrics = max_metrics
         self.collection_interval = collection_interval
 
-        # Metrics storage
-        self.system_metrics: List[SystemMetrics] = []
-        self.component_metrics: List[ComponentMetric] = []
+        # Metrics storage with automatic eviction (using deque for bounded memory)
+        self.system_metrics: Deque[SystemMetrics] = deque(maxlen=max_metrics)
+        self.component_metrics: Deque[ComponentMetric] = deque(maxlen=max_metrics)
 
         # Operation counters
         self.operation_counts: Dict[str, int] = {}
         self.error_counts: Dict[str, int] = {}
 
-        # Performance tracking
-        self.slow_operations: List[ComponentMetric] = []
+        # Performance tracking (keep fewer slow operations)
+        self.slow_operations: Deque[ComponentMetric] = deque(maxlen=100)
 
         self._collection_task: Optional[Task[None]] = None
         self._shutdown = False
 
-        logger.info(f"Initialized metrics collector (max_metrics: {max_metrics})")
+        logger.info(
+            f"Initialized metrics collector with bounded memory (max_metrics: {max_metrics})"
+        )
 
     def start_collection(self) -> None:
         """Start automatic metrics collection."""
@@ -92,10 +95,8 @@ class MetricsCollector:
                     thread_count=psutil.Process(os.getpid()).num_threads(),
                 )
 
-                # Store metrics (with rotation)
+                # Store metrics (deque automatically handles maxlen)
                 self.system_metrics.append(metrics)
-                if len(self.system_metrics) > self.max_metrics:
-                    self.system_metrics = self.system_metrics[-self.max_metrics :]
 
                 # Log warnings for high resource usage
                 if metrics.memory_percent > 90:
@@ -129,10 +130,8 @@ class MetricsCollector:
             error_type=error_type,
         )
 
-        # Store metric
+        # Store metric (deque automatically handles maxlen)
         self.component_metrics.append(metric)
-        if len(self.component_metrics) > self.max_metrics:
-            self.component_metrics = self.component_metrics[-self.max_metrics :]
 
         # Update counters
         key = f"{component}.{operation}"
@@ -142,12 +141,9 @@ class MetricsCollector:
             error_key = f"{component}.{error_type}"
             self.error_counts[error_key] = self.error_counts.get(error_key, 0) + 1
 
-        # Track slow operations (>5 seconds)
+        # Track slow operations (>5 seconds) - deque automatically handles maxlen
         if duration > 5.0:
             self.slow_operations.append(metric)
-            if len(self.slow_operations) > 100:  # Keep last 100 slow operations
-                self.slow_operations = self.slow_operations[-100:]
-
             logger.warning(f"Slow operation: {component}.{operation} took {duration:.3f}s")
 
     def get_system_health(self) -> Dict[str, Any]:

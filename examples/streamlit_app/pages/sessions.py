@@ -63,7 +63,7 @@ else:
     sid_map = {}
     for s in data:
         sid = s.get("session_id")
-        label = f"{sid}  •  msgs:{s.get('message_count',0)}  •  updated:{s.get('updated_at','')}"
+        label = f"{sid}  •  msgs:{s.get('message_count', 0)}  •  updated:{s.get('updated_at', '')}"
         labels.append(label)
         sid_map[label] = sid
 

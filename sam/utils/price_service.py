@@ -115,7 +115,9 @@ class PriceService:
                             usd_liquidity = liquidity.get("usd") if liquidity else None
                             price_usd = mapping_pair.get("priceUsd")
                             try:
-                                liq_value = float(usd_liquidity) if usd_liquidity is not None else 0.0
+                                liq_value = (
+                                    float(usd_liquidity) if usd_liquidity is not None else 0.0
+                                )
                             except (TypeError, ValueError):
                                 liq_value = 0.0
                             if price_usd is None:

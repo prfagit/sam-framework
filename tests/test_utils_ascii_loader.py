@@ -7,7 +7,7 @@ from sam.utils.ascii_loader import (
     colorize,
     SAM_ASCII_ART,
     show_sam_loading,
-    show_sam_intro
+    show_sam_intro,
 )
 
 
@@ -16,20 +16,26 @@ class TestASCIILoader:
 
     def test_supports_ansi_tty_true(self):
         """Test ANSI support detection with TTY."""
-        with patch("sys.stdout.isatty", return_value=True), \
-             patch.dict("os.environ", {}, clear=True):
+        with (
+            patch("sys.stdout.isatty", return_value=True),
+            patch.dict("os.environ", {}, clear=True),
+        ):
             assert supports_ansi() is True
 
     def test_supports_ansi_tty_false(self):
         """Test ANSI support detection without TTY."""
-        with patch("sys.stdout.isatty", return_value=False), \
-             patch.dict("os.environ", {}, clear=True):
+        with (
+            patch("sys.stdout.isatty", return_value=False),
+            patch.dict("os.environ", {}, clear=True),
+        ):
             assert supports_ansi() is False
 
     def test_supports_ansi_no_color_env(self):
         """Test ANSI support with NO_COLOR environment variable."""
-        with patch("sys.stdout.isatty", return_value=True), \
-             patch.dict("os.environ", {"NO_COLOR": "1"}):
+        with (
+            patch("sys.stdout.isatty", return_value=True),
+            patch.dict("os.environ", {"NO_COLOR": "1"}),
+        ):
             assert supports_ansi() is False
 
     def test_colorize_with_ansi(self):
@@ -76,9 +82,10 @@ class TestASCIILoader:
 
         loader = ASCIILoader("Test Title", "Test Subtitle")
 
-        with patch("asyncio.sleep") as mock_sleep, \
-             patch.object(loader, "get_terminal_width", return_value=80):
-
+        with (
+            patch("asyncio.sleep") as mock_sleep,
+            patch.object(loader, "get_terminal_width", return_value=80),
+        ):
             asyncio.run(loader.show_static_art(duration=0.1))
 
             mock_print.assert_called()
@@ -92,9 +99,10 @@ class TestASCIILoader:
 
         loader = ASCIILoader("Test Title", "Test Subtitle")
 
-        with patch("asyncio.sleep") as mock_sleep, \
-             patch.object(loader, "get_terminal_width", return_value=80):
-
+        with (
+            patch("asyncio.sleep") as mock_sleep,
+            patch.object(loader, "get_terminal_width", return_value=80),
+        ):
             asyncio.run(loader.show_static_art(duration=0.1))
 
             mock_print.assert_called()
@@ -109,10 +117,11 @@ class TestASCIILoader:
         loader = ASCIILoader("Test Title", "Test Subtitle")
         messages = ["Loading...", "Processing...", "Complete!"]
 
-        with patch("asyncio.sleep") as mock_sleep, \
-             patch.object(loader, "get_terminal_width", return_value=80), \
-             patch("random.random", return_value=0.5):  # No sparkles
-
+        with (
+            patch("asyncio.sleep") as mock_sleep,
+            patch.object(loader, "get_terminal_width", return_value=80),
+            patch("random.random", return_value=0.5),
+        ):  # No sparkles
             asyncio.run(loader.show_animated_loading(messages, duration_per_message=0.1))
 
             mock_print.assert_called()
@@ -143,10 +152,11 @@ class TestASCIILoader:
 
         loader = ASCIILoader("Test Title", "Test Subtitle")
 
-        with patch("asyncio.sleep") as mock_sleep, \
-             patch.object(loader, "get_terminal_width", return_value=80), \
-             patch("random.random", return_value=0.5):  # No sparkles
-
+        with (
+            patch("asyncio.sleep") as mock_sleep,
+            patch.object(loader, "get_terminal_width", return_value=80),
+            patch("random.random", return_value=0.5),
+        ):  # No sparkles
             asyncio.run(loader.show_wave_effect(duration=0.2))
 
             mock_stdout_write.assert_called()
@@ -177,11 +187,12 @@ class TestASCIILoader:
 
         loader = ASCIILoader("Test Title", "Test Subtitle")
 
-        with patch("asyncio.sleep") as mock_sleep, \
-             patch.object(loader, "get_terminal_width", return_value=80), \
-             patch("random.random", return_value=0.5), \
-             patch("random.choice", return_value="▓"):
-
+        with (
+            patch("asyncio.sleep") as mock_sleep,
+            patch.object(loader, "get_terminal_width", return_value=80),
+            patch("random.random", return_value=0.5),
+            patch("random.choice", return_value="▓"),
+        ):
             asyncio.run(loader.show_glitch_intro(duration=0.2))
 
             mock_stdout_write.assert_called()
@@ -215,6 +226,7 @@ class TestASCIILoader:
             result = loader.center_text(colored_text, width=10)
             # Remove ANSI codes to check visible length
             import re
+
             visible_result = re.sub(r"\033\[[0-9;]*m", "", result)
             assert len(visible_result) == 10
             assert "test" in result
@@ -242,10 +254,11 @@ class TestASCIILoader:
         """Test screen clearing functionality."""
         loader = ASCIILoader()
 
-        with patch("sam.utils.ascii_loader.supports_ansi", return_value=True), \
-             patch("sys.stdout.write") as mock_write, \
-             patch("sys.stdout.flush") as mock_flush:
-
+        with (
+            patch("sam.utils.ascii_loader.supports_ansi", return_value=True),
+            patch("sys.stdout.write") as mock_write,
+            patch("sys.stdout.flush") as mock_flush,
+        ):
             loader.clear_screen()
 
             mock_write.assert_called_once_with("\033[2J\033[H")
@@ -255,9 +268,10 @@ class TestASCIILoader:
         """Test screen clearing without ANSI support."""
         loader = ASCIILoader()
 
-        with patch("sam.utils.ascii_loader.supports_ansi", return_value=False), \
-             patch("sys.stdout.write") as mock_write:
-
+        with (
+            patch("sam.utils.ascii_loader.supports_ansi", return_value=False),
+            patch("sys.stdout.write") as mock_write,
+        ):
             loader.clear_screen()
 
             mock_write.assert_not_called()
@@ -266,10 +280,11 @@ class TestASCIILoader:
         """Test cursor hiding functionality."""
         loader = ASCIILoader()
 
-        with patch("sam.utils.ascii_loader.supports_ansi", return_value=True), \
-             patch("sys.stdout.write") as mock_write, \
-             patch("sys.stdout.flush") as mock_flush:
-
+        with (
+            patch("sam.utils.ascii_loader.supports_ansi", return_value=True),
+            patch("sys.stdout.write") as mock_write,
+            patch("sys.stdout.flush") as mock_flush,
+        ):
             loader.hide_cursor()
 
             mock_write.assert_called_once_with("\033[?25l")
@@ -279,9 +294,10 @@ class TestASCIILoader:
         """Test cursor showing functionality."""
         loader = ASCIILoader()
 
-        with patch("sam.utils.ascii_loader.supports_ansi", return_value=False), \
-             patch("sys.stdout.write") as mock_write:
-
+        with (
+            patch("sam.utils.ascii_loader.supports_ansi", return_value=False),
+            patch("sys.stdout.write") as mock_write,
+        ):
             loader.show_cursor()
 
             mock_write.assert_not_called()
@@ -347,10 +363,11 @@ class TestASCIILoader:
         """Test loader start and stop functionality."""
         loader = ASCIILoader()
 
-        with patch("sam.utils.ascii_loader.supports_ansi", return_value=True), \
-             patch.object(loader, "show_wave_effect") as mock_wave, \
-             patch.object(loader, "show_cursor") as mock_show_cursor:
-
+        with (
+            patch("sam.utils.ascii_loader.supports_ansi", return_value=True),
+            patch.object(loader, "show_wave_effect") as mock_wave,
+            patch.object(loader, "show_cursor") as mock_show_cursor,
+        ):
             # Test start
             await loader.start()
             mock_wave.assert_called_once()
@@ -382,4 +399,3 @@ class TestASCIILoader:
 
 if __name__ == "__main__":
     pytest.main([__file__])
-

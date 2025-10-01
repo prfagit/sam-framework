@@ -23,14 +23,12 @@ from sam.utils.secure_storage import get_secure_storage
 # Configure detailed logging
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('aster_test.log', mode='w')
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler("aster_test.log", mode="w")],
 )
 
 logger = logging.getLogger(__name__)
+
 
 class AsterToolTester:
     """Comprehensive tester for all Aster futures tools."""
@@ -102,8 +100,12 @@ class AsterToolTester:
             logger.error("   Please set ASTER_API_KEY and ASTER_API_SECRET in .env file")
             raise ValueError("Missing Aster API credentials")
 
-        logger.info(f"  ✅ API key: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else 'short'}")
-        logger.info(f"  ✅ API secret: {api_secret[:8]}...{api_secret[-4:] if len(api_secret) > 12 else 'short'}")
+        logger.info(
+            f"  ✅ API key: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else 'short'}"
+        )
+        logger.info(
+            f"  ✅ API secret: {api_secret[:8]}...{api_secret[-4:] if len(api_secret) > 12 else 'short'}"
+        )
 
         # Store for client creation
         self.api_key = api_key
@@ -144,7 +146,9 @@ class AsterToolTester:
 
         # Test authenticated endpoint
         try:
-            balance_tool = next(tool for tool in self.tools if tool.spec.name == "aster_account_balance")
+            balance_tool = next(
+                tool for tool in self.tools if tool.spec.name == "aster_account_balance"
+            )
             result = await balance_tool.handler({})
             if "error" not in result:
                 logger.info("  ✅ Authenticated connectivity: OK")
@@ -175,7 +179,9 @@ class AsterToolTester:
         logger.info("💰 Testing aster_account_balance...")
 
         try:
-            balance_tool = next(tool for tool in self.tools if tool.spec.name == "aster_account_balance")
+            balance_tool = next(
+                tool for tool in self.tools if tool.spec.name == "aster_account_balance"
+            )
 
             # Test with default parameters
             result = await balance_tool.handler({})
@@ -183,7 +189,7 @@ class AsterToolTester:
             self.test_results["account_balance"] = {
                 "success": "error" not in result,
                 "result": result,
-                "notes": "Basic balance check"
+                "notes": "Basic balance check",
             }
 
             if "error" not in result:
@@ -217,7 +223,7 @@ class AsterToolTester:
             self.test_results["account_info"] = {
                 "success": "error" not in result,
                 "result": result,
-                "notes": "Full account information"
+                "notes": "Full account information",
             }
 
             if "error" not in result:
@@ -225,8 +231,12 @@ class AsterToolTester:
                 if "account" in result and "response" in result["account"]:
                     account = result["account"]["response"]
                     logger.info(f"    Can trade: {account.get('canTrade', 'Unknown')}")
-                    logger.info(f"    Total wallet balance: {account.get('totalWalletBalance', 'Unknown')}")
-                    logger.info(f"    Available balance: {account.get('availableBalance', 'Unknown')}")
+                    logger.info(
+                        f"    Total wallet balance: {account.get('totalWalletBalance', 'Unknown')}"
+                    )
+                    logger.info(
+                        f"    Available balance: {account.get('availableBalance', 'Unknown')}"
+                    )
             else:
                 logger.error(f"  ❌ Account info failed: {result.get('error')}")
 
@@ -239,7 +249,9 @@ class AsterToolTester:
         logger.info("📈 Testing aster_position_check...")
 
         try:
-            position_tool = next(tool for tool in self.tools if tool.spec.name == "aster_position_check")
+            position_tool = next(
+                tool for tool in self.tools if tool.spec.name == "aster_position_check"
+            )
 
             # Test without symbol filter (all positions)
             result = await position_tool.handler({})
@@ -247,7 +259,7 @@ class AsterToolTester:
             self.test_results["position_check_all"] = {
                 "success": "error" not in result,
                 "result": result,
-                "notes": "All positions check"
+                "notes": "All positions check",
             }
 
             if "error" not in result:
@@ -272,7 +284,7 @@ class AsterToolTester:
             self.test_results["position_check_solusdt"] = {
                 "success": "error" not in result_sol,
                 "result": result_sol,
-                "notes": "SOLUSDT position check"
+                "notes": "SOLUSDT position check",
             }
 
             if "error" not in result_sol:
@@ -289,18 +301,17 @@ class AsterToolTester:
         logger.info("📜 Testing aster_trade_history...")
 
         try:
-            history_tool = next(tool for tool in self.tools if tool.spec.name == "aster_trade_history")
+            history_tool = next(
+                tool for tool in self.tools if tool.spec.name == "aster_trade_history"
+            )
 
             # Test with SOLUSDT and small limit
-            result = await history_tool.handler({
-                "symbol": "SOLUSDT",
-                "limit": 5
-            })
+            result = await history_tool.handler({"symbol": "SOLUSDT", "limit": 5})
 
             self.test_results["trade_history"] = {
                 "success": "error" not in result,
                 "result": result,
-                "notes": "Recent SOLUSDT trades"
+                "notes": "Recent SOLUSDT trades",
             }
 
             if "error" not in result:
@@ -334,7 +345,7 @@ class AsterToolTester:
             test_params = {
                 "symbol": "SOLUSDT",
                 "usd_notional": 10.0,  # $10 (well above $5 minimum)
-                "leverage": 2,         # 2x leverage (conservative)
+                "leverage": 2,  # 2x leverage (conservative)
             }
 
             logger.info(f"  Test parameters: {test_params}")
@@ -345,7 +356,7 @@ class AsterToolTester:
                 "success": "error" not in result,
                 "result": result,
                 "notes": "Small USD notional long position",
-                "params": test_params
+                "params": test_params,
             }
 
             if "error" not in result:
@@ -372,8 +383,8 @@ class AsterToolTester:
             # Test with quantity that meets $5 minimum notional
             test_params = {
                 "symbol": "SOLUSDT",
-                "quantity": 0.03,     # 0.03 SOL (~$7+ notional)
-                "leverage": 2,        # 2x leverage (conservative)
+                "quantity": 0.03,  # 0.03 SOL (~$7+ notional)
+                "leverage": 2,  # 2x leverage (conservative)
             }
 
             logger.info(f"  Test parameters: {test_params}")
@@ -384,7 +395,7 @@ class AsterToolTester:
                 "success": "error" not in result,
                 "result": result,
                 "notes": "Small quantity long position",
-                "params": test_params
+                "params": test_params,
             }
 
             if "error" not in result:
@@ -407,7 +418,9 @@ class AsterToolTester:
 
         try:
             # First check if we have any positions to close
-            position_tool = next(tool for tool in self.tools if tool.spec.name == "aster_position_check")
+            position_tool = next(
+                tool for tool in self.tools if tool.spec.name == "aster_position_check"
+            )
             positions_result = await position_tool.handler({"symbol": "SOLUSDT"})
 
             if "error" in positions_result:
@@ -415,7 +428,7 @@ class AsterToolTester:
                 self.test_results["close_position"] = {
                     "success": False,
                     "error": "Cannot check positions",
-                    "notes": "Skipped due to position check failure"
+                    "notes": "Skipped due to position check failure",
                 }
                 return
 
@@ -424,20 +437,24 @@ class AsterToolTester:
             if not isinstance(positions, list):
                 positions = []
 
-            solusdt_positions = [p for p in positions
-                               if p.get("symbol") == "SOLUSDT"
-                               and float(p.get("positionAmt", 0)) != 0]
+            solusdt_positions = [
+                p
+                for p in positions
+                if p.get("symbol") == "SOLUSDT" and float(p.get("positionAmt", 0)) != 0
+            ]
 
             if not solusdt_positions:
                 logger.info("  ℹ️  No SOLUSDT positions to close - test will be simulation only")
 
                 # Test with minimal parameters (will likely fail due to no position)
-                close_tool = next(tool for tool in self.tools if tool.spec.name == "aster_close_position")
+                close_tool = next(
+                    tool for tool in self.tools if tool.spec.name == "aster_close_position"
+                )
 
                 test_params = {
                     "symbol": "SOLUSDT",
                     "quantity": 0.01,  # Minimum quantity that respects lot size
-                    "reduce_only": True
+                    "reduce_only": True,
                 }
 
                 result = await close_tool.handler(test_params)
@@ -446,11 +463,13 @@ class AsterToolTester:
                     "success": "error" not in result,
                     "result": result,
                     "notes": "Simulation test - no position to close",
-                    "params": test_params
+                    "params": test_params,
                 }
 
                 if "error" in result:
-                    logger.info(f"  ✅ Close position correctly failed (no position): {result.get('error')}")
+                    logger.info(
+                        f"  ✅ Close position correctly failed (no position): {result.get('error')}"
+                    )
                 else:
                     logger.warning(f"  ⚠️  Close position unexpectedly succeeded: {result}")
 
@@ -466,13 +485,11 @@ class AsterToolTester:
                 logger.info(f"    Found position: {position_size} {position_side}")
                 logger.info(f"    Will close: {close_quantity}")
 
-                close_tool = next(tool for tool in self.tools if tool.spec.name == "aster_close_position")
+                close_tool = next(
+                    tool for tool in self.tools if tool.spec.name == "aster_close_position"
+                )
 
-                test_params = {
-                    "symbol": "SOLUSDT",
-                    "quantity": close_quantity,
-                    "reduce_only": True
-                }
+                test_params = {"symbol": "SOLUSDT", "quantity": close_quantity, "reduce_only": True}
 
                 result = await close_tool.handler(test_params)
 
@@ -480,7 +497,7 @@ class AsterToolTester:
                     "success": "error" not in result,
                     "result": result,
                     "notes": f"Partial close of {position_side} position",
-                    "params": test_params
+                    "params": test_params,
                 }
 
                 if "error" not in result:
@@ -502,12 +519,14 @@ class AsterToolTester:
         logger.info("=" * 60)
 
         total_tests = len(self.test_results)
-        successful_tests = sum(1 for result in self.test_results.values() if result.get("success", False))
+        successful_tests = sum(
+            1 for result in self.test_results.values() if result.get("success", False)
+        )
 
         logger.info(f"Total tests: {total_tests}")
         logger.info(f"Successful: {successful_tests}")
         logger.info(f"Failed: {total_tests - successful_tests}")
-        logger.info(f"Success rate: {(successful_tests/total_tests*100):.1f}%")
+        logger.info(f"Success rate: {(successful_tests / total_tests * 100):.1f}%")
 
         logger.info("\nDetailed Results:")
         for test_name, result in self.test_results.items():
@@ -524,6 +543,7 @@ class AsterToolTester:
         logger.info("\nDetailed results saved to: aster_test_results.json")
         logger.info("Log file saved to: aster_test.log")
 
+
 async def main():
     """Main test runner"""
     print("🚀 Aster Futures Tools - Comprehensive Integration Test")
@@ -536,7 +556,7 @@ async def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--auto":
         proceed = True
     else:
-        proceed = input("Do you want to proceed? (y/N): ").lower().startswith('y')
+        proceed = input("Do you want to proceed? (y/N): ").lower().startswith("y")
 
     if not proceed:
         print("Test cancelled by user.")
@@ -552,6 +572,7 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Test suite failed: {e}")
         raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())

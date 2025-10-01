@@ -14,7 +14,7 @@ from ..config.prompts import SOLANA_AGENT_PROMPT
 from ..config.settings import Settings
 from ..config.config_loader import load_middleware_config
 from ..utils.crypto import decrypt_private_key
-from ..utils.secure_storage import get_secure_storage
+from ..utils.secure_storage import get_secure_storage, sync_stored_api_key
 from ..utils.http_client import cleanup_http_client
 from ..utils.connection_pool import cleanup_database_pool
 from ..utils.rate_limiter import cleanup_rate_limiter
@@ -28,6 +28,7 @@ from ..integrations.jupiter import JupiterTools, create_jupiter_tools
 from ..integrations.search import SearchTools, create_search_tools
 from ..integrations.polymarket import PolymarketTools, create_polymarket_tools
 from ..integrations.aster_futures import AsterFuturesClient, create_aster_futures_tools
+from ..integrations.hyperliquid import HyperliquidClient, create_hyperliquid_tools
 from ..integrations.smart_trader import SmartTrader, create_smart_trader_tools
 from .plugins import load_plugins
 
@@ -42,11 +43,40 @@ class AgentBuilder:
     agents without editing the main entrypoint.
     """
 
+    KNOWN_TOOL_BUNDLES = {
+        "solana",
+        "pump_fun",
+        "dexscreener",
+        "jupiter",
+        "search",
+        "polymarket",
+        "aster_futures",
+        "hyperliquid",
+        "smart_trader",
+    }
+
     def __init__(
         self,
         system_prompt: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
+        tool_overrides: Optional[Dict[str, bool]] = None,
     ) -> None:
         self.system_prompt = system_prompt or SOLANA_AGENT_PROMPT
+        self.llm_config: Dict[str, Any] = llm_config.copy() if llm_config else {}
+
+        normalized_overrides: Dict[str, bool] = {}
+        if tool_overrides:
+            for key, value in tool_overrides.items():
+                if not isinstance(key, str):
+                    continue
+                normalized_overrides[key.strip().lower()] = bool(value)
+        self.tool_overrides = normalized_overrides
+
+    def _tool_enabled(self, bundle: str, default: bool) -> bool:
+        override = self.tool_overrides.get(bundle.lower())
+        if override is not None:
+            return override
+        return default
 
     async def build(self, context: Optional[RequestContext] = None) -> SAMAgent:
         """Build and return a fully configured SAMAgent.
@@ -56,7 +86,7 @@ class AgentBuilder:
         ctx = context or RequestContext()
         _ = ctx  # Maintains compatibility until context-aware overrides land
         # LLM
-        llm = create_llm_provider()
+        llm = create_llm_provider(self.llm_config)
 
         # Memory
         memory = create_memory_manager(Settings.SAM_DB_PATH)
@@ -108,7 +138,9 @@ class AgentBuilder:
                             return t
                     return default_type or name
 
-                def identifier_fn(name: str, args: Dict[str, Any], ctx: Optional[ToolContext]) -> str:
+                def identifier_fn(
+                    name: str, args: Dict[str, Any], ctx: Optional[ToolContext]
+                ) -> str:
                     if name in type_map and isinstance(type_map[name], dict):
                         field = type_map[name].get("identifier_field")
                         if isinstance(field, str) and field:
@@ -347,39 +379,52 @@ class AgentBuilder:
         # Create agent before registering tools (for potential caching hooks)
         agent = SAMAgent(llm=llm, tools=tools, memory=memory, system_prompt=self.system_prompt)
 
+        solana_enabled = self._tool_enabled("solana", Settings.ENABLE_SOLANA_TOOLS)
+        pump_enabled = self._tool_enabled("pump_fun", Settings.ENABLE_PUMP_FUN_TOOLS)
+        dex_enabled = self._tool_enabled("dexscreener", Settings.ENABLE_DEXSCREENER_TOOLS)
+        jupiter_enabled = self._tool_enabled("jupiter", Settings.ENABLE_JUPITER_TOOLS)
+        search_enabled = self._tool_enabled("search", Settings.ENABLE_SEARCH_TOOLS)
+        polymarket_enabled = self._tool_enabled("polymarket", Settings.ENABLE_POLYMARKET_TOOLS)
+        aster_enabled = self._tool_enabled("aster_futures", Settings.ENABLE_ASTER_FUTURES_TOOLS)
+
         # Register integrations behind flags
-        if Settings.ENABLE_SOLANA_TOOLS:
+        if solana_enabled:
             for tool in create_solana_tools(solana_tools, agent=agent):
                 tools.register(tool)
 
         pump_tools = PumpFunTools(solana_tools)
-        if Settings.ENABLE_PUMP_FUN_TOOLS:
+        if pump_enabled:
             for tool in create_pump_fun_tools(pump_tools, agent=agent):
                 tools.register(tool)
 
         dex_tools = DexScreenerTools()
-        if Settings.ENABLE_DEXSCREENER_TOOLS:
+        if dex_enabled:
             for tool in create_dexscreener_tools(dex_tools):
                 tools.register(tool)
 
         jupiter_tools = JupiterTools(solana_tools)
-        if Settings.ENABLE_JUPITER_TOOLS:
+        if jupiter_enabled:
             for tool in create_jupiter_tools(jupiter_tools):
                 tools.register(tool)
 
-        brave_api_key = os.getenv("BRAVE_API_KEY")
+        try:
+            brave_api_key = secure_storage.get_api_key("brave_api_key")
+        except Exception:
+            brave_api_key = None
+        if not brave_api_key:
+            brave_api_key = os.getenv("BRAVE_API_KEY")
         search_tools = SearchTools(api_key=brave_api_key)
-        if Settings.ENABLE_SEARCH_TOOLS:
+        if search_enabled:
             for tool in create_search_tools(search_tools):
                 tools.register(tool)
 
         polymarket_tools = PolymarketTools()
-        if Settings.ENABLE_POLYMARKET_TOOLS:
+        if polymarket_enabled:
             for tool in create_polymarket_tools(polymarket_tools):
                 tools.register(tool)
 
         aster_client: Optional[AsterFuturesClient] = None
-        if Settings.ENABLE_ASTER_FUTURES_TOOLS:
+        if aster_enabled:
             aster_api_key = secure_storage.get_api_key("aster_api")
             if not aster_api_key and Settings.ASTER_API_KEY:
                 if secure_storage.store_api_key("aster_api", Settings.ASTER_API_KEY):
@@ -409,6 +454,52 @@ class AgentBuilder:
                     "Set ASTER_API_KEY and ASTER_API_SECRET or store them via secure storage."
                 )
 
+        hyperliquid_client: Optional[HyperliquidClient] = None
+        hyper_private_key = secure_storage.get_private_key("hyperliquid_private_key")
+        if not hyper_private_key and Settings.HYPERLIQUID_PRIVATE_KEY:
+            if secure_storage.store_private_key(
+                "hyperliquid_private_key", Settings.HYPERLIQUID_PRIVATE_KEY
+            ):
+                hyper_private_key = Settings.HYPERLIQUID_PRIVATE_KEY
+            else:
+                hyper_private_key = Settings.HYPERLIQUID_PRIVATE_KEY
+
+        desired_hyper_account = Settings.EVM_WALLET_ADDRESS or Settings.HYPERLIQUID_ACCOUNT_ADDRESS
+        hyper_account_address = sync_stored_api_key(
+            secure_storage,
+            "hyperliquid_account_address",
+            desired_hyper_account,
+            case_insensitive=True,
+            delete_when_empty=False,
+        )
+        if not hyper_account_address and desired_hyper_account:
+            hyper_account_address = desired_hyper_account
+
+        hyperliquid_default = bool(
+            Settings.ENABLE_HYPERLIQUID_TOOLS or hyper_private_key or hyper_account_address
+        )
+        hyperliquid_enabled = self._tool_enabled("hyperliquid", hyperliquid_default)
+
+        if hyperliquid_enabled:
+            if hyper_private_key or hyper_account_address:
+                try:
+                    hyperliquid_client = HyperliquidClient(
+                        base_url=Settings.HYPERLIQUID_API_URL,
+                        private_key=hyper_private_key,
+                        account_address=hyper_account_address,
+                        timeout=Settings.HYPERLIQUID_REQUEST_TIMEOUT,
+                        default_slippage=Settings.HYPERLIQUID_DEFAULT_SLIPPAGE,
+                    )
+                    for tool in create_hyperliquid_tools(hyperliquid_client):
+                        tools.register(tool)
+                except Exception as exc:
+                    logger.warning(f"Failed to initialize Hyperliquid tools: {exc}")
+            else:
+                logger.warning(
+                    "Hyperliquid tools enabled but no credentials found. "
+                    "Configure HYPERLIQUID_PRIVATE_KEY or provide an EVM wallet address."
+                )
+
         # Optional plugin discovery (entry points or env var SAM_PLUGINS)
         try:
             load_plugins(tools, agent=agent)
@@ -416,12 +507,14 @@ class AgentBuilder:
             logger.warning(f"Plugin loading encountered an issue: {e}")
 
         # Smart trader (pump.fun -> Jupiter fallback)
-        try:
-            trader = SmartTrader(pump_tools, jupiter_tools, solana_tools)
-            for tool in create_smart_trader_tools(trader):
-                tools.register(tool)
-        except Exception as e:
-            logger.warning(f"Failed to register smart trader tools: {e}")
+        smart_trader_default = solana_enabled and (pump_enabled or jupiter_enabled)
+        if self._tool_enabled("smart_trader", smart_trader_default):
+            try:
+                trader = SmartTrader(pump_tools, jupiter_tools, solana_tools)
+                for tool in create_smart_trader_tools(trader):
+                    tools.register(tool)
+            except Exception as e:
+                logger.warning(f"Failed to register smart trader tools: {e}")
 
         # Keep references (mypy-friendly) as before
         setattr(agent, "_solana_tools", solana_tools)
@@ -431,6 +524,7 @@ class AgentBuilder:
         setattr(agent, "_search_tools", search_tools)
         setattr(agent, "_polymarket_tools", polymarket_tools)
         setattr(agent, "_aster_client", aster_client)
+        setattr(agent, "_hyperliquid_client", hyperliquid_client)
         setattr(agent, "_llm", llm)
 
         logger.info(f"Agent built with {len(tools.list_specs())} tools")

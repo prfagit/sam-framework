@@ -22,9 +22,7 @@ async def test_list_sessions_orders_and_counts():
         await mem.save_session("s3", [], user_id="bob")
 
         # Update s1 to ensure updated_at ordering changes
-        await mem.save_session(
-            "s1", [{"role": "user", "content": "hi again"}], user_id="alice"
-        )
+        await mem.save_session("s1", [{"role": "user", "content": "hi again"}], user_id="alice")
 
         sessions = await mem.list_sessions(limit=10, user_id="alice")
         assert isinstance(sessions, list)

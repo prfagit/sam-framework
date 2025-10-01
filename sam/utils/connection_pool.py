@@ -68,8 +68,11 @@ class DatabasePool:
         for attempt in range(max_retries):
             try:
                 import os as _os
+
                 _timeout = 10.0 if _os.getenv("SAM_TEST_MODE") == "1" else 30.0
-                conn = await aiosqlite.connect(self.db_path, timeout=_timeout, check_same_thread=False)
+                conn = await aiosqlite.connect(
+                    self.db_path, timeout=_timeout, check_same_thread=False
+                )
 
                 # Optimize performance with error handling
                 try:
@@ -79,6 +82,7 @@ class DatabasePool:
                     await conn.execute("PRAGMA temp_store=memory")
                     # Keep busy timeout conservative; shorter in test mode to prevent hangs
                     import os as _os
+
                     busy_ms = 2000 if _os.getenv("SAM_TEST_MODE") == "1" else 5000
                     await conn.execute(f"PRAGMA busy_timeout={busy_ms}")
                     await conn.execute("PRAGMA wal_autocheckpoint=1000")
@@ -127,6 +131,7 @@ class DatabasePool:
         try:
             # Simple validation with timeout
             import os as _os
+
             _vto = 1.0 if _os.getenv("SAM_TEST_MODE") == "1" else 5.0
             await asyncio.wait_for(conn.execute("SELECT 1"), timeout=_vto)
             try:
@@ -230,12 +235,19 @@ class DatabasePool:
 
 # Global pool instance
 _global_pool: Optional[DatabasePool] = None
-# Avoid a global event-loop-bound lock; lockless init is acceptable here
-_pool_lock = None  # kept for backward compatibility; unused
+_pool_lock: Optional[asyncio.Lock] = None
+
+
+def _get_pool_lock() -> asyncio.Lock:
+    """Get or create the pool initialization lock."""
+    global _pool_lock
+    if _pool_lock is None:
+        _pool_lock = asyncio.Lock()
+    return _pool_lock
 
 
 async def get_database_pool(db_path: str, pool_size: int = 5) -> DatabasePool:
-    """Get global database pool instance."""
+    """Get global database pool instance (thread-safe with double-check locking)."""
     global _global_pool
 
     current_loop = None
@@ -244,37 +256,60 @@ async def get_database_pool(db_path: str, pool_size: int = 5) -> DatabasePool:
     except Exception:
         pass
 
-    needs_new = (
-        _global_pool is None
-        or _global_pool._closed
-        or _global_pool._loop is None
-        or (_global_pool._loop and _global_pool._loop.is_closed())
-        or (
-            _global_pool._loop is not None
-            and current_loop is not None
-            and _global_pool._loop is not current_loop
+    # Helper to check if pool needs recreation
+    def needs_new_pool() -> bool:
+        return (
+            _global_pool is None
+            or _global_pool._closed
+            or _global_pool._loop is None
+            or (_global_pool._loop and _global_pool._loop.is_closed())
+            or (
+                _global_pool._loop is not None
+                and current_loop is not None
+                and _global_pool._loop is not current_loop
+            )
         )
-    )
 
-    if needs_new:
-        # Lock-free replacement to avoid cross-loop lock usage in Streamlit
+    # Fast path - pool is valid
+    if not needs_new_pool():
+        assert _global_pool is not None
+        return _global_pool
+
+    # Acquire lock for initialization/recreation
+    lock = _get_pool_lock()
+    async with lock:
+        # Double-check inside lock
+        if not needs_new_pool():
+            assert _global_pool is not None
+            return _global_pool
+
+        # Close old pool if exists
         if _global_pool and not _global_pool._closed:
             try:
                 await _global_pool.close()
-            except Exception:
-                pass
-        _global_pool = DatabasePool(db_path, pool_size)
+            except Exception as e:
+                logger.warning(f"Error closing old database pool: {e}")
 
-    assert _global_pool is not None
-    return _global_pool
+        # Create new pool
+        _global_pool = DatabasePool(db_path, pool_size)
+        assert _global_pool is not None
+        return _global_pool
 
 
 async def cleanup_database_pool() -> None:
-    """Cleanup global database pool."""
-    global _global_pool
-    if _global_pool:
-        await _global_pool.close()
-        _global_pool = None
+    """Cleanup global database pool (thread-safe)."""
+    global _global_pool, _pool_lock
+
+    if _global_pool is None:
+        return
+
+    lock = _get_pool_lock()
+    async with lock:
+        if _global_pool:
+            await _global_pool.close()
+            _global_pool = None
+        # Reset lock for potential re-initialization
+        _pool_lock = None
 
 
 @asynccontextmanager

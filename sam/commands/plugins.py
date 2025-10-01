@@ -61,7 +61,9 @@ def trust_plugin(module: str, *, entry_point: Optional[str], label: Optional[str
             "ℹ️  Plugins remain disabled. Set SAM_ENABLE_PLUGINS=true and restart to load trusted plugins."
         )
     elif policy.allow_unverified:
-        print("⚠️  SAM_PLUGIN_ALLOW_UNVERIFIED is enabled; consider disabling for strict enforcement.")
+        print(
+            "⚠️  SAM_PLUGIN_ALLOW_UNVERIFIED is enabled; consider disabling for strict enforcement."
+        )
 
     return 0
 
@@ -77,4 +79,3 @@ def run_plugins_command(args) -> int:  # type: ignore[no-untyped-def]
 
     print("Usage: sam plugins trust <module> [--entry-point name] [--label text]")
     return 1
-

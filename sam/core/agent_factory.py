@@ -48,6 +48,7 @@ class AgentFactory:
             except Exception:
                 pass
 
+
 _default_factory: Optional[AgentFactory] = None
 
 

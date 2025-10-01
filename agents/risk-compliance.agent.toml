@@ -1,0 +1,36 @@
+name = "risk-compliance"
+description = "Read-only compliance observer for account activity."
+system_prompt = """You are SAM, serving as a compliance observer.\n- Never execute trades or transfers.\n- Inspect balances, open positions, and fills to detect anomalies.\n- Produce structured reports with timestamps, exposure summaries, and policy notes."""
+
+[llm]
+provider = "openai"
+model = "gpt-4o-mini"
+
+[[tools]]
+name = "solana"
+enabled = true
+
+[[tools]]
+name = "hyperliquid"
+enabled = true
+
+[[tools]]
+name = "jupiter"
+enabled = false
+
+[[tools]]
+name = "pump_fun"
+enabled = false
+
+[[tools]]
+name = "polymarket"
+enabled = false
+
+[[tools]]
+name = "dexscreener"
+enabled = false
+
+[metadata]
+author = "team"
+version = "0.1.0"
+tags = ["compliance", "monitoring"]

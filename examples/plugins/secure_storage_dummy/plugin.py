@@ -43,6 +43,9 @@ class DummySecureStorage(BaseSecretStore):
     def get_api_key(self, service: str) -> Optional[str]:
         return self._api.get(service)
 
+    def delete_api_key(self, service: str) -> bool:
+        return self._api.pop(service, None) is not None
+
     def store_wallet_config(self, user_id: str, config: Dict[str, Any]) -> bool:
         self._wallet_cfg[user_id] = dict(config)
         return True

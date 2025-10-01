@@ -10,6 +10,7 @@ from ..core.tools import Tool, ToolSpec
 
 # Decorators replaced by registry middlewares for rate limit/retry/logging
 from ..utils.http_client import get_session
+from ..utils.secure_storage import get_secure_storage
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,16 @@ class SearchTools:
 
     def __init__(self, api_key: Optional[str] = None) -> None:
         """Initialize search tools with optional Brave API key."""
-        self.api_key = api_key or os.getenv("BRAVE_API_KEY")
+        if api_key:
+            self.api_key = api_key
+        else:
+            stored_key: Optional[str] = None
+            try:
+                storage = get_secure_storage()
+                stored_key = storage.get_api_key("brave_api_key")
+            except Exception:
+                stored_key = None
+            self.api_key = stored_key or os.getenv("BRAVE_API_KEY")
         logger.info(
             f"Initialized search tools {'with API key' if self.api_key else 'with fallback mode'}"
         )
@@ -34,7 +44,7 @@ class SearchTools:
         """Search the web using Brave search API."""
         if not self.api_key:
             return {
-                "error": "Brave Search API key is required. Set BRAVE_API_KEY environment variable."
+                "error": "Brave Search API key is required. Configure it via settings or secure storage."
             }
 
         try:
@@ -50,7 +60,7 @@ class SearchTools:
         """Search for news using Brave search API."""
         if not self.api_key:
             return {
-                "error": "Brave Search API key is required. Set BRAVE_API_KEY environment variable."
+                "error": "Brave Search API key is required. Configure it via settings or secure storage."
             }
 
         try:
@@ -147,7 +157,9 @@ def create_search_tools(search_tools: SearchTools) -> List[Tool]:
 
         @field_validator("freshness")
         @classmethod
-        def validate_freshness(cls, value: str) -> str:  # pragma: no cover - simple input validation
+        def validate_freshness(
+            cls, value: str
+        ) -> str:  # pragma: no cover - simple input validation
             if value not in {"pd", "pw", "pm"}:
                 raise ValueError("freshness must be one of: pd, pw, pm")
             return value

@@ -35,16 +35,12 @@ class InMemoryMemoryManager(MemoryManager):
             return user_id.strip()
         return "default"
 
-    async def save_session(
-        self, session_id: str, messages: List[Dict], user_id: str | None = None
-    ):
+    async def save_session(self, session_id: str, messages: List[Dict], user_id: str | None = None):
         uid = self._normalize_user(user_id)
         store = self._sessions.setdefault(uid, {})
         store[session_id] = list(messages)
 
-    async def load_session(
-        self, session_id: str, user_id: str | None = None
-    ) -> List[Dict]:
+    async def load_session(self, session_id: str, user_id: str | None = None) -> List[Dict]:
         uid = self._normalize_user(user_id)
         return list(self._sessions.get(uid, {}).get(session_id, []))
 

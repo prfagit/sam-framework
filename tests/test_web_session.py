@@ -14,6 +14,7 @@ class TestWebSession:
         """Test that get_agent returns a singleton instance."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -38,6 +39,7 @@ class TestWebSession:
         """Test get_agent handles exceptions during agent building."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -55,6 +57,7 @@ class TestWebSession:
         """Test close_agent functionality."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -75,6 +78,7 @@ class TestWebSession:
         """Test close_agent handles exceptions."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -97,6 +101,7 @@ class TestWebSession:
         """Test close_agent when no agent is set."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -109,6 +114,7 @@ class TestWebSession:
         """Test run_once synchronous helper."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -123,15 +129,14 @@ class TestWebSession:
             result = run_once("test prompt", "test_session")
 
             assert result == "test response"
-            mock_agent.run.assert_called_once_with(
-                "test prompt", "test_session", context=None
-            )
+            mock_agent.run.assert_called_once_with("test prompt", "test_session", context=None)
 
     @pytest.mark.asyncio
     async def test_run_with_events_basic(self):
         """Test run_with_events basic functionality."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -141,9 +146,10 @@ class TestWebSession:
         async def mock_get_agent(*_, **__):
             return mock_agent
 
-        with patch("sam.web.session.get_agent", side_effect=mock_get_agent), patch(
-            "sam.web.session.get_event_bus"
-        ) as mock_get_bus:
+        with (
+            patch("sam.web.session.get_agent", side_effect=mock_get_agent),
+            patch("sam.web.session.get_event_bus") as mock_get_bus,
+        ):
             mock_bus = MagicMock()
             mock_get_bus.return_value = mock_bus
 
@@ -182,6 +188,7 @@ class TestWebSession:
         """Test run_with_events with actual event publishing."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -224,6 +231,7 @@ class TestWebSession:
         """Test that run_with_events filters events by session_id."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -267,8 +275,7 @@ class TestWebSession:
                 # Should only get events for our session, not for other_session
                 assert all(e["payload"].get("session_id") != "other_session" for e in events)
                 assert any(
-                    e["event"] == "agent.delta"
-                    and e["payload"]["content"] == "our session delta"
+                    e["event"] == "agent.delta" and e["payload"]["content"] == "our session delta"
                     for e in events
                 )
 
@@ -277,6 +284,7 @@ class TestWebSession:
         """Test that run_with_events properly cleans up event subscriptions."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -286,9 +294,10 @@ class TestWebSession:
         async def mock_get_agent(*_, **__):
             return mock_agent
 
-        with patch("sam.web.session.get_agent", side_effect=mock_get_agent), patch(
-            "sam.web.session.get_event_bus"
-        ) as mock_get_bus:
+        with (
+            patch("sam.web.session.get_agent", side_effect=mock_get_agent),
+            patch("sam.web.session.get_event_bus") as mock_get_bus,
+        ):
             mock_bus = MagicMock()
             mock_get_bus.return_value = mock_bus
 
@@ -313,6 +322,7 @@ class TestWebSession:
         """Test run_with_events when agent.run fails."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -332,6 +342,7 @@ class TestWebSession:
         """Test run_with_events delta streaming functionality."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
@@ -367,11 +378,13 @@ class TestWebSession:
         """Test run_with_events with empty response."""
         # Reset global state
         import sam.web.session
+
         sam.web.session._agent_singleton = None
         sam.web.session._legacy_singleton = None
 
         mock_agent = MagicMock()
         mock_agent.run = AsyncMock(return_value=None)
+
         async def mock_get_agent(*_, **__):
             return mock_agent
 

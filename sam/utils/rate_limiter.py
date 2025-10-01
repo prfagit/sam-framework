@@ -291,24 +291,48 @@ class RateLimiter:
 
 # Global rate limiter instance
 _global_rate_limiter: Optional[RateLimiter] = None
+_limiter_lock: Optional[asyncio.Lock] = None
+
+
+def _get_limiter_lock() -> asyncio.Lock:
+    """Get or create the rate limiter initialization lock."""
+    global _limiter_lock
+    if _limiter_lock is None:
+        _limiter_lock = asyncio.Lock()
+    return _limiter_lock
 
 
 async def get_rate_limiter() -> RateLimiter:
-    """Get or create the global rate limiter instance."""
+    """Get or create the global rate limiter instance (thread-safe with double-check locking)."""
     global _global_rate_limiter
 
-    if _global_rate_limiter is None:
-        _global_rate_limiter = RateLimiter()
+    # Fast path - limiter already exists
+    if _global_rate_limiter is not None:
+        return _global_rate_limiter
 
-    return _global_rate_limiter
+    # Acquire lock for initialization
+    lock = _get_limiter_lock()
+    async with lock:
+        # Double-check inside lock to prevent race condition
+        if _global_rate_limiter is None:
+            _global_rate_limiter = RateLimiter()
+        return _global_rate_limiter
 
 
 async def cleanup_rate_limiter() -> None:
-    """Cleanup global rate limiter."""
-    global _global_rate_limiter
-    if _global_rate_limiter:
-        await _global_rate_limiter.shutdown()
-        _global_rate_limiter = None
+    """Cleanup global rate limiter (thread-safe)."""
+    global _global_rate_limiter, _limiter_lock
+
+    if _global_rate_limiter is None:
+        return
+
+    lock = _get_limiter_lock()
+    async with lock:
+        if _global_rate_limiter:
+            await _global_rate_limiter.shutdown()
+            _global_rate_limiter = None
+        # Reset lock for potential re-initialization
+        _limiter_lock = None
 
 
 async def check_rate_limit(

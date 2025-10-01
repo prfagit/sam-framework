@@ -70,23 +70,23 @@ class TestEnvFiles:
 
     def test_write_env_file_new_file(self):
         """Test writing a new .env file."""
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_file:
             temp_path = temp_file.name
 
         try:
             config_data = {
                 "LLM_PROVIDER": "openai",
                 "OPENAI_API_KEY": "sk-test123",
-                "SAM_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com"
+                "SAM_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
             }
 
             write_env_file(temp_path, config_data)
 
             # Read back the file
-            with open(temp_path, 'r') as f:
+            with open(temp_path, "r") as f:
                 content = f.read()
 
-            lines = content.strip().split('\n')
+            lines = content.strip().split("\n")
 
             # Check header
             assert lines[0] == "# SAM Framework configuration"
@@ -104,7 +104,7 @@ class TestEnvFiles:
 
     def test_write_env_file_update_existing(self):
         """Test updating an existing .env file."""
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_file:
             temp_file.write("# Existing comment\n")
             temp_file.write("EXISTING_VAR=old_value\n")
             temp_file.write("LLM_PROVIDER=anthropic\n")
@@ -114,21 +114,21 @@ class TestEnvFiles:
         try:
             config_data = {
                 "LLM_PROVIDER": "openai",  # Update existing
-                "NEW_VAR": "new_value",    # Add new
-                "EXISTING_VAR": "updated_value"  # Update existing
+                "NEW_VAR": "new_value",  # Add new
+                "EXISTING_VAR": "updated_value",  # Update existing
             }
 
             write_env_file(temp_path, config_data)
 
             # Read back the file
-            with open(temp_path, 'r') as f:
+            with open(temp_path, "r") as f:
                 content = f.read()
 
-            lines = content.strip().split('\n')
+            lines = content.strip().split("\n")
 
             # Check that existing content is preserved and updated
-            env_lines = [line for line in lines if '=' in line and not line.startswith('#')]
-            env_dict = dict(line.split('=', 1) for line in env_lines)
+            env_lines = [line for line in lines if "=" in line and not line.startswith("#")]
+            env_dict = dict(line.split("=", 1) for line in env_lines)
 
             assert env_dict["LLM_PROVIDER"] == "openai"
             assert env_dict["NEW_VAR"] == "new_value"
@@ -139,23 +139,20 @@ class TestEnvFiles:
 
     def test_write_env_file_empty_values(self):
         """Test writing .env file with empty values."""
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_file:
             temp_path = temp_file.name
 
         try:
-            config_data = {
-                "EMPTY_VAR": "",
-                "NORMAL_VAR": "value"
-            }
+            config_data = {"EMPTY_VAR": "", "NORMAL_VAR": "value"}
 
             write_env_file(temp_path, config_data)
 
             # Read back the file
-            with open(temp_path, 'r') as f:
+            with open(temp_path, "r") as f:
                 content = f.read()
 
-            lines = content.strip().split('\n')
-            env_lines = [line for line in lines if '=' in line and not line.startswith('#')]
+            lines = content.strip().split("\n")
+            env_lines = [line for line in lines if "=" in line and not line.startswith("#")]
 
             assert "EMPTY_VAR=" in env_lines
             assert "NORMAL_VAR=value" in env_lines
@@ -165,24 +162,24 @@ class TestEnvFiles:
 
     def test_write_env_file_special_characters(self):
         """Test writing .env file with special characters in values."""
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_file:
             temp_path = temp_file.name
 
         try:
             config_data = {
                 "URL": "https://api.example.com/path?query=value&other=test",
                 "COMPLEX_KEY": "sk-1234567890abcdef!@#$%^&*()",
-                "MULTILINE": "line1\\nline2"
+                "MULTILINE": "line1\\nline2",
             }
 
             write_env_file(temp_path, config_data)
 
             # Read back the file
-            with open(temp_path, 'r') as f:
+            with open(temp_path, "r") as f:
                 content = f.read()
 
-            lines = content.strip().split('\n')
-            env_lines = [line for line in lines if '=' in line and not line.startswith('#')]
+            lines = content.strip().split("\n")
+            env_lines = [line for line in lines if "=" in line and not line.startswith("#")]
 
             assert "URL=https://api.example.com/path?query=value&other=test" in env_lines
             assert "COMPLEX_KEY=sk-1234567890abcdef!@#$%^&*()" in env_lines
@@ -203,7 +200,7 @@ class TestEnvFiles:
 
     def test_write_env_file_malformed_existing(self):
         """Test handling of malformed existing .env file."""
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp_file:
             temp_file.write("MALFORMED_LINE_WITHOUT_EQUALS\n")
             temp_file.write("VALID_VAR=valid_value\n")
             temp_file.write("ANOTHER_MALFORMED_LINE\n")
@@ -216,11 +213,11 @@ class TestEnvFiles:
             write_env_file(temp_path, config_data)
 
             # Read back the file
-            with open(temp_path, 'r') as f:
+            with open(temp_path, "r") as f:
                 content = f.read()
 
-            lines = content.strip().split('\n')
-            env_lines = [line for line in lines if '=' in line and not line.startswith('#')]
+            lines = content.strip().split("\n")
+            env_lines = [line for line in lines if "=" in line and not line.startswith("#")]
 
             # Should contain new variable and preserve valid existing one
             assert "NEW_VAR=new_value" in env_lines
@@ -231,23 +228,20 @@ class TestEnvFiles:
 
     def test_write_env_file_unicode_values(self):
         """Test writing .env file with Unicode values."""
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8') as temp_file:
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False, encoding="utf-8") as temp_file:
             temp_path = temp_file.name
 
         try:
-            config_data = {
-                "UNICODE_VAR": "héllo wörld 🌍",
-                "EMOJI_VAR": "🤖 SAM Framework 🚀"
-            }
+            config_data = {"UNICODE_VAR": "héllo wörld 🌍", "EMOJI_VAR": "🤖 SAM Framework 🚀"}
 
             write_env_file(temp_path, config_data)
 
             # Read back the file
-            with open(temp_path, 'r', encoding='utf-8') as f:
+            with open(temp_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            lines = content.strip().split('\n')
-            env_lines = [line for line in lines if '=' in line and not line.startswith('#')]
+            lines = content.strip().split("\n")
+            env_lines = [line for line in lines if "=" in line and not line.startswith("#")]
 
             assert "UNICODE_VAR=héllo wörld 🌍" in env_lines
             assert "EMOJI_VAR=🤖 SAM Framework 🚀" in env_lines
@@ -258,4 +252,3 @@ class TestEnvFiles:
 
 if __name__ == "__main__":
     pytest.main([__file__])
-

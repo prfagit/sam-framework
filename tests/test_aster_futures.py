@@ -152,9 +152,13 @@ async def test_open_long_with_usd_notional(monkeypatch, client: AsterFuturesClie
     tools = create_aster_futures_tools(client)
     open_tool = next(tool for tool in tools if tool.spec.name == "aster_open_long")
 
-    monkeypatch.setattr(client, "_public_get", AsyncMock(return_value={"response": {"markPrice": "50"}}))
+    monkeypatch.setattr(
+        client, "_public_get", AsyncMock(return_value={"response": {"markPrice": "50"}})
+    )
     monkeypatch.setattr(client, "set_leverage", AsyncMock(return_value={}))
-    place_mock = AsyncMock(return_value={"endpoint": "/fapi/v1/order", "status": 200, "response": {}})
+    place_mock = AsyncMock(
+        return_value={"endpoint": "/fapi/v1/order", "status": 200, "response": {}}
+    )
     monkeypatch.setattr(client, "place_market_order", place_mock)
 
     result = await open_tool.handler({"symbol": "SOLUSDT", "usd_notional": 100, "leverage": 10})
@@ -177,9 +181,7 @@ async def test_close_position_no_position_returns_message(monkeypatch, client: A
             return_value={
                 "endpoint": "/fapi/v2/positionRisk",
                 "status": 200,
-                "response": [
-                    {"symbol": "SOLUSDT", "positionSide": "BOTH", "positionAmt": "0"}
-                ],
+                "response": [{"symbol": "SOLUSDT", "positionSide": "BOTH", "positionAmt": "0"}],
             }
         ),
     )

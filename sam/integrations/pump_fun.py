@@ -10,6 +10,7 @@ from ..core.tools import Tool, ToolSpec
 from ..utils.error_messages import handle_error_gracefully
 from ..utils.http_client import get_session
 from ..utils.transaction_validator import validate_pump_buy, validate_pump_sell
+from ..utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,20 +19,28 @@ class SolanaClientProtocol(Protocol):
     wallet_address: Optional[str]
     keypair: Any
 
-    async def get_balance(self) -> Mapping[str, Any]:
-        ...
+    async def get_balance(self) -> Mapping[str, Any]: ...
 
-    async def get_token_accounts(self, wallet: str) -> Mapping[str, Any]:
-        ...
+    async def get_token_accounts(self, wallet: str) -> Mapping[str, Any]: ...
 
-    async def _get_client(self) -> Any:
-        ...
+    async def _get_client(self) -> Any: ...
 
 
 class PumpFunTools:
     def __init__(self, solana_tools: Optional[SolanaClientProtocol] = None) -> None:
         self.base_url = "https://pumpportal.fun/api"
         self.solana_tools = solana_tools  # For transaction signing and sending
+
+        # Initialize circuit breaker for pump.fun API calls
+        self.circuit_breaker = CircuitBreaker(
+            name="pump_fun_api",
+            config=CircuitBreakerConfig(
+                failure_threshold=5,  # Open after 5 failures
+                recovery_timeout=60.0,  # Try recovery after 60 seconds
+                timeout=30.0,  # 30 second timeout for API calls
+                exceptions=(aiohttp.ClientError, TimeoutError),
+            ),
+        )
 
     async def close(self) -> None:
         """Close method for compatibility - shared client handles cleanup."""
@@ -97,10 +106,10 @@ class PumpFunTools:
             return {"error": f"Transaction failed: {str(e)}"}
 
     async def get_token_trades(self, mint: str, limit: int = 10) -> Dict[str, Any]:
-        """Get recent trades for a token."""
-        try:
-            session = await get_session()
+        """Get recent trades for a token with circuit breaker protection."""
 
+        async def _fetch_trades() -> Dict[str, Any]:
+            session = await get_session()
             params = {"mint": mint, "limit": str(limit)}
 
             async with session.get(f"{self.base_url}/trades", params=params) as response:
@@ -120,11 +129,10 @@ class PumpFunTools:
                     "total_trades": len(trade_list),
                 }
 
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error getting trades: {e}")
-            return {"error": f"Network error: {str(e)}"}
+        try:
+            return await self.circuit_breaker.call(_fetch_trades)
         except Exception as e:
-            logger.error(f"Unexpected error getting trades: {e}")
+            logger.error(f"Error getting trades (circuit breaker): {e}")
             return {"error": str(e)}
 
     async def create_buy_transaction(
@@ -326,9 +334,7 @@ class PumpFunTools:
             return {"error": str(e)}
 
 
-def create_pump_fun_tools(
-    pump_fun_tools: PumpFunTools, agent: Optional[Any] = None
-) -> List[Tool]:
+def create_pump_fun_tools(pump_fun_tools: PumpFunTools, agent: Optional[Any] = None) -> List[Tool]:
     """Create Pump.fun tool instances."""
 
     class PumpBuyInput(BaseModel):

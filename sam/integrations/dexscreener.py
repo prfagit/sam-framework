@@ -52,14 +52,11 @@ class TokenPair(Protocol):
 
 
 class DexClientProtocol(Protocol):
-    def search_pairs(self, query: str) -> Sequence[TokenPair]:
-        ...
+    def search_pairs(self, query: str) -> Sequence[TokenPair]: ...
 
-    def get_token_pairs(self, token: str) -> Sequence[TokenPair]:
-        ...
+    def get_token_pairs(self, token: str) -> Sequence[TokenPair]: ...
 
-    def get_trending_pairs(self, chain: Optional[str] = None) -> Sequence[TokenPair]:
-        ...
+    def get_trending_pairs(self, chain: Optional[str] = None) -> Sequence[TokenPair]: ...
 
 
 PairLike = TokenPair | Mapping[str, Any]
@@ -112,9 +109,7 @@ class DexScreenerTools:
         """Get detailed information for a specific Solana pair."""
         try:
             # Run synchronous client in thread to avoid blocking event loop
-            results = await asyncio.to_thread(
-                self.client.get_token_pairs, f"solana:{pair_address}"
-            )
+            results = await asyncio.to_thread(self.client.get_token_pairs, f"solana:{pair_address}")
 
             pair = _extract_single_pair(results)
             pair_info = _serialize_pair_detail(pair)
@@ -150,9 +145,7 @@ class DexScreenerTools:
 
         for token in popular_tokens:
             try:
-                results = await asyncio.to_thread(
-                    self.client.search_pairs, f"{token} {chain}"
-                )
+                results = await asyncio.to_thread(self.client.search_pairs, f"{token} {chain}")
                 all_pairs.extend(_ensure_sequence(results)[:5])
             except Exception as e:
                 logger.warning(f"Error getting pairs for {token}: {e}")
@@ -223,15 +216,14 @@ def _serialize_pair_summary(pair: PairLike) -> Dict[str, Any]:
         "base_token": _serialize_token(token_pair.base_token),
         "quote_token": _serialize_token(token_pair.quote_token),
         "price_usd": token_pair.price_usd,
-        "price_change_24h": token_pair.price_change.h24
-        if token_pair.price_change
-        else None,
+        "price_change_24h": token_pair.price_change.h24 if token_pair.price_change else None,
         "volume_24h": token_pair.volume.h24 if token_pair.volume else None,
         "liquidity": token_pair.liquidity.usd if token_pair.liquidity else None,
         "fdv": token_pair.fdv,
         "market_cap": token_pair.market_cap,
         "created_at": token_pair.pair_created_at,
     }
+
 
 def _extract_single_pair(results: Any) -> PairLike:
     if isinstance(results, Sequence) and results and not isinstance(results, (str, bytes)):
