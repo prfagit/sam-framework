@@ -14,15 +14,15 @@ from ..core.tools import Tool, ToolSpec
 try:  # pragma: no cover - guarded import for optional dependency
     from eth_account import Account
     from eth_account.signers.local import LocalAccount
-    from hyperliquid.exchange import Exchange
-    from hyperliquid.info import Info
-    from hyperliquid.utils.types import Cloid
+    from hyperliquid.exchange import Exchange  # type: ignore[import-untyped]
+    from hyperliquid.info import Info  # type: ignore[import-untyped]
+    from hyperliquid.utils.types import Cloid  # type: ignore[import-untyped]
 except ImportError:  # pragma: no cover - handled at runtime via error responses
-    Account = None  # type: ignore
-    Exchange = None  # type: ignore
-    Info = None  # type: ignore
-    LocalAccount = None  # type: ignore
-    Cloid = None  # type: ignore
+    Account = None  # type: ignore[assignment,misc]
+    Exchange = None
+    Info = None
+    LocalAccount = None  # type: ignore[assignment,misc]
+    Cloid = None
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +219,7 @@ class HyperliquidClient:
 
     async def get_sz_decimals(self, coin: str) -> int:
         """Get the size decimals for a coin from exchange metadata.
-        
+
         Each asset has a szDecimals field that determines how many decimal places
         the size must be rounded to.
         """
@@ -231,7 +231,8 @@ class HyperliquidClient:
                     for asset_info in universe:
                         if isinstance(asset_info, dict):
                             if asset_info.get("name", "").upper() == coin.upper():
-                                return asset_info.get("szDecimals", 0)
+                                sz_decimals: int = int(asset_info.get("szDecimals", 0))
+                                return sz_decimals
             logger.warning(f"szDecimals not found for {coin}, using default 0")
             return 0
         except Exception:
@@ -497,7 +498,7 @@ def create_hyperliquid_tools(client: HyperliquidClient) -> List[Tool]:
                 "category": "execution",
                 "message": str(exc),
             }
-        margin_summary = {}
+        margin_summary: Dict[str, Any] = {}
         if isinstance(state, dict):
             margin_summary = state.get("marginSummary") or {}
         return {
@@ -655,13 +656,15 @@ def create_hyperliquid_tools(client: HyperliquidClient) -> List[Tool]:
 
         # Add detailed breakdown when computed from margin
         if computed_from_margin:
-            result.update({
-                "margin_used": actual_margin_used,
-                "leverage": parsed.leverage,
-                "position_value": estimated_notional,
-                "reference_price": reference_price,
-                "min_notional_enforced": min_notional_enforced,
-            })
+            result.update(
+                {
+                    "margin_used": actual_margin_used,
+                    "leverage": parsed.leverage,
+                    "position_value": estimated_notional,
+                    "reference_price": reference_price,
+                    "min_notional_enforced": min_notional_enforced,
+                }
+            )
 
         return result
 
@@ -805,8 +808,14 @@ def create_hyperliquid_tools(client: HyperliquidClient) -> List[Tool]:
                             "type": "number",
                             "description": "Max slippage fraction (default: 0.05 = 5%)",
                         },
-                        "limit_px": {"type": "number", "description": "Optional limit price override"},
-                        "cloid": {"type": "string", "description": "Optional client order ID (hex)"},
+                        "limit_px": {
+                            "type": "number",
+                            "description": "Optional limit price override",
+                        },
+                        "cloid": {
+                            "type": "string",
+                            "description": "Optional client order ID (hex)",
+                        },
                     },
                     "required": ["coin", "side"],
                 },

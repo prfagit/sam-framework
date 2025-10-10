@@ -20,6 +20,8 @@ class SearchTools:
 
     def __init__(self, api_key: Optional[str] = None) -> None:
         """Initialize search tools with optional Brave API key."""
+        self.api_key: Optional[str]
+
         if api_key:
             self.api_key = api_key
         else:

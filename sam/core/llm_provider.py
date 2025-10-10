@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import time
 from importlib.metadata import entry_points
 
 import aiohttp
@@ -26,6 +28,104 @@ class ChatResponse:
         self.content = content
         self.tool_calls = tool_calls or []
         self.usage = usage or {}
+
+
+# Prompt caching configuration
+ENABLE_PROMPT_CACHE = os.getenv("SAM_ENABLE_PROMPT_CACHE", "1") == "1"
+PROMPT_CACHE_SIZE = int(os.getenv("SAM_PROMPT_CACHE_SIZE", "100"))
+PROMPT_CACHE_TTL = int(os.getenv("SAM_PROMPT_CACHE_TTL", "3600"))  # 1 hour
+
+
+class PromptCache:
+    """LRU cache for LLM prompt responses to reduce redundant API calls."""
+
+    def __init__(self, max_size: int = PROMPT_CACHE_SIZE, ttl: int = PROMPT_CACHE_TTL):
+        self.max_size = max_size
+        self.ttl = ttl
+        self._cache: Dict[str, Tuple[ChatResponse, float]] = {}
+        self._access_order: List[str] = []
+
+    def _hash_request(
+        self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]]
+    ) -> str:
+        """Generate cache key from request parameters."""
+        # Hash messages content
+        messages_str = json.dumps(messages, sort_keys=True)
+        tools_str = json.dumps(tools or [], sort_keys=True)
+
+        combined = f"{messages_str}|{tools_str}"
+        return hashlib.sha256(combined.encode()).hexdigest()[:16]
+
+    def get(
+        self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]]
+    ) -> Optional[ChatResponse]:
+        """Get cached response if available and not expired."""
+        if not ENABLE_PROMPT_CACHE:
+            return None
+
+        key = self._hash_request(messages, tools)
+        if key in self._cache:
+            response, timestamp = self._cache[key]
+
+            # Check TTL
+            if time.time() - timestamp < self.ttl:
+                # Update access order
+                self._access_order.remove(key)
+                self._access_order.append(key)
+                logger.debug(f"Prompt cache HIT: {key}")
+                return response
+            else:
+                # Expired, remove
+                del self._cache[key]
+                self._access_order.remove(key)
+                logger.debug(f"Prompt cache EXPIRED: {key}")
+
+        logger.debug(f"Prompt cache MISS: {key}")
+        return None
+
+    def put(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        response: ChatResponse,
+    ) -> None:
+        """Cache response with LRU eviction."""
+        if not ENABLE_PROMPT_CACHE:
+            return
+
+        key = self._hash_request(messages, tools)
+
+        if key in self._cache:
+            # Update existing
+            self._access_order.remove(key)
+        elif len(self._cache) >= self.max_size:
+            # Evict least recently used
+            lru_key = self._access_order.pop(0)
+            del self._cache[lru_key]
+            logger.debug(f"Prompt cache EVICT: {lru_key}")
+
+        self._cache[key] = (response, time.time())
+        self._access_order.append(key)
+        logger.debug(f"Prompt cache PUT: {key}")
+
+    def clear(self) -> None:
+        """Clear all cached responses."""
+        self._cache.clear()
+        self._access_order.clear()
+        logger.debug("Prompt cache CLEARED")
+
+    def stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        return {
+            "size": len(self._cache),
+            "max_size": self.max_size,
+            "ttl": self.ttl,
+            "enabled": ENABLE_PROMPT_CACHE,
+        }
+
+
+# Global prompt cache instance
+_prompt_cache = PromptCache()
 
 
 class LLMProvider:
@@ -55,6 +155,11 @@ class OpenAICompatibleProvider(LLMProvider):
     async def chat_completion(
         self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
     ) -> ChatResponse:
+        # Check prompt cache first
+        cached_response = _prompt_cache.get(messages, tools)
+        if cached_response is not None:
+            return cached_response
+
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         payload: Dict[str, Any] = {"model": self.model, "messages": messages}
@@ -108,7 +213,12 @@ class OpenAICompatibleProvider(LLMProvider):
                             f"LLM response: content_length={content_len}, tool_calls={len(tool_calls)}"
                         )
 
-                        return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
+                        # Create response and cache it
+                        chat_response = ChatResponse(
+                            content=content, tool_calls=tool_calls, usage=usage
+                        )
+                        _prompt_cache.put(messages, tools, chat_response)
+                        return chat_response
 
                     elif response.status >= 500:
                         error_text = await response.text()
@@ -168,6 +278,11 @@ class XAIProvider(OpenAICompatibleProvider):
     async def chat_completion(
         self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
     ) -> ChatResponse:
+        # Check prompt cache first
+        cached_response = _prompt_cache.get(messages, tools)
+        if cached_response is not None:
+            return cached_response
+
         payload: Dict[str, Any] = {"model": self.model, "messages": messages}
 
         # Format tools for xAI - they may have stricter requirements
@@ -200,7 +315,11 @@ class XAIProvider(OpenAICompatibleProvider):
         logger.debug(f"Sending xAI chat completion request to {self.base_url}/chat/completions")
 
         # Use the parent's retry logic but with our custom payload
-        return await self._make_request(payload)
+        response = await self._make_request(payload)
+
+        # Cache the response
+        _prompt_cache.put(messages, tools, response)
+        return response
 
     def _clean_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Clean parameter schema for xAI compatibility."""
@@ -260,6 +379,7 @@ class XAIProvider(OpenAICompatibleProvider):
                             f"xAI response: content_length={content_len}, tool_calls={len(tool_calls)}"
                         )
 
+                        # Return response (caching handled by chat_completion caller)
                         return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
 
                     else:
@@ -462,6 +582,11 @@ class AnthropicProvider(LLMProvider):
     async def chat_completion(
         self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None
     ) -> ChatResponse:
+        # Check prompt cache first
+        cached_response = _prompt_cache.get(messages, tools)
+        if cached_response is not None:
+            return cached_response
+
         system_text, anth_messages = self._convert_messages(messages)
         headers = {
             "x-api-key": self.api_key,
@@ -514,7 +639,13 @@ class AnthropicProvider(LLMProvider):
 
                         content = "\n".join([p for p in text_parts if p])
                         usage = data.get("usage", {})
-                        return ChatResponse(content=content, tool_calls=tool_calls, usage=usage)
+
+                        # Create response and cache it
+                        chat_response = ChatResponse(
+                            content=content, tool_calls=tool_calls, usage=usage
+                        )
+                        _prompt_cache.put(messages, tools, chat_response)
+                        return chat_response
 
                     elif response.status >= 500:
                         error_text = await response.text()

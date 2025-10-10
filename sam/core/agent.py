@@ -1,5 +1,7 @@
-import logging
+import asyncio
 import json
+import logging
+import os
 import time
 from typing import Any, Callable, Dict, List, Optional
 from .tools import ToolRegistry
@@ -106,12 +108,50 @@ class SAMAgent:
         # Update context length tracking
         self.session_stats["context_length"] = len(messages)
 
-        # Main execution loop
-        max_iterations = 5  # Reduced to prevent infinite loops more aggressively
+        # Main execution loop - configurable max iterations
+        max_iterations = int(os.getenv("SAM_MAX_AGENT_ITERATIONS", "5"))
         iteration = 0
+
+        # Optimization: Cache for serialized results to avoid re-serialization
+        serialization_cache: Dict[int, str] = {}
+
+        # Helper to get cached serialized result
+        def serialize_result(result: Any) -> str:
+            """Serialize result with caching to avoid duplicate JSON encoding."""
+            result_id = id(result)
+            if result_id in serialization_cache:
+                return serialization_cache[result_id]
+
+            serialized = (
+                json.dumps(result, default=str) if isinstance(result, dict) else str(result)
+            )
+            serialization_cache[result_id] = serialized
+            return serialized
+
         tool_call_history: List[tuple[str, str]] = []  # Track tool calls to prevent immediate loops
         tool_call_counts: Dict[str, int] = {}  # Track calls per tool name
         error_count = 0  # Track consecutive tool errors
+
+        # Optimization: Batch events to reduce async overhead
+        pending_events: List[tuple[str, Dict[str, Any]]] = []
+
+        async def flush_events() -> None:
+            """Publish all pending events in batch."""
+            if not pending_events:
+                return
+            try:
+                # Publish events concurrently
+                await asyncio.gather(
+                    *[
+                        self.events.publish(event_name, payload)
+                        for event_name, payload in pending_events
+                    ],
+                    return_exceptions=True,
+                )
+            except Exception:
+                pass
+            finally:
+                pending_events.clear()
 
         while iteration < max_iterations:
             iteration += 1
@@ -119,8 +159,9 @@ class SAMAgent:
 
             try:
                 # Get LLM response with available tools
-                try:
-                    await self.events.publish(
+                # Batch thinking status event
+                pending_events.append(
+                    (
                         "agent.status",
                         {
                             "session_id": session_id,
@@ -130,8 +171,8 @@ class SAMAgent:
                             "iteration": iteration,
                         },
                     )
-                except Exception:
-                    pass
+                )
+                await flush_events()
                 # Pass a copy to avoid later mutations (we append to messages after the call)
                 resp = await self.llm.chat_completion(list(messages), tools=self.tools.list_specs())
 
@@ -145,10 +186,10 @@ class SAMAgent:
                     self.session_stats["total_tokens"] += resp.usage.get("total_tokens", 0)
 
                 # Check if LLM wants to call tools
-                # Emit token usage event if available
-                try:
-                    if resp.usage:
-                        await self.events.publish(
+                # Batch token usage event if available
+                if resp.usage:
+                    pending_events.append(
+                        (
                             "llm.usage",
                             {
                                 "session_id": session_id,
@@ -157,8 +198,7 @@ class SAMAgent:
                                 "context_length": self.session_stats.get("context_length", 0),
                             },
                         )
-                except Exception:
-                    pass
+                    )
 
                 if hasattr(resp, "tool_calls") and resp.tool_calls:
                     logger.debug(f"LLM requested {len(resp.tool_calls)} tool calls")
@@ -249,9 +289,9 @@ class SAMAgent:
                             pass
 
                         logger.info(f"Calling tool: {tool_name}")
-                        # Publish tool called event
-                        try:
-                            await self.events.publish(
+                        # Batch tool events for better performance
+                        pending_events.append(
+                            (
                                 "tool.called",
                                 {
                                     "session_id": session_id,
@@ -261,12 +301,9 @@ class SAMAgent:
                                     "tool_call_id": tool_call_id,
                                 },
                             )
-                        except Exception:
-                            pass
-
-                        # Update agent status for UIs
-                        try:
-                            await self.events.publish(
+                        )
+                        pending_events.append(
+                            (
                                 "agent.status",
                                 {
                                     "session_id": session_id,
@@ -276,8 +313,7 @@ class SAMAgent:
                                     "message": f"Calling {tool_name}",
                                 },
                             )
-                        except Exception:
-                            pass
+                        )
 
                         # Notify CLI about tool usage if callback is set
                         if self.tool_callback:
@@ -303,15 +339,19 @@ class SAMAgent:
                             # Automatic fallback: if pump.fun buy failed, try Jupiter swap
                             try:
                                 if tool_name == "pump_fun_buy":
-                                    await self.events.publish(
-                                        "agent.status",
-                                        {
-                                            "session_id": session_id,
-                                            "user_id": user_id,
-                                            "state": "fallback",
-                                            "message": "pump.fun failed — trying Jupiter",
-                                        },
+                                    # Batch fallback status event
+                                    pending_events.append(
+                                        (
+                                            "agent.status",
+                                            {
+                                                "session_id": session_id,
+                                                "user_id": user_id,
+                                                "state": "fallback",
+                                                "message": "pump.fun failed — trying Jupiter",
+                                            },
+                                        )
                                     )
+                                    await flush_events()
 
                                     wsol = "So11111111111111111111111111111111111111112"
                                     out_mint = str(tool_args.get("mint", ""))
@@ -327,16 +367,18 @@ class SAMAgent:
                                         "slippage_bps": slippage_bps,
                                     }
 
-                                    # Announce fallback tool call
-                                    await self.events.publish(
-                                        "tool.called",
-                                        {
-                                            "session_id": session_id,
-                                            "user_id": user_id,
-                                            "name": "jupiter_swap",
-                                            "args": jup_args,
-                                            "tool_call_id": f"fallback-{tool_call_id}",
-                                        },
+                                    # Batch fallback tool call event
+                                    pending_events.append(
+                                        (
+                                            "tool.called",
+                                            {
+                                                "session_id": session_id,
+                                                "user_id": user_id,
+                                                "name": "jupiter_swap",
+                                                "args": jup_args,
+                                                "tool_call_id": f"fallback-{tool_call_id}",
+                                            },
+                                        )
                                     )
 
                                     jup_res = await self.tools.call(
@@ -351,19 +393,18 @@ class SAMAgent:
                                             "role": "tool",
                                             "tool_call_id": f"fallback-{tool_call_id}",
                                             "name": "jupiter_swap",
-                                            "content": json.dumps(jup_res, default=str)
-                                            if isinstance(jup_res, dict)
-                                            else str(jup_res),
+                                            "content": serialize_result(jup_res),
                                         }
                                     )
 
-                                    # Also emit succeeded/failed events for the fallback
+                                    # Batch fallback result events
                                     jup_success = isinstance(jup_res, dict) and (
                                         jup_res.get("success") is True or "error" not in jup_res
                                     )
-                                    if jup_success:
-                                        await self.events.publish(
-                                            "tool.succeeded",
+                                    event_name = "tool.succeeded" if jup_success else "tool.failed"
+                                    pending_events.append(
+                                        (
+                                            event_name,
                                             {
                                                 "session_id": session_id,
                                                 "user_id": user_id,
@@ -373,18 +414,7 @@ class SAMAgent:
                                                 "tool_call_id": f"fallback-{tool_call_id}",
                                             },
                                         )
-                                    else:
-                                        await self.events.publish(
-                                            "tool.failed",
-                                            {
-                                                "session_id": session_id,
-                                                "user_id": user_id,
-                                                "name": "jupiter_swap",
-                                                "args": jup_args,
-                                                "result": jup_res,
-                                                "tool_call_id": f"fallback-{tool_call_id}",
-                                            },
-                                        )
+                                    )
 
                                     # Continue loop to let the model react to the fallback result
                                     error_count = 0
@@ -394,8 +424,9 @@ class SAMAgent:
                                 pass
 
                             error_count += 1
-                            try:
-                                await self.events.publish(
+                            # Batch failure event
+                            pending_events.append(
+                                (
                                     "tool.failed",
                                     {
                                         "session_id": session_id,
@@ -406,8 +437,7 @@ class SAMAgent:
                                         "tool_call_id": tool_call_id,
                                     },
                                 )
-                            except Exception:
-                                pass
+                            )
 
                             # Detect structured error format
                             if isinstance(result.get("error"), bool) and result.get("error"):
@@ -460,22 +490,22 @@ class SAMAgent:
                                     "role": "tool",
                                     "tool_call_id": tool_call_id,
                                     "name": tool_name,
-                                    "content": json.dumps(result, default=str)
-                                    if isinstance(result, dict)
-                                    else str(result),
+                                    "content": serialize_result(result),
                                 }
                             )
 
                             # Now add guidance as system messages AFTER the tool response
                             guidance_message: Optional[str] = None
                             if error_type == "validation":
-                                missing = []
+                                missing: List[str] = []
                                 if isinstance(result, dict):
                                     details = result.get("details") or {}
                                     if isinstance(details, dict) and isinstance(
                                         details.get("missing_fields"), list
                                     ):
-                                        missing = details.get("missing_fields")
+                                        missing_fields = details.get("missing_fields")
+                                        if isinstance(missing_fields, list):
+                                            missing = missing_fields
                                 missing_text = (
                                     f" Missing fields: {', '.join(missing)}." if missing else ""
                                 )
@@ -528,8 +558,9 @@ class SAMAgent:
                             continue_to_next_iteration = True
                         else:
                             error_count = 0  # Reset error count on successful tool call
-                            try:
-                                await self.events.publish(
+                            # Batch success events
+                            pending_events.append(
+                                (
                                     "tool.succeeded",
                                     {
                                         "session_id": session_id,
@@ -540,11 +571,9 @@ class SAMAgent:
                                         "tool_call_id": tool_call_id,
                                     },
                                 )
-                            except Exception:
-                                pass
-
-                            try:
-                                await self.events.publish(
+                            )
+                            pending_events.append(
+                                (
                                     "agent.status",
                                     {
                                         "session_id": session_id,
@@ -554,8 +583,7 @@ class SAMAgent:
                                         "message": f"{tool_name} done",
                                     },
                                 )
-                            except Exception:
-                                pass
+                            )
 
                             continue_to_next_iteration = False
 
@@ -567,11 +595,12 @@ class SAMAgent:
                                     "role": "tool",
                                     "tool_call_id": tool_call_id,
                                     "name": tool_name,
-                                    "content": json.dumps(result, default=str)
-                                    if isinstance(result, dict)
-                                    else str(result),
+                                    "content": serialize_result(result),
                                 }
                             )
+
+                    # Flush batched events after tool execution
+                    await flush_events()
 
                     # Continue the loop to process tool results
                     continue
@@ -588,8 +617,10 @@ class SAMAgent:
                         self.session_stats["context_length"] = len(messages)
                     except Exception:
                         pass
-                    try:
-                        await self.events.publish(
+
+                    # Batch completion events
+                    pending_events.append(
+                        (
                             "agent.status",
                             {
                                 "session_id": session_id,
@@ -598,12 +629,12 @@ class SAMAgent:
                                 "message": "Finished",
                             },
                         )
-                    except Exception:
-                        pass
+                    )
+
                     # Optionally publish final assistant message event for UI adapters
                     if publish_final_event:
-                        try:
-                            await self.events.publish(
+                        pending_events.append(
+                            (
                                 "agent.message",
                                 {
                                     "session_id": session_id,
@@ -612,8 +643,10 @@ class SAMAgent:
                                     "usage": dict(self.session_stats),
                                 },
                             )
-                        except Exception:
-                            pass
+                        )
+
+                    # Flush all pending events before returning
+                    await flush_events()
 
                     return resp.content or "No response generated"
 

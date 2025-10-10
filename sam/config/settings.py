@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from dotenv import load_dotenv
 
 from .profile_store import PROFILE_KEYS, load_profile, migrate_env_to_profile
 from ..utils.secure_storage import get_secure_storage
+
+if TYPE_CHECKING:
+    from ..utils.secure_storage import BaseSecretStore
 
 load_dotenv()
 
@@ -26,10 +29,15 @@ def _reload_profile_cache() -> None:
     PROFILE_CACHE = load_profile()
 
 
-_SECURE_STORAGE = None
+_SECURE_STORAGE: Optional["BaseSecretStore"] = None
 
 
-def _get_storage():
+def _get_storage() -> Optional["BaseSecretStore"]:
+    """Get or create the secure storage instance.
+
+    Returns:
+        BaseSecretStore instance or None if initialization fails
+    """
     global _SECURE_STORAGE
     if _SECURE_STORAGE is None:
         try:
@@ -41,11 +49,20 @@ def _get_storage():
 
 
 def _get_vault_api(key: str) -> Optional[str]:
+    """Get API key from secure storage.
+
+    Args:
+        key: Service name for the API key
+
+    Returns:
+        API key string or None if not found
+    """
     storage = _get_storage()
     if storage is None:
         return None
     try:
-        return storage.get_api_key(key)
+        result: Optional[str] = storage.get_api_key(key)
+        return result
     except Exception:
         return None
 
@@ -173,11 +190,20 @@ def _validate_api_key(key: str, provider: str) -> str:
 
 
 def _api_key(alias_key: str, env_var: str) -> Optional[str]:
+    """Get API key from storage or environment.
+
+    Args:
+        alias_key: Key alias for looking up service name
+        env_var: Environment variable name
+
+    Returns:
+        API key string or None if not found
+    """
     alias = API_KEY_ALIASES.get(alias_key)
     storage = _get_storage()
     if storage and alias:
         try:
-            stored = storage.get_api_key(alias)
+            stored: Optional[str] = storage.get_api_key(alias)
         except Exception as exc:
             logger.debug("Secure storage read failed for %s: %s", alias, exc)
             stored = None
@@ -193,11 +219,20 @@ def _api_key(alias_key: str, env_var: str) -> Optional[str]:
 
 
 def _private_secret(alias_key: str, env_var: str) -> Optional[str]:
+    """Get private key from storage or environment.
+
+    Args:
+        alias_key: Key alias for looking up service name
+        env_var: Environment variable name
+
+    Returns:
+        Private key string or None if not found
+    """
     alias = PRIVATE_KEY_ALIASES.get(alias_key)
     storage = _get_storage()
     if storage and alias:
         try:
-            stored = storage.get_private_key(alias)
+            stored: Optional[str] = storage.get_private_key(alias)
         except Exception as exc:
             logger.debug("Secure storage read failed for %s: %s", alias, exc)
             stored = None

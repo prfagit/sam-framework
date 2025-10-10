@@ -4,6 +4,7 @@ import asyncio
 from asyncio import Task
 import functools
 import logging
+import os
 import psutil
 import gc
 import sys
@@ -15,6 +16,12 @@ import time
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+# Feature flags for expensive operations
+def _detailed_stats_enabled() -> bool:
+    """Determine if detailed (expensive) GC stats should be collected."""
+    return os.getenv("SAM_DETAILED_MEMORY_STATS", "0") == "1" or os.getenv("SAM_TEST_MODE") == "1"
+DEFAULT_POLL_INTERVAL = 300  # 5 minutes (reduced from 60s)
 
 
 @dataclass
@@ -53,7 +60,10 @@ class MemoryMonitor:
         logger.info(f"Memory monitor initialized with thresholds: {self.thresholds}")
 
     def get_memory_stats(self) -> MemoryStats:
-        """Get current memory usage statistics."""
+        """Get current memory usage statistics.
+
+        Expensive GC object counting only happens when SAM_DETAILED_MEMORY_STATS=1
+        """
         # System memory
         system_mem = psutil.virtual_memory()
 
@@ -61,8 +71,12 @@ class MemoryMonitor:
         process = psutil.Process()
         process_mem = process.memory_info()
 
-        # Python GC objects
-        gc_count = len(gc.get_objects())
+        # Python GC objects - only count when detailed stats enabled (expensive!)
+        if _detailed_stats_enabled():
+            gc_count = len(gc.get_objects())
+        else:
+            # Use GC stats instead of full object count (much faster)
+            gc_count = sum(gc.get_count())
 
         return MemoryStats(
             total_ram=system_mem.total,
@@ -121,25 +135,43 @@ class MemoryMonitor:
         return "warning" in alerts or "critical" in alerts
 
     def run_garbage_collection(self) -> Dict[str, int]:
-        """Run garbage collection and log results."""
-        before_objects = len(gc.get_objects())
-        before_mem = psutil.Process().memory_info().rss
+        """Run garbage collection and log results.
+
+        Detailed object counting only when SAM_DETAILED_MEMORY_STATS=1
+        """
+        # Only count objects before/after if detailed stats enabled (expensive)
+        if _detailed_stats_enabled():
+            before_objects = len(gc.get_objects())
+            before_mem = psutil.Process().memory_info().rss
+        else:
+            before_objects = sum(gc.get_count())
+            before_mem = 0
 
         # Run all GC generations
         collected = sum(gc.collect(generation) for generation in range(3))
 
-        after_objects = len(gc.get_objects())
-        after_mem = psutil.Process().memory_info().rss
-
-        freed_objects = before_objects - after_objects
-        freed_memory = before_mem - after_mem
+        if _detailed_stats_enabled():
+            after_objects = len(gc.get_objects())
+            after_mem = psutil.Process().memory_info().rss
+            freed_objects = before_objects - after_objects
+            freed_memory = before_mem - after_mem
+        else:
+            after_objects = sum(gc.get_count())
+            freed_objects = before_objects - after_objects
+            freed_memory = 0
 
         if collected > 0 or freed_objects > 100:
-            logger.info(
-                f"Garbage collection: {collected} objects collected, "
-                f"{freed_objects} objects freed, "
-                f"{freed_memory / 1024 / 1024:.1f}MB memory freed"
-            )
+            if _detailed_stats_enabled():
+                logger.info(
+                    f"Garbage collection: {collected} objects collected, "
+                    f"{freed_objects} objects freed, "
+                    f"{freed_memory / 1024 / 1024:.1f}MB memory freed"
+                )
+            else:
+                logger.info(
+                    f"Garbage collection: {collected} objects collected, "
+                    f"{freed_objects} GC count delta"
+                )
 
         self._last_gc_time = time.time()
         return {
@@ -184,23 +216,28 @@ class MemoryMonitor:
             },
         }
 
-    async def periodic_check(self, interval: int = 60) -> None:
-        """Run periodic memory checks and cleanup."""
+    async def periodic_check(self, interval: int = DEFAULT_POLL_INTERVAL) -> None:
+        """Run periodic memory checks and cleanup.
+
+        Default interval is 300s (5min) to reduce overhead.
+        """
         while True:
             try:
-                alerts = self.check_memory_thresholds()
+                # Run checks in executor to avoid blocking event loop
+                loop = asyncio.get_event_loop()
+                alerts = await loop.run_in_executor(None, self.check_memory_thresholds)
 
                 if alerts:
                     for level, message in alerts.items():
                         if level == "critical":
                             logger.error(f"CRITICAL: {message}")
-                            # Force GC on critical memory usage
-                            self.run_garbage_collection()
+                            # Force GC on critical memory usage (run in executor)
+                            await loop.run_in_executor(None, self.run_garbage_collection)
                         else:
                             logger.warning(f"WARNING: {message}")
 
                 if self.should_run_gc():
-                    self.run_garbage_collection()
+                    await loop.run_in_executor(None, self.run_garbage_collection)
 
                 await asyncio.sleep(interval)
 
@@ -222,12 +259,17 @@ def get_memory_monitor(thresholds: Optional[MemoryThresholds] = None) -> MemoryM
 
 
 async def start_memory_monitoring(
-    interval: int = 60, thresholds: Optional[MemoryThresholds] = None
+    interval: int = DEFAULT_POLL_INTERVAL, thresholds: Optional[MemoryThresholds] = None
 ) -> Task[None]:
-    """Start background memory monitoring task."""
+    """Start background memory monitoring task.
+
+    Default interval is 300s (5min) to reduce overhead.
+    Set SAM_DETAILED_MEMORY_STATS=1 for expensive GC object counting.
+    """
     monitor = get_memory_monitor(thresholds)
     task = asyncio.create_task(monitor.periodic_check(interval))
-    logger.info(f"Started memory monitoring with {interval}s interval")
+    stats_mode = "detailed" if _detailed_stats_enabled() else "lightweight"
+    logger.info(f"Started memory monitoring with {interval}s interval ({stats_mode} mode)")
     return task
 
 

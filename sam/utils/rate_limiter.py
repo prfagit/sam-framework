@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RateLimit:
-    """Rate limit configuration."""
+    """Rate limit configuration with adaptive support."""
 
     requests: int  # Number of requests allowed
     window: int  # Time window in seconds
     burst: int  # Burst limit (immediate requests allowed)
+    adaptive: bool = False  # Whether to adapt based on server responses
+    last_adjusted: float = 0.0  # Timestamp of last adjustment
 
 
 @dataclass
@@ -274,10 +276,100 @@ class RateLimiter:
 
         logger.info("Rate limiter shutdown completed")
 
+    async def update_from_headers(
+        self, limit_type: str, headers: Dict[str, str], response_status: int = 200
+    ) -> None:
+        """
+        Update rate limits adaptively based on HTTP response headers.
+
+        Args:
+            limit_type: Type of rate limit to update
+            headers: HTTP response headers (case-insensitive)
+            response_status: HTTP status code
+        """
+        # Normalize headers to lowercase
+        normalized_headers = {k.lower(): v for k, v in headers.items()}
+
+        # Check if this limit type supports adaptive updates
+        if limit_type not in self.limits:
+            return
+
+        limit = self.limits[limit_type]
+        if not limit.adaptive:
+            return
+
+        current_time = time.time()
+
+        # Respect Retry-After header (429 Too Many Requests)
+        if response_status == 429 and "retry-after" in normalized_headers:
+            try:
+                retry_after = int(normalized_headers["retry-after"])
+                # Temporarily reduce rate for this key type
+                if retry_after > 0:
+                    logger.warning(
+                        f"Rate limit hit for {limit_type}, reducing requests for {retry_after}s"
+                    )
+                    # Reduce rate by 50% and increase window
+                    limit.requests = max(1, limit.requests // 2)
+                    limit.window = retry_after
+                    limit.last_adjusted = current_time
+            except (ValueError, TypeError):
+                pass
+
+        # Check for X-RateLimit headers (standard rate limit headers)
+        elif all(h in normalized_headers for h in ["x-ratelimit-limit", "x-ratelimit-remaining"]):
+            try:
+                rate_limit_max = int(normalized_headers["x-ratelimit-limit"])
+                rate_limit_remaining = int(normalized_headers["x-ratelimit-remaining"])
+
+                # If we're getting close to limit, be more conservative
+                usage_pct = (rate_limit_max - rate_limit_remaining) / rate_limit_max
+                if usage_pct > 0.8:  # 80% used
+                    logger.debug(
+                        f"Rate limit at {usage_pct * 100:.0f}% for {limit_type}, reducing requests"
+                    )
+                    # Reduce by 20%
+                    limit.requests = max(1, int(rate_limit_max * 0.8))
+                    limit.last_adjusted = current_time
+                elif (
+                    usage_pct < 0.3 and (current_time - limit.last_adjusted) > 300
+                ):  # 30% used, 5min since last adjust
+                    # Gradually increase if we're well under limit
+                    logger.debug(
+                        f"Rate limit at {usage_pct * 100:.0f}% for {limit_type}, increasing requests"
+                    )
+                    limit.requests = min(rate_limit_max, int(limit.requests * 1.2))
+                    limit.last_adjusted = current_time
+            except (ValueError, TypeError, KeyError):
+                pass
+
+    async def enable_adaptive_limiting(self, limit_type: str) -> None:
+        """Enable adaptive rate limiting for a specific limit type."""
+        if limit_type in self.limits:
+            self.limits[limit_type].adaptive = True
+            logger.info(f"Enabled adaptive rate limiting for: {limit_type}")
+
+    async def disable_adaptive_limiting(self, limit_type: str) -> None:
+        """Disable adaptive rate limiting for a specific limit type."""
+        if limit_type in self.limits:
+            self.limits[limit_type].adaptive = False
+            logger.info(f"Disabled adaptive rate limiting for: {limit_type}")
+
     async def get_stats(self) -> Dict[str, Any]:
-        """Get rate limiter statistics."""
+        """Get rate limiter statistics with adaptive limit info."""
         async with self.lock:
             total_records = sum(len(records) for records in self.request_history.values())
+
+            adaptive_limits = {
+                name: {
+                    "requests": limit.requests,
+                    "window": limit.window,
+                    "adaptive": limit.adaptive,
+                    "last_adjusted": limit.last_adjusted,
+                }
+                for name, limit in self.limits.items()
+                if limit.adaptive
+            }
 
             return {
                 "total_keys": len(self.request_history),
@@ -286,6 +378,7 @@ class RateLimiter:
                 "cleanup_interval": self.cleanup_interval,
                 "is_shutdown": self._shutdown,
                 "memory_usage_pct": (len(self.request_history) / self.max_keys) * 100,
+                "adaptive_limits": adaptive_limits,
             }
 
 

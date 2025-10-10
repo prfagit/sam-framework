@@ -152,6 +152,7 @@ async def test_market_order_and_close_call_exchange():
 @pytest.mark.asyncio
 async def test_market_order_with_margin_and_leverage():
     """Test that margin + leverage correctly calculates position size."""
+
     async def fake_to_thread(func, *args, **kwargs):
         return func(*args, **kwargs)
 
@@ -170,14 +171,14 @@ async def test_market_order_with_margin_and_leverage():
     # SOL price is $200 (from StubInfo.all_mids), so size should be 0.5 SOL
     market_payload = {"coin": "SOL", "side": "long", "margin": 10, "leverage": 10}
     result = await tools["hyperliquid_market_order"].handler(market_payload)
-    
+
     # Verify leverage was set
     leverage_call = exchange.calls[0]
     assert leverage_call[0] == "update_leverage"
     assert leverage_call[1]["leverage"] == 10
     assert leverage_call[1]["name"] == "SOL"
     assert leverage_call[1]["is_cross"] is True
-    
+
     # Verify market order was placed with correct size
     market_call = exchange.calls[1]
     assert market_call[0] == "market_open"
@@ -185,7 +186,7 @@ async def test_market_order_with_margin_and_leverage():
     assert market_call[1]["is_buy"] is True
     # Size should be 0.5 SOL (=$100 at $200/SOL)
     assert market_call[1]["sz"] == 0.5
-    
+
     # Verify result contains expected fields
     assert result["action"] == "hyperliquid_market_order"
     assert result["coin"] == "SOL"
@@ -199,6 +200,7 @@ async def test_market_order_with_margin_and_leverage():
 @pytest.mark.asyncio
 async def test_market_order_minimum_notional_enforcement():
     """Test that minimum $10 notional value is enforced."""
+
     async def fake_to_thread(func, *args, **kwargs):
         return func(*args, **kwargs)
 
@@ -217,7 +219,7 @@ async def test_market_order_minimum_notional_enforcement():
     # Should be adjusted to minimum $10.25
     market_payload = {"coin": "SOL", "side": "long", "margin": 1, "leverage": 5}
     result = await tools["hyperliquid_market_order"].handler(market_payload)
-    
+
     # Verify minimum was enforced
     assert result["min_notional_enforced"] is True
     assert result["position_value"] >= 10.0  # At least $10

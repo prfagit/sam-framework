@@ -4,7 +4,7 @@ import time
 import traceback
 import json
 from datetime import datetime, timedelta
-from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union, cast
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TypeVar, Union, cast
 from dataclasses import dataclass
 from enum import Enum
 import os
@@ -42,19 +42,26 @@ class ErrorRecord:
 class ErrorTracker:
     """Track and monitor errors across the SAM framework."""
 
-    def __init__(self, db_path: str = ".sam/errors.db"):
+    def __init__(self, db_path: str = ".sam/errors.db", persistent: bool = True):
         self.db_path = db_path
+        self.persistent = persistent
         self.error_counts: Dict[str, int] = {}
         self.last_cleanup = datetime.utcnow()
+        self._memory_records: List[ErrorRecord] = []
 
         # Ensure directory exists (handle case where db_path has no directory)
-        dirpath = os.path.dirname(db_path) or "."
-        os.makedirs(dirpath, exist_ok=True)
-
-        logger.info(f"Initialized error tracker: {db_path}")
+        if self.persistent:
+            dirpath = os.path.dirname(db_path) or "."
+            os.makedirs(dirpath, exist_ok=True)
+            logger.info(f"Initialized error tracker: {db_path}")
+        else:
+            logger.info("Initialized error tracker (persistence disabled)")
 
     async def initialize(self) -> None:
         """Initialize error tracking database using connection pool."""
+        if not self.persistent:
+            return
+
         from ..utils.connection_pool import get_db_connection
 
         async with get_db_connection(self.db_path) as conn:
@@ -130,7 +137,11 @@ class ErrorTracker:
             logger.error(f"Failed to log error: {e}")
 
     async def _store_error(self, error_record: ErrorRecord) -> None:
-        """Store error record in database using connection pool."""
+        """Store error record."""
+        if not self.persistent:
+            self._memory_records.append(error_record)
+            return
+
         try:
             from ..utils.connection_pool import get_db_connection
 
@@ -161,6 +172,40 @@ class ErrorTracker:
 
     async def get_error_stats(self, hours_back: int = 24) -> Dict[str, Any]:
         """Get error statistics for the last N hours."""
+        if not self.persistent:
+            cutoff_time = datetime.utcnow() - timedelta(hours=hours_back)
+            severity_counts: Dict[str, int] = {}
+            component_counts: Dict[str, int] = {}
+            critical_errors = []
+
+            for record in self._memory_records:
+                if record.timestamp < cutoff_time:
+                    continue
+
+                severity_counts[record.severity.value] = (
+                    severity_counts.get(record.severity.value, 0) + 1
+                )
+                component_counts[record.component] = component_counts.get(record.component, 0) + 1
+
+                if record.severity == ErrorSeverity.CRITICAL and len(critical_errors) < 5:
+                    critical_errors.append(
+                        {
+                            "timestamp": record.timestamp.isoformat(),
+                            "component": record.component,
+                            "error_type": record.error_type,
+                            "error_message": record.error_message,
+                        }
+                    )
+
+            return {
+                "time_window_hours": hours_back,
+                "severity_counts": severity_counts,
+                "component_counts": component_counts,
+                "critical_errors": critical_errors,
+                "total_errors": sum(severity_counts.values()),
+                "in_memory_counts": dict(self.error_counts),
+            }
+
         from ..utils.connection_pool import get_db_connection
 
         cutoff_time = datetime.utcnow() - timedelta(hours=hours_back)
@@ -238,9 +283,19 @@ class ErrorTracker:
 
     async def cleanup_old_errors(self, days_old: int = 30) -> int:
         """Clean up old error records."""
+        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+        if not self.persistent:
+            before = len(self._memory_records)
+            self._memory_records = [
+                record for record in self._memory_records if record.timestamp >= cutoff_date
+            ]
+            deleted = before - len(self._memory_records)
+            if deleted:
+                logger.info(f"Cleaned up {deleted} in-memory error records")
+            return deleted
+
         from ..utils.connection_pool import get_db_connection
 
-        cutoff_date = datetime.utcnow() - timedelta(days=days_old)
         cutoff_str = cutoff_date.isoformat()
 
         try:
@@ -394,7 +449,11 @@ async def get_error_tracker() -> ErrorTracker:
     """Get the global error tracker instance."""
     global _error_tracker
     if _error_tracker is None:
-        _error_tracker = ErrorTracker()
+        db_path = os.getenv("SAM_ERROR_DB_PATH", ".sam/errors.db")
+        test_mode = os.getenv("SAM_TEST_MODE") == "1"
+        force_persist = os.getenv("SAM_ERROR_TRACKER_PERSIST", "0") == "1"
+        persistent = force_persist or not test_mode
+        _error_tracker = ErrorTracker(db_path=db_path, persistent=persistent)
         await _error_tracker.initialize()
     return _error_tracker
 

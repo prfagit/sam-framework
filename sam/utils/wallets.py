@@ -86,4 +86,6 @@ def derive_evm_address(private_key: str) -> str:
         account = Account.from_key(normalized_key)
     except Exception as exc:  # pragma: no cover - defensive guard
         raise WalletError(f"Invalid EVM private key: {exc}") from exc
-    return account.address
+    # Account.address is typed as Any in eth-account, but it's always a str
+    address: str = str(account.address)
+    return address

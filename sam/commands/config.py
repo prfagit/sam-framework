@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from dotenv import dotenv_values
 
@@ -31,7 +31,7 @@ def migrate_env_to_profile() -> int:
     profile_store = get_profile_store()
     storage = get_secure_storage()
 
-    profile_updates: Dict[str, str] = {}
+    profile_updates: Dict[str, Any] = {}
     migrated_api = 0
     migrated_private = 0
 
@@ -40,6 +40,11 @@ def migrate_env_to_profile() -> int:
     for key, value in env_values.items():
         if value in (None, ""):
             continue
+        # At this point, value is guaranteed to be a non-empty string
+        assert value is not None and value != "", (
+            "value should be non-None and non-empty after filter"
+        )
+
         if key in API_KEY_ALIASES:
             try:
                 storage.store_api_key(API_KEY_ALIASES[key], value)
@@ -65,18 +70,21 @@ def migrate_env_to_profile() -> int:
         except Exception:
             brave_present = None
     if brave_present is not None:
+        # ProfileStore accepts Dict[str, Any], so bool is fine
         profile_updates["BRAVE_API_KEY_PRESENT"] = brave_present
 
     if profile_updates:
         profile_store.update(profile_updates)
 
-    remaining_env = {
+    # Filter out None and empty values for remaining_env
+    remaining_env: Dict[str, str] = {
         key: value
         for key, value in env_values.items()
         if key not in PROFILE_KEYS
         and key not in API_KEY_ALIASES
         and key not in PRIVATE_KEY_ALIASES
         and value not in (None, "")
+        and isinstance(value, str)  # Type guard to ensure str
     }
 
     write_env_file(env_path, remaining_env)
@@ -237,7 +245,9 @@ def repair_fernet_key() -> int:
         return 1
 
     env_path = find_env_path()
-    env_values = dotenv_values(env_path)
+    env_values_raw = dotenv_values(env_path)
+    # Filter out None values and ensure all values are strings
+    env_values: Dict[str, str] = {k: v for k, v in env_values_raw.items() if v is not None}
     env_values["SAM_FERNET_KEY"] = current_key
     write_env_file(env_path, env_values)
     os.environ["SAM_FERNET_KEY"] = current_key

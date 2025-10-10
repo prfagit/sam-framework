@@ -782,7 +782,6 @@ class SecureStorage(BaseSecretStore):
         }
 
 
-
 def sync_stored_api_key(
     storage: BaseSecretStore,
     alias: str,
@@ -806,6 +805,8 @@ def sync_stored_api_key(
     compare_current = current.lower() if case_insensitive and current else current
 
     if compare_desired:
+        # At this point we know desired is not None since compare_desired is truthy
+        assert desired is not None, "desired should not be None when compare_desired is truthy"
         if compare_current != compare_desired:
             try:
                 success = storage.store_api_key(alias, desired)

@@ -5,9 +5,9 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
-from ..utils.connection_pool import get_db_connection
+from ..utils.connection_pool import get_db_connection, execute_with_logging
 
 logger = logging.getLogger(__name__)
 
@@ -123,15 +123,16 @@ class MemoryManager:
     async def save_session(
         self, session_id: str, messages: List[Message], user_id: Optional[str] = None
     ) -> None:
-        """Save session messages to database."""
+        """Save session messages to database with optimized query logging."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
 
             messages_json = json.dumps(messages)
 
-            # Use UPSERT to reduce round-trips
-            await conn.execute(
+            # Use UPSERT to reduce round-trips with SQL logging support
+            await execute_with_logging(
+                conn,
                 """
                 INSERT INTO sessions (session_id, user_id, messages, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
@@ -147,10 +148,11 @@ class MemoryManager:
             logger.debug(f"Saved session {session_id} for user {uid} with {len(messages)} messages")
 
     async def load_session(self, session_id: str, user_id: Optional[str] = None) -> List[Message]:
-        """Load session messages from database."""
+        """Load session messages from database with optimized query logging."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
-            cursor = await conn.execute(
+            cursor = await execute_with_logging(
+                conn,
                 "SELECT messages FROM sessions WHERE session_id = ? AND user_id = ?",
                 (session_id, uid),
             )
@@ -163,6 +165,54 @@ class MemoryManager:
 
         logger.debug(f"Loaded session {session_id} for user {uid} with {len(messages)} messages")
         return messages
+
+    async def save_sessions_batch(
+        self, sessions: List[Tuple[str, List[Message], Optional[str]]]
+    ) -> None:
+        """Save multiple sessions in a single transaction for better performance.
+
+        Args:
+            sessions: List of (session_id, messages, user_id) tuples
+
+        Example:
+            await memory.save_sessions_batch([
+                ("session1", messages1, "user1"),
+                ("session2", messages2, "user2"),
+            ])
+        """
+        if not sessions:
+            return
+
+        async with get_db_connection(self.db_path) as conn:
+            now = datetime.utcnow().isoformat()
+
+            # Prepare all data for batch insert
+            batch_data = [
+                (
+                    session_id,
+                    self._normalize_user_id(user_id),
+                    json.dumps(messages),
+                    now,
+                    now,
+                )
+                for session_id, messages, user_id in sessions
+            ]
+
+            # Execute batch UPSERT
+            await conn.executemany(
+                """
+                INSERT INTO sessions (session_id, user_id, messages, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                  messages = excluded.messages,
+                  updated_at = excluded.updated_at,
+                  user_id = excluded.user_id
+                """,
+                batch_data,
+            )
+
+            await conn.commit()
+            logger.debug(f"Batch saved {len(sessions)} sessions")
 
     async def save_user_preference(self, user_id: str, key: str, value: str) -> None:
         """Save user preference."""

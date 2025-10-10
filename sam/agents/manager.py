@@ -9,6 +9,13 @@ from .definition import AgentDefinition, default_agents_dir
 
 AGENT_FILE_SUFFIXES = (".agent.toml", ".toml")
 
+__all__ = [
+    "default_agents_dir",
+    "list_agent_definitions",
+    "find_agent_definition",
+    "ensure_agents_dir",
+]
+
 
 def _iter_definition_paths(directory: Path) -> List[Path]:
     if not directory.exists():
