@@ -70,6 +70,7 @@ uv run ruff format && uv run ruff check --fix && uv run mypy sam/ && uv run pyte
 ### Integration Layers
 - **Solana** (`sam/integrations/solana/`): Native Solana RPC operations (balance, transfers, token data)
 - **Pump.fun** (`sam/integrations/pump_fun.py`): Trading operations on pump.fun platform
+- **Uranus.ag** (`sam/integrations/uranus.py`): Perpetuals trading and market data for Uranus.ag
 - **Jupiter** (`sam/integrations/jupiter.py`): Token swaps via Jupiter aggregator
 - **DexScreener** (`sam/integrations/dexscreener.py`): Market data and trading pair information
 - **Search** (`sam/integrations/search.py`): Web search via Brave API
@@ -102,6 +103,7 @@ Environment variables are defined in `.env` (copy from `.env.example`):
 ### Tool Categories
 - **Wallet & Balance** (3 tools): `get_balance`, `transfer_sol`, `get_token_data`
 - **Pump.fun Trading** (4 tools): `pump_fun_buy`, `pump_fun_sell`, `get_token_trades`, `get_pump_token_info`
+- **Uranus Perps** (5 tools): `uranus_open_position`, `uranus_close_position`, `uranus_get_positions`, `uranus_market_liquidity`, `uranus_get_price`
 - **Jupiter Swaps** (2 tools): `get_swap_quote`, `jupiter_swap`
 - **Market Data** (4 tools): `search_pairs`, `get_token_pairs`, `get_solana_pair`, `get_trending_pairs`
 - **Web Search** (2 tools): `search_web`, `search_news`

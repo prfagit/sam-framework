@@ -136,6 +136,11 @@ TOOL_DISPLAY_NAMES = {
     "hyperliquid_close_position": "🌊 Hyperliquid close position",
     "hyperliquid_cancel_order": "🌊 Hyperliquid cancel order",
     "hyperliquid_user_fills": "🌊 Hyperliquid user fills",
+    "uranus_open_position": "🪐 Opening Uranus position",
+    "uranus_close_position": "🪐 Closing Uranus position",
+    "uranus_get_positions": "🪐 Fetching Uranus positions",
+    "uranus_market_liquidity": "🪐 Checking Uranus liquidity",
+    "uranus_get_price": "🪐 Getting Uranus price",
 }
 
 

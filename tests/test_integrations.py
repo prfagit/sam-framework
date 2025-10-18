@@ -1,9 +1,14 @@
+import base64
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from solders.pubkey import Pubkey
 from sam.integrations.pump_fun import PumpFunTools
 from sam.integrations.jupiter import JupiterTools
 from sam.integrations.dexscreener import DexScreenerTools
 from sam.integrations.search import SearchTools
+from sam.integrations.uranus import LAMPORTS_PER_SOL, UranusTools
 
 
 class TestPumpFunTools:
@@ -333,6 +338,92 @@ class TestSearchTools:
 
             result = await search_tools.search_news("crypto news", 3)
             assert isinstance(result, dict)
+
+
+class TestUranusTools:
+    """Test Uranus integration helpers."""
+
+    class _StubSolanaTools:
+        def __init__(self, client):
+            self.wallet_address = None
+            self.keypair = None
+            self._client = client
+
+        async def _get_client(self):
+            return self._client
+
+    @staticmethod
+    def _build_position_bytes(
+        owner: Pubkey,
+        market_mint: Pubkey,
+        *,
+        symbol: str = "URA",
+        direction: int = 1,
+        closed: int = 0,
+        nonce: int = 123,
+    ) -> bytes:
+        def to_u64(value: float) -> bytes:
+            return int(value).to_bytes(8, "little", signed=False)
+
+        payload = bytearray()
+        payload.extend(bytes(owner))
+        payload.extend(bytes(market_mint))
+        encoded_symbol = symbol.encode("utf-8")[:32]
+        payload.extend(encoded_symbol + b"\x00" * (32 - len(encoded_symbol)))
+        payload.extend(to_u64(1.2 * LAMPORTS_PER_SOL))
+        payload.extend(to_u64(0.8 * LAMPORTS_PER_SOL))
+        payload.extend(to_u64(0.5 * LAMPORTS_PER_SOL))
+        payload.extend(to_u64(0.5 * LAMPORTS_PER_SOL))
+        payload.append(1)  # leverage
+        payload.append(closed)
+        payload.extend(nonce.to_bytes(8, "little", signed=False))
+        payload.extend((0).to_bytes(8, "little", signed=True))  # pnl
+        payload.append(direction)
+        return bytes(payload)
+
+    @pytest.mark.asyncio
+    async def test_create_position_requires_wallet(self):
+        """Opening a position without wallet should return error."""
+        mint = str(Pubkey.new_unique())
+        tools = UranusTools()
+        result = await tools.create_position(mint, 0.1, 1, "LONG")
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_get_open_positions_filters_by_owner(self):
+        """Ensure position listing parses accounts and respects owner filter."""
+        owner = Pubkey.new_unique()
+        market_mint = Pubkey.new_unique()
+        raw_position = self._build_position_bytes(owner, market_mint)
+        encoded = base64.b64encode(raw_position).decode("utf-8")
+
+        keyed_account = SimpleNamespace(
+            pubkey=Pubkey.new_unique(),
+            account=SimpleNamespace(data=[encoded, "base64"], lamports=int(0.9 * LAMPORTS_PER_SOL)),
+        )
+        response = SimpleNamespace(value=[keyed_account])
+
+        mock_client = AsyncMock()
+        mock_client.get_program_accounts = AsyncMock(return_value=response)
+
+        tools = UranusTools(self._StubSolanaTools(mock_client))
+        result = await tools.get_open_positions(owner=str(owner))
+        assert result["count"] == 1
+        position = result["positions"][0]
+        assert position["owner"] == str(owner)
+        assert position["market_mint"] == str(market_mint)
+        assert position["direction"] == "LONG"
+
+    @pytest.mark.asyncio
+    async def test_get_market_liquidity_handles_missing_account(self):
+        """Liquidity checks should handle missing accounts gracefully."""
+        mock_client = AsyncMock()
+        mock_client.get_account_info = AsyncMock(return_value=SimpleNamespace(value=None))
+        tools = UranusTools(self._StubSolanaTools(mock_client))
+        mint = str(Pubkey.new_unique())
+        result = await tools.get_market_liquidity(mint)
+        assert result["lamports"] == 0
+        assert result["liquidity_sol"] == 0.0
 
 
 if __name__ == "__main__":

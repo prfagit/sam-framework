@@ -30,6 +30,7 @@ from ..integrations.polymarket import PolymarketTools, create_polymarket_tools
 from ..integrations.aster_futures import AsterFuturesClient, create_aster_futures_tools
 from ..integrations.hyperliquid import HyperliquidClient, create_hyperliquid_tools
 from ..integrations.smart_trader import SmartTrader, create_smart_trader_tools
+from ..integrations.uranus import UranusTools, create_uranus_tools
 from .plugins import load_plugins
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class AgentBuilder:
         "aster_futures",
         "hyperliquid",
         "smart_trader",
+        "uranus",
     }
 
     def __init__(
@@ -386,6 +388,7 @@ class AgentBuilder:
         search_enabled = self._tool_enabled("search", Settings.ENABLE_SEARCH_TOOLS)
         polymarket_enabled = self._tool_enabled("polymarket", Settings.ENABLE_POLYMARKET_TOOLS)
         aster_enabled = self._tool_enabled("aster_futures", Settings.ENABLE_ASTER_FUTURES_TOOLS)
+        uranus_enabled = self._tool_enabled("uranus", Settings.ENABLE_URANUS_TOOLS)
 
         # Register integrations behind flags
         if solana_enabled:
@@ -395,6 +398,11 @@ class AgentBuilder:
         pump_tools = PumpFunTools(solana_tools)
         if pump_enabled:
             for tool in create_pump_fun_tools(pump_tools, agent=agent):
+                tools.register(tool)
+
+        uranus_tools = UranusTools(solana_tools)
+        if uranus_enabled:
+            for tool in create_uranus_tools(uranus_tools, agent=agent):
                 tools.register(tool)
 
         dex_tools = DexScreenerTools()

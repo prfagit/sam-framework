@@ -235,6 +235,16 @@ SAM provides 18+ production-ready tools organized by category:
 | `get_pump_token_info` | Detailed token information | `mint` |
 | `get_token_trades` | View trading activity | `mint` |
 
+### Uranus.ag Perps
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `uranus_open_position` | Open LONG or SHORT positions on Uranus.ag | `market_mint`, `amount_sol`, `leverage`, `direction`, `market_symbol` (optional) |
+| `uranus_close_position` | Close an existing Uranus.ag position | `position_nonce`, `position_account` (optional), `owner` (optional) |
+| `uranus_get_positions` | List active Uranus.ag positions | `owner` or `market_mint` or `ticker`, `include_closed` |
+| `uranus_market_liquidity` | Inspect available market liquidity in SOL | `market_mint` |
+| `uranus_get_price` | Fetch current Uranus.ag oracle price | `symbol` |
+
 ### Smart Trading
 
 | Tool | Description | Parameters |

@@ -284,6 +284,7 @@ class Settings:
     ENABLE_POLYMARKET_TOOLS: bool = True
     ENABLE_ASTER_FUTURES_TOOLS: bool = False
     ENABLE_HYPERLIQUID_TOOLS: bool = False
+    ENABLE_URANUS_TOOLS: bool = True
 
     ASTER_BASE_URL: str = "https://fapi.asterdex.com"
     ASTER_API_KEY: Optional[str] = None
@@ -376,6 +377,9 @@ class Settings:
         )
         cls.ENABLE_HYPERLIQUID_TOOLS = _as_bool(
             _value_from_sources("ENABLE_HYPERLIQUID_TOOLS", "false"), False
+        )
+        cls.ENABLE_URANUS_TOOLS = _as_bool(
+            _value_from_sources("ENABLE_URANUS_TOOLS", "true"), True
         )
 
         cls.ASTER_BASE_URL = _as_str(

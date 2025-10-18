@@ -37,6 +37,7 @@ PROFILE_SCHEMA: Dict[str, Dict[str, Any]] = {
     "ENABLE_POLYMARKET_TOOLS": {"default": True, "type": bool},
     "ENABLE_ASTER_FUTURES_TOOLS": {"default": False, "type": bool},
     "ENABLE_HYPERLIQUID_TOOLS": {"default": False, "type": bool},
+    "ENABLE_URANUS_TOOLS": {"default": True, "type": bool},
     "ASTER_BASE_URL": {"default": "https://fapi.asterdex.com", "type": str},
     "ASTER_DEFAULT_RECV_WINDOW": {"default": 5000, "type": int},
     "HYPERLIQUID_API_URL": {"default": "https://api.hyperliquid.xyz", "type": str},
