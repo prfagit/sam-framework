@@ -352,6 +352,13 @@ class InteractiveSettingsManager:
                 setting_type=SettingType.INTEGER,
                 default_value=5000,
             ),
+            SettingDefinition(
+                key="PAYAI_FACILITATOR_URL",
+                display_name="PayAI Facilitator URL",
+                description="Base URL for the PayAI x402 facilitator (default is the public facilitator).",
+                setting_type=SettingType.TEXT,
+                default_value="https://facilitator.payai.network",
+            ),
             # Tool Toggle Settings
             SettingDefinition(
                 key="ENABLE_SOLANA_TOOLS",
@@ -408,6 +415,13 @@ class InteractiveSettingsManager:
                 description="Enable Hyperliquid trading and account tools",
                 setting_type=SettingType.BOOLEAN,
                 default_value=False,
+            ),
+            SettingDefinition(
+                key="ENABLE_PAYAI_FACILITATOR_TOOLS",
+                display_name="Enable PayAI Facilitator Tools",
+                description="Enable x402 verification, settlement, and discovery tools for PayAI.",
+                setting_type=SettingType.BOOLEAN,
+                default_value=True,
             ),
             # Safety & Limits Settings
             SettingDefinition(
@@ -511,6 +525,7 @@ class InteractiveSettingsManager:
                 "OPENAI_BASE_URL",
                 "LOCAL_LLM_BASE_URL",
                 "ASTER_BASE_URL",
+                "PAYAI_FACILITATOR_URL",
             ]:
                 categories["🌐 Network & Storage"].append(setting)
             else:

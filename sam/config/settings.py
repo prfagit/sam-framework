@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from dotenv import load_dotenv
 
@@ -126,6 +126,17 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(str(value).strip())
     except (ValueError, TypeError):
         return default
+
+
+def _as_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",")]
+        return [part for part in parts if part]
+    return [str(value).strip()]
 
 
 API_KEY_ALIASES = {
@@ -273,6 +284,15 @@ class Settings:
     SAM_WALLET_PRIVATE_KEY: Optional[str] = None
 
     SAM_DB_PATH: str = ".sam/sam_memory.db"
+    SAM_API_HOST: str = "0.0.0.0"
+    SAM_API_PORT: int = 8000
+    SAM_API_ROOT_PATH: str = ""
+    SAM_API_AGENT_ROOT: str = ".sam/users"
+    SAM_API_CORS_ORIGINS: List[str] = []
+    SAM_API_USER_HEADER: str = "X-User-Id"
+    SAM_API_TOKEN_SECRET: Optional[str] = None
+    SAM_API_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    SAM_API_ALLOW_REGISTRATION: bool = False
 
     RATE_LIMITING_ENABLED: bool = False
 
@@ -285,6 +305,7 @@ class Settings:
     ENABLE_ASTER_FUTURES_TOOLS: bool = False
     ENABLE_HYPERLIQUID_TOOLS: bool = False
     ENABLE_URANUS_TOOLS: bool = True
+    ENABLE_PAYAI_FACILITATOR_TOOLS: bool = True
 
     ASTER_BASE_URL: str = "https://fapi.asterdex.com"
     ASTER_API_KEY: Optional[str] = None
@@ -302,6 +323,9 @@ class Settings:
 
     MAX_TRANSACTION_SOL: float = 1000.0
     DEFAULT_SLIPPAGE: int = 1
+
+    PAYAI_FACILITATOR_URL: str = "https://facilitator.payai.network"
+    PAYAI_FACILITATOR_API_KEY: Optional[str] = None
 
     LOG_LEVEL: str = "INFO"
     SAM_LEGAL_ACCEPTED: bool = False
@@ -353,6 +377,24 @@ class Settings:
         )
 
         cls.SAM_DB_PATH = _as_str(_value_from_sources("SAM_DB_PATH", ".sam/sam_memory.db"))
+        cls.SAM_API_HOST = _as_str(_value_from_sources("SAM_API_HOST", "0.0.0.0"), "0.0.0.0")
+        cls.SAM_API_PORT = _as_int(_value_from_sources("SAM_API_PORT", 8000), 8000)
+        cls.SAM_API_ROOT_PATH = _as_str(_value_from_sources("SAM_API_ROOT_PATH", ""), "")
+        cls.SAM_API_AGENT_ROOT = _as_str(
+            _value_from_sources("SAM_API_AGENT_ROOT", ".sam/users"), ".sam/users"
+        )
+        cls.SAM_API_CORS_ORIGINS = _as_list(_value_from_sources("SAM_API_CORS_ORIGINS", []))
+        cls.SAM_API_USER_HEADER = _as_str(
+            _value_from_sources("SAM_API_USER_HEADER", "X-User-Id"), "X-User-Id"
+        )
+        cls.SAM_API_TOKEN_SECRET = _as_optional_str(_value_from_sources("SAM_API_TOKEN_SECRET"))
+        cls.SAM_API_TOKEN_EXPIRE_MINUTES = _as_int(
+            _value_from_sources("SAM_API_TOKEN_EXPIRE_MINUTES", cls.SAM_API_TOKEN_EXPIRE_MINUTES),
+            cls.SAM_API_TOKEN_EXPIRE_MINUTES,
+        )
+        cls.SAM_API_ALLOW_REGISTRATION = _as_bool(
+            _value_from_sources("SAM_API_ALLOW_REGISTRATION", False), False
+        )
 
         cls.RATE_LIMITING_ENABLED = _as_bool(
             _value_from_sources("RATE_LIMITING_ENABLED", "false"), False
@@ -378,8 +420,9 @@ class Settings:
         cls.ENABLE_HYPERLIQUID_TOOLS = _as_bool(
             _value_from_sources("ENABLE_HYPERLIQUID_TOOLS", "false"), False
         )
-        cls.ENABLE_URANUS_TOOLS = _as_bool(
-            _value_from_sources("ENABLE_URANUS_TOOLS", "true"), True
+        cls.ENABLE_URANUS_TOOLS = _as_bool(_value_from_sources("ENABLE_URANUS_TOOLS", "true"), True)
+        cls.ENABLE_PAYAI_FACILITATOR_TOOLS = _as_bool(
+            _value_from_sources("ENABLE_PAYAI_FACILITATOR_TOOLS", "true"), True
         )
 
         cls.ASTER_BASE_URL = _as_str(
@@ -415,6 +458,14 @@ class Settings:
             _as_float(timeout_value) if timeout_value is not None else None
         )
         cls.EVM_WALLET_ADDRESS = _as_optional_str(_value_from_sources("EVM_WALLET_ADDRESS"))
+
+        facilitator_url = _as_optional_str(_value_from_sources("PAYAI_FACILITATOR_URL"))
+        if not facilitator_url:
+            facilitator_url = _as_optional_str(_value_from_sources("FACILITATOR_URL"))
+        cls.PAYAI_FACILITATOR_URL = facilitator_url or "https://facilitator.payai.network"
+        cls.PAYAI_FACILITATOR_API_KEY = _as_optional_str(
+            _api_key("PAYAI_FACILITATOR_API_KEY", "PAYAI_FACILITATOR_API_KEY")
+        )
 
         if cls.HYPERLIQUID_ACCOUNT_ADDRESS and not cls.EVM_WALLET_ADDRESS:
             cls.EVM_WALLET_ADDRESS = cls.HYPERLIQUID_ACCOUNT_ADDRESS
@@ -496,7 +547,7 @@ class Settings:
         logger.info(f"  Database Path: {cls.SAM_DB_PATH}")
         logger.info(f"  Rate Limiting: {'Enabled' if cls.RATE_LIMITING_ENABLED else 'Disabled'}")
         logger.info(
-            "  Tool Toggles: Solana=%s Pump.fun=%s DexScreener=%s Jupiter=%s Search=%s Polymarket=%s Aster=%s Hyperliquid=%s",
+            "  Tool Toggles: Solana=%s Pump.fun=%s DexScreener=%s Jupiter=%s Search=%s Polymarket=%s Aster=%s Hyperliquid=%s Uranus=%s PayAI=%s",
             cls.ENABLE_SOLANA_TOOLS,
             cls.ENABLE_PUMP_FUN_TOOLS,
             cls.ENABLE_DEXSCREENER_TOOLS,
@@ -505,7 +556,23 @@ class Settings:
             cls.ENABLE_POLYMARKET_TOOLS,
             cls.ENABLE_ASTER_FUTURES_TOOLS,
             cls.ENABLE_HYPERLIQUID_TOOLS,
+            cls.ENABLE_URANUS_TOOLS,
+            cls.ENABLE_PAYAI_FACILITATOR_TOOLS,
         )
+        logger.info(
+            "  API Server: host=%s port=%s root_path=%s",
+            cls.SAM_API_HOST,
+            cls.SAM_API_PORT,
+            cls.SAM_API_ROOT_PATH or "/",
+        )
+        if cls.SAM_API_CORS_ORIGINS:
+            logger.info("  API CORS Origins: %s", ",".join(cls.SAM_API_CORS_ORIGINS))
+        logger.info(
+            "  API Auth: token_expiry=%s minutes registration=%s",
+            cls.SAM_API_TOKEN_EXPIRE_MINUTES,
+            "enabled" if cls.SAM_API_ALLOW_REGISTRATION else "disabled",
+        )
+        logger.info("  PayAI Facilitator URL: %s", cls.PAYAI_FACILITATOR_URL or "not set")
 
 
 # Populate class attributes on import

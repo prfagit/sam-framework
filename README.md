@@ -120,6 +120,46 @@ uv run sam onboard
 
 </details>
 
+### Run the API Server
+
+Expose the multi-tenant HTTP API for frontend applications:
+
+```bash
+uv run sam api --host 0.0.0.0 --port 8000
+```
+
+Key environment variables:
+
+- `SAM_API_AGENT_ROOT` – filesystem root for user-scoped agent definitions (`.sam/users` by default)
+- `SAM_API_CORS_ORIGINS` – comma-separated list of allowed origins for CORS
+- `SAM_API_USER_HEADER` – legacy header override for user resolution (Bearer auth is preferred)
+- `SAM_API_TOKEN_SECRET` – shared secret for signing API tokens (falls back to `SAM_FERNET_KEY` if unset)
+
+Create API users from the CLI:
+
+```bash
+uv run sam api create-user alice --admin
+```
+
+Authenticate and call endpoints using bearer tokens:
+
+```bash
+# Obtain a token
+curl -X POST http://localhost:8000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "hunter2"}'
+
+# Use the token
+curl http://localhost:8000/v1/agents \
+  -H "Authorization: Bearer <access_token>"
+
+# Stream agent output (Server-Sent Events)
+curl -N -X POST http://localhost:8000/v1/agents/sam/stream \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Watch SOL/USDC"}'
+```
+
 <details>
 <summary><strong>Manual Configuration</strong></summary>
 
@@ -216,7 +256,7 @@ uv run streamlit run examples/streamlit_app/app.py
 
 ## Tool Ecosystem
 
-SAM provides 18+ production-ready tools organized by category:
+SAM provides 22+ production-ready tools organized by category:
 
 ### Wallet Operations
 
@@ -294,6 +334,15 @@ SAM provides 18+ production-ready tools organized by category:
 | `search_web` | Search internet content | `query`, `count` |
 | `search_news` | Search news articles | `query`, `count` |
 
+### PayAI Facilitator
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `payai_supported_networks` | List schemes and networks supported by the configured facilitator | - |
+| `payai_discover_resources` | Discover x402-enabled resources advertised by the facilitator Bazaar | `resource_type`, `limit`, `offset`, `metadata` |
+| `payai_verify_payment` | Validate an x402 payment payload without settling on-chain | `payment_payload`, `payment_requirements` |
+| `payai_settle_payment` | Broadcast an x402 settlement via the PayAI facilitator | `payment_payload`, `payment_requirements` |
+
 ### Usage Examples
 
 ```bash
@@ -305,6 +354,7 @@ SAM provides 18+ production-ready tools organized by category:
 "Find prediction market opportunities on Polymarket"
 "Open a long position on BTC futures with 5x leverage"
 "Check my account balance on Aster Futures"
+"Verify this payment payload with the PayAI facilitator"
 ```
 
 ---
@@ -330,7 +380,8 @@ sam/
 │   ├── polymarket.py    # Prediction market analytics
 │   ├── aster_futures.py # Futures trading on Aster DEX
 │   ├── smart_trader.py  # Smart trading with fallbacks
-│   └── search.py        # Web search via Brave API
+│   ├── search.py        # Web search via Brave API
+│   └── payai_facilitator.py # PayAI x402 facilitator integration
 ├── config/               # Configuration management
 │   ├── settings.py      # Environment and settings
 │   ├── prompts.py       # System prompts and templates
@@ -391,6 +442,7 @@ SAM supports multiple configuration methods with automatic loading priority:
 | **Polymarket** | - | No API key required (public API) |
 | **Aster Futures** | `ASTER_API_KEY`, `ASTER_API_SECRET`, `ASTER_BASE_URL`, `ASTER_DEFAULT_RECV_WINDOW` | Futures trading credentials |
 | **Brave Search** | `BRAVE_API_KEY` | Web search and news aggregation |
+| **PayAI Facilitator** | `PAYAI_FACILITATOR_URL` (or `FACILITATOR_URL`), `PAYAI_FACILITATOR_API_KEY` (optional) | x402 verification, settlement, and resource discovery |
 
 ### TOML Configuration
 

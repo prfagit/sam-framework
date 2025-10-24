@@ -66,6 +66,8 @@ from .commands.keys import (
     generate_key as cmd_generate_key,
     rotate_key as cmd_rotate_key,
 )
+from .commands.api import create_api_user as cmd_create_api_user
+from .commands.api import run_api_server as cmd_run_api_server
 from .commands.maintenance import run_maintenance as cmd_run_maintenance
 from .commands.health import run_health_check as cmd_run_health
 from .commands.plugins import run_plugins_command as cmd_run_plugins
@@ -141,6 +143,10 @@ TOOL_DISPLAY_NAMES = {
     "uranus_get_positions": "🪐 Fetching Uranus positions",
     "uranus_market_liquidity": "🪐 Checking Uranus liquidity",
     "uranus_get_price": "🪐 Getting Uranus price",
+    "payai_verify_payment": "💳 Verifying x402 payment",
+    "payai_settle_payment": "💳 Settling x402 payment",
+    "payai_supported_networks": "💳 Listing facilitator networks",
+    "payai_discover_resources": "💳 Discovering x402 resources",
 }
 
 
@@ -552,6 +558,10 @@ async def run_interactive_session(
             "hyperliquid_cancel_order": "🌊 Hyperliquid",
             "hyperliquid_user_fills": "🌊 Hyperliquid",
             "hyperliquid_balance": "🌊 Hyperliquid",
+            "payai_verify_payment": "💳 PayAI Facilitator",
+            "payai_settle_payment": "💳 PayAI Facilitator",
+            "payai_supported_networks": "💳 PayAI Facilitator",
+            "payai_discover_resources": "💳 PayAI Facilitator",
         }
 
         grouped: dict[str, list[str]] = {}
@@ -573,6 +583,7 @@ async def run_interactive_session(
             "🌐 Web Search",
             "🌊 Hyperliquid",
             "⚡ Aster Futures",
+            "💳 PayAI Facilitator",
             "🔧 Other",
         ]
 
@@ -1339,6 +1350,43 @@ async def main() -> int:
     subparsers.add_parser("onboard", help="Run onboarding setup")
     subparsers.add_parser("debug", help="Show runtime plugins and middleware")
 
+    api_parser = subparsers.add_parser("api", help="Run the FastAPI service")
+    api_parser.add_argument(
+        "--host",
+        default=Settings.SAM_API_HOST,
+        help="Bind address for the API server",
+    )
+    api_parser.add_argument(
+        "--port",
+        type=int,
+        default=Settings.SAM_API_PORT,
+        help="Port for the API server",
+    )
+    api_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable autoreload (development only)",
+    )
+    api_parser.add_argument(
+        "--api-log-level",
+        dest="api_log_level",
+        default="info",
+        choices=["critical", "error", "warning", "info", "debug", "trace"],
+        help="Log level for uvicorn",
+    )
+    api_subparsers = api_parser.add_subparsers(dest="api_action")
+    api_user_parser = api_subparsers.add_parser("create-user", help="Create an API user account")
+    api_user_parser.add_argument("username", help="Username for the API user")
+    api_user_parser.add_argument(
+        "--password",
+        help="Password for the API user (omit to prompt interactively)",
+    )
+    api_user_parser.add_argument(
+        "--admin",
+        action="store_true",
+        help="Grant administrative privileges",
+    )
+
     plugins_parser = subparsers.add_parser(
         "plugins", help="Manage plugin trust policy and allowlist"
     )
@@ -1486,6 +1534,20 @@ async def main() -> int:
             return cmd_config_repair_fernet()
         print("Usage: sam config {migrate|show|edit|repair-fernet}")
         return 1
+
+    if args.command == "api":
+        action = getattr(args, "api_action", None)
+        if action == "create-user":
+            username = getattr(args, "username")
+            password = getattr(args, "password", None)
+            is_admin = bool(getattr(args, "admin", False))
+            return await cmd_create_api_user(username, password, is_admin=is_admin)
+
+        host = getattr(args, "host", Settings.SAM_API_HOST)
+        port = int(getattr(args, "port", Settings.SAM_API_PORT))
+        reload_flag = bool(getattr(args, "reload", False))
+        api_log_level = getattr(args, "api_log_level", "info")
+        return await cmd_run_api_server(host, port, reload=reload_flag, log_level=api_log_level)
 
     if args.command == "setup":
         show_setup_status(verbose=True)

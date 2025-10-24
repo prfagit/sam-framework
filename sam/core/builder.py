@@ -31,6 +31,10 @@ from ..integrations.aster_futures import AsterFuturesClient, create_aster_future
 from ..integrations.hyperliquid import HyperliquidClient, create_hyperliquid_tools
 from ..integrations.smart_trader import SmartTrader, create_smart_trader_tools
 from ..integrations.uranus import UranusTools, create_uranus_tools
+from ..integrations.payai_facilitator import (
+    PayAIFacilitatorTools,
+    create_payai_facilitator_tools,
+)
 from .plugins import load_plugins
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,7 @@ class AgentBuilder:
         "hyperliquid",
         "smart_trader",
         "uranus",
+        "payai_facilitator",
     }
 
     def __init__(
@@ -389,6 +394,9 @@ class AgentBuilder:
         polymarket_enabled = self._tool_enabled("polymarket", Settings.ENABLE_POLYMARKET_TOOLS)
         aster_enabled = self._tool_enabled("aster_futures", Settings.ENABLE_ASTER_FUTURES_TOOLS)
         uranus_enabled = self._tool_enabled("uranus", Settings.ENABLE_URANUS_TOOLS)
+        payai_enabled = self._tool_enabled(
+            "payai_facilitator", Settings.ENABLE_PAYAI_FACILITATOR_TOOLS
+        )
 
         # Register integrations behind flags
         if solana_enabled:
@@ -430,6 +438,19 @@ class AgentBuilder:
         if polymarket_enabled:
             for tool in create_polymarket_tools(polymarket_tools):
                 tools.register(tool)
+
+        payai_tools = PayAIFacilitatorTools(
+            base_url=Settings.PAYAI_FACILITATOR_URL,
+            api_key=Settings.PAYAI_FACILITATOR_API_KEY,
+        )
+        if payai_enabled:
+            if payai_tools.is_configured:
+                for tool in create_payai_facilitator_tools(payai_tools):
+                    tools.register(tool)
+            else:
+                logger.warning(
+                    "PayAI facilitator tools enabled but PAYAI_FACILITATOR_URL is not configured"
+                )
 
         aster_client: Optional[AsterFuturesClient] = None
         if aster_enabled:
