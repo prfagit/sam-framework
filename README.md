@@ -51,7 +51,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 
 - **Automated Trading**: Execute trades on Pump.fun, Jupiter DEX, and Aster Futures
 - **Portfolio Management**: Monitor balances, positions, and transaction history
-- **Market Research**: Real-time data from DexScreener and Polymarket analytics
+- **Market Research**: Real-time data from DexScreener, Polymarket, and Kalshi analytics
 - **Prediction Markets**: Analyze and trade prediction market opportunities
 - **Web Intelligence**: Search and news aggregation
 - **Transaction Automation**: Safety-controlled blockchain operations
@@ -326,6 +326,12 @@ SAM provides 22+ production-ready tools organized by category:
 | `polymarket_list_markets` | Discover active Polymarket markets | `limit`, `category`, `tag`, `series_slug` |
 | `polymarket_opportunity_scan` | Rank markets by ROI/liquidity heuristics | `limit`, `min_volume_24h`, `max_entry_price`, `tag` |
 | `polymarket_strategy_brief` | Generate entry/exit strategy summaries | `count`, `max_entry_price`, `category`, `tag` |
+| `kalshi_list_markets` | Discover Kalshi markets with pricing, volume, and status filters | `limit`, `status`, `event_ticker`, `series_ticker`, `tickers`, `min_close_ts`, `max_close_ts`, `cursor` |
+| `kalshi_market_overview` | Detailed Kalshi market snapshot with ROI heuristics | `ticker` |
+| `kalshi_opportunity_scan` | Rank Kalshi markets by ROI, liquidity, and volume heuristics | `limit`, `universe_limit`, `min_volume_24h`, `min_liquidity`, `max_yes_ask`, `event_ticker`, `category` |
+| `kalshi_strategy_brief` | Generate trade ideas with entry/TP/SL strategy suggestions | `count`, `universe_limit`, `min_volume_24h`, `min_liquidity`, `max_yes_ask`, `event_ticker`, `category` |
+| `kalshi_get_balance` | Get portfolio balance (requires authentication) | - |
+| `kalshi_get_positions` | Get portfolio positions (requires authentication) | `limit`, `cursor`, `event_ticker`, `settlement_status` |
 
 ### Web Intelligence
 
@@ -340,8 +346,12 @@ SAM provides 22+ production-ready tools organized by category:
 |------|-------------|------------|
 | `payai_supported_networks` | List schemes and networks supported by the configured facilitator | - |
 | `payai_discover_resources` | Discover x402-enabled resources advertised by the facilitator Bazaar | `resource_type`, `limit`, `offset`, `metadata` |
+| `payai_get_payment_requirements` | Fetch payment requirements for a resource, using the default facilitator network | `resource` |
+| `payai_auto_pay_resource` | End-to-end Solana payment (fetch, sign, verify, settle) via the facilitator | `resource`, `payment_requirements` (optional) |
 | `payai_verify_payment` | Validate an x402 payment payload without settling on-chain | `payment_payload`, `payment_requirements` |
 | `payai_settle_payment` | Broadcast an x402 settlement via the PayAI facilitator | `payment_payload`, `payment_requirements` |
+
+> Default Network: Set `PAYAI_FACILITATOR_DEFAULT_NETWORK` (default `solana`) to ensure tools automatically select the right scheme when a resource offers multiple options.
 
 ### Usage Examples
 
@@ -352,9 +362,11 @@ SAM provides 22+ production-ready tools organized by category:
 "Check my wallet balance"
 "Show trending pairs on DexScreener"
 "Find prediction market opportunities on Polymarket"
+"Scan Kalshi for high-upside yes contracts"
 "Open a long position on BTC futures with 5x leverage"
 "Check my account balance on Aster Futures"
 "Verify this payment payload with the PayAI facilitator"
+"Auto-pay the Echo merchant on Solana"
 ```
 
 ---
@@ -440,9 +452,34 @@ SAM supports multiple configuration methods with automatic loading priority:
 | Integration | Environment Variables | Description |
 |-------------|----------------------|-------------|
 | **Polymarket** | - | No API key required (public API) |
+| **Kalshi** | `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_USE_DEMO` | Prediction market trading (see [Kalshi Setup](#kalshi-setup)) |
 | **Aster Futures** | `ASTER_API_KEY`, `ASTER_API_SECRET`, `ASTER_BASE_URL`, `ASTER_DEFAULT_RECV_WINDOW` | Futures trading credentials |
 | **Brave Search** | `BRAVE_API_KEY` | Web search and news aggregation |
-| **PayAI Facilitator** | `PAYAI_FACILITATOR_URL` (or `FACILITATOR_URL`), `PAYAI_FACILITATOR_API_KEY` (optional) | x402 verification, settlement, and resource discovery |
+| **PayAI Facilitator** | `PAYAI_FACILITATOR_URL` (or `FACILITATOR_URL`), `PAYAI_FACILITATOR_API_KEY` (optional), `PAYAI_FACILITATOR_DEFAULT_NETWORK` (default `solana`) | x402 verification, settlement, and resource discovery |
+
+#### Kalshi Setup
+
+Kalshi uses RSA-PSS signature authentication. To enable authenticated endpoints (portfolio, trading):
+
+1. **Generate API Key**: Log in to [Kalshi](https://kalshi.com) (or [demo](https://demo.kalshi.co)) → Account Settings → API Keys → Create New API Key
+2. **Save Private Key**: Download the `.key` file to a secure location (e.g., `~/.kalshi/kalshi-key.key`)
+3. **Configure Environment**:
+   ```bash
+   export KALSHI_API_KEY_ID="your-key-id-from-kalshi"
+   export KALSHI_PRIVATE_KEY_PATH="$HOME/.kalshi/kalshi-key.key"
+   # Optional: Use demo environment for testing with fake funds
+   # export KALSHI_USE_DEMO=true
+   ```
+
+**Note**: Public endpoints (market data, opportunity scanning) work without authentication. Authentication is only required for portfolio and trading operations.
+
+**API Endpoint**: Uses production API at `api.elections.kalshi.com` by default. For demo environment (fake funds), set `KALSHI_USE_DEMO=true`.
+
+**Important**: Kalshi uses different units than Polymarket:
+- **Volume**: Measured in contracts (not USD)
+- **Liquidity**: Kalshi-specific metric (typically 50-5000 range)
+- **Markets**: Binary (Yes/No only, not multi-outcome)
+- **Default thresholds**: Lower than Polymarket due to different market structure
 
 ### TOML Configuration
 

@@ -302,6 +302,7 @@ class Settings:
     ENABLE_JUPITER_TOOLS: bool = True
     ENABLE_SEARCH_TOOLS: bool = True
     ENABLE_POLYMARKET_TOOLS: bool = True
+    ENABLE_KALSHI_TOOLS: bool = True
     ENABLE_ASTER_FUTURES_TOOLS: bool = False
     ENABLE_HYPERLIQUID_TOOLS: bool = False
     ENABLE_URANUS_TOOLS: bool = True
@@ -326,6 +327,15 @@ class Settings:
 
     PAYAI_FACILITATOR_URL: str = "https://facilitator.payai.network"
     PAYAI_FACILITATOR_API_KEY: Optional[str] = None
+    PAYAI_FACILITATOR_DEFAULT_NETWORK: str = "solana"
+    
+    # Kalshi Configuration
+    KALSHI_API_BASE_URL: str = "https://api.elections.kalshi.com/trade-api/v2"
+    KALSHI_DEMO_API_BASE_URL: str = "https://demo-api.kalshi.co/trade-api/v2"
+    KALSHI_MARKET_URL: str = "https://kalshi.com/markets"
+    KALSHI_USE_DEMO: bool = False
+    KALSHI_API_KEY_ID: Optional[str] = None  # The Key ID from Kalshi
+    KALSHI_PRIVATE_KEY_PATH: Optional[str] = None  # Path to RSA private key file
 
     LOG_LEVEL: str = "INFO"
     SAM_LEGAL_ACCEPTED: bool = False
@@ -414,6 +424,9 @@ class Settings:
         cls.ENABLE_POLYMARKET_TOOLS = _as_bool(
             _value_from_sources("ENABLE_POLYMARKET_TOOLS", "true"), True
         )
+        cls.ENABLE_KALSHI_TOOLS = _as_bool(
+            _value_from_sources("ENABLE_KALSHI_TOOLS", "true"), True
+        )
         cls.ENABLE_ASTER_FUTURES_TOOLS = _as_bool(
             _value_from_sources("ENABLE_ASTER_FUTURES_TOOLS", "false"), False
         )
@@ -466,6 +479,31 @@ class Settings:
         cls.PAYAI_FACILITATOR_API_KEY = _as_optional_str(
             _api_key("PAYAI_FACILITATOR_API_KEY", "PAYAI_FACILITATOR_API_KEY")
         )
+        cls.PAYAI_FACILITATOR_DEFAULT_NETWORK = _as_str(
+            _value_from_sources("PAYAI_FACILITATOR_DEFAULT_NETWORK", "solana"), "solana"
+        ).lower()
+        # Kalshi Configuration
+        cls.KALSHI_API_BASE_URL = _as_str(
+            _value_from_sources(
+                "KALSHI_API_BASE_URL", "https://api.elections.kalshi.com/trade-api/v2"
+            ),
+            "https://api.elections.kalshi.com/trade-api/v2",
+        )
+        cls.KALSHI_DEMO_API_BASE_URL = _as_str(
+            _value_from_sources(
+                "KALSHI_DEMO_API_BASE_URL", "https://demo-api.kalshi.co/trade-api/v2"
+            ),
+            "https://demo-api.kalshi.co/trade-api/v2",
+        )
+        cls.KALSHI_MARKET_URL = _as_str(
+            _value_from_sources("KALSHI_MARKET_URL", "https://kalshi.com/markets"),
+            "https://kalshi.com/markets",
+        )
+        cls.KALSHI_USE_DEMO = _as_bool(
+            _value_from_sources("KALSHI_USE_DEMO", "false"), False
+        )
+        cls.KALSHI_API_KEY_ID = os.getenv("KALSHI_API_KEY_ID")
+        cls.KALSHI_PRIVATE_KEY_PATH = os.getenv("KALSHI_PRIVATE_KEY_PATH")
 
         if cls.HYPERLIQUID_ACCOUNT_ADDRESS and not cls.EVM_WALLET_ADDRESS:
             cls.EVM_WALLET_ADDRESS = cls.HYPERLIQUID_ACCOUNT_ADDRESS
@@ -573,6 +611,10 @@ class Settings:
             "enabled" if cls.SAM_API_ALLOW_REGISTRATION else "disabled",
         )
         logger.info("  PayAI Facilitator URL: %s", cls.PAYAI_FACILITATOR_URL or "not set")
+        logger.info(
+            "  PayAI Default Network: %s",
+            cls.PAYAI_FACILITATOR_DEFAULT_NETWORK or "not set",
+        )
 
 
 # Populate class attributes on import
