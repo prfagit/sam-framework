@@ -17,10 +17,13 @@ logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+
 # Feature flags for expensive operations
 def _detailed_stats_enabled() -> bool:
     """Determine if detailed (expensive) GC stats should be collected."""
     return os.getenv("SAM_DETAILED_MEMORY_STATS", "0") == "1" or os.getenv("SAM_TEST_MODE") == "1"
+
+
 DEFAULT_POLL_INTERVAL = 300  # 5 minutes (reduced from 60s)
 
 

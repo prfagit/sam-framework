@@ -185,6 +185,13 @@ class InteractiveSettingsManager:
                 pass
 
         try:
+            aixbt_key = storage.get_private_key("aixbt_private_key")
+        except Exception:
+            aixbt_key = None
+        if aixbt_key:
+            self._set_setting_value("AIXBT_PRIVATE_KEY", True)
+
+        try:
             account_address = storage.get_api_key("hyperliquid_account_address")
         except Exception:
             account_address = None
@@ -353,11 +360,60 @@ class InteractiveSettingsManager:
                 default_value=5000,
             ),
             SettingDefinition(
+                key="AIXBT_PRIVATE_KEY",
+                display_name="AIXBT Private Key",
+                description="EVM private key used to sign x402 payments for AIXBT",
+                setting_type=SettingType.PASSWORD,
+                sensitive=True,
+            ),
+            SettingDefinition(
+                key="AIXBT_API_BASE_URL",
+                display_name="AIXBT API Base URL",
+                description="Base endpoint for the AIXBT API",
+                setting_type=SettingType.TEXT,
+                default_value="https://api.aixbt.tech",
+            ),
+            SettingDefinition(
+                key="COINBASE_X402_FACILITATOR_URL",
+                display_name="Coinbase x402 Facilitator URL",
+                description="Base URL for the Coinbase-operated x402 facilitator (default Base testnet).",
+                setting_type=SettingType.TEXT,
+                default_value="https://x402.org/facilitator",
+            ),
+            SettingDefinition(
+                key="COINBASE_X402_API_KEY",
+                display_name="Coinbase x402 API Key",
+                description="Optional API key for authenticated facilitator access (if required).",
+                setting_type=SettingType.PASSWORD,
+                sensitive=True,
+            ),
+            SettingDefinition(
                 key="PAYAI_FACILITATOR_URL",
                 display_name="PayAI Facilitator URL",
                 description="Base URL for the PayAI x402 facilitator (default is the public facilitator).",
                 setting_type=SettingType.TEXT,
                 default_value="https://facilitator.payai.network",
+            ),
+            SettingDefinition(
+                key="PAYAI_FACILITATOR_DEFAULT_NETWORK",
+                display_name="PayAI Default Network",
+                description="Preferred network for facilitator payments (e.g. solana, solana-devnet, base).",
+                setting_type=SettingType.TEXT,
+                default_value="solana",
+            ),
+            SettingDefinition(
+                key="KALSHI_API_BASE_URL",
+                display_name="Kalshi API Base URL",
+                description="Kalshi REST endpoint (use demo API base when testing).",
+                setting_type=SettingType.TEXT,
+                default_value="https://api.elections.kalshi.com/trade-api/v2",
+            ),
+            SettingDefinition(
+                key="KALSHI_MARKET_URL",
+                display_name="Kalshi Market URL",
+                description="Base URL for Kalshi market detail pages in tool output.",
+                setting_type=SettingType.TEXT,
+                default_value="https://kalshi.com/markets",
             ),
             # Tool Toggle Settings
             SettingDefinition(
@@ -403,6 +459,13 @@ class InteractiveSettingsManager:
                 default_value=True,
             ),
             SettingDefinition(
+                key="ENABLE_KALSHI_TOOLS",
+                display_name="Enable Kalshi Tools",
+                description="Enable Kalshi market discovery and analysis tools",
+                setting_type=SettingType.BOOLEAN,
+                default_value=True,
+            ),
+            SettingDefinition(
                 key="ENABLE_ASTER_FUTURES_TOOLS",
                 display_name="Enable Aster Futures Tools",
                 description="Enable Aster futures trading and account tools",
@@ -422,6 +485,20 @@ class InteractiveSettingsManager:
                 description="Enable x402 verification, settlement, and discovery tools for PayAI.",
                 setting_type=SettingType.BOOLEAN,
                 default_value=True,
+            ),
+            SettingDefinition(
+                key="ENABLE_AIXBT_TOOLS",
+                display_name="Enable AIXBT Tools",
+                description="Enable AIXBT intelligence and Indigo research tools",
+                setting_type=SettingType.BOOLEAN,
+                default_value=False,
+            ),
+            SettingDefinition(
+                key="ENABLE_COINBASE_X402_TOOLS",
+                display_name="Enable Coinbase x402 Tools",
+                description="Enable Coinbase-operated x402 facilitator utilities and auto-pay helper.",
+                setting_type=SettingType.BOOLEAN,
+                default_value=False,
             ),
             # Safety & Limits Settings
             SettingDefinition(
@@ -526,6 +603,7 @@ class InteractiveSettingsManager:
                 "LOCAL_LLM_BASE_URL",
                 "ASTER_BASE_URL",
                 "PAYAI_FACILITATOR_URL",
+                "PAYAI_FACILITATOR_DEFAULT_NETWORK",
             ]:
                 categories["🌐 Network & Storage"].append(setting)
             else:

@@ -19,6 +19,7 @@ from ..utils.http_client import cleanup_http_client
 from ..utils.connection_pool import cleanup_database_pool
 from ..utils.rate_limiter import cleanup_rate_limiter
 from ..utils.price_service import cleanup_price_service
+from ..utils.wallets import normalize_evm_private_key, WalletError
 
 # Integrations (kept optional behind flags)
 from ..integrations.solana.solana_tools import SolanaTools, create_solana_tools
@@ -35,7 +36,21 @@ from ..integrations.payai_facilitator import (
     PayAIFacilitatorTools,
     create_payai_facilitator_tools,
 )
+from ..integrations.kalshi import KalshiClient, KalshiTools, create_kalshi_tools
+from ..integrations.aixbt import AixbtClient, AixbtTools, create_aixbt_tools
+from ..integrations.coinbase_x402 import CoinbaseX402Tools, create_coinbase_x402_tools
+from ..integrations.evm import EvmClient, EvmTools, create_evm_tools
 from .plugins import load_plugins
+
+try:  # pragma: no cover - optional dependency
+    from eth_account import Account  # type: ignore[import-untyped]
+except ImportError:  # pragma: no cover
+    Account = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - optional dependency
+    from x402.facilitator import FacilitatorClient  # type: ignore[import-untyped]
+except ImportError:  # pragma: no cover
+    FacilitatorClient = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +70,14 @@ class AgentBuilder:
         "jupiter",
         "search",
         "polymarket",
+        "kalshi",
         "aster_futures",
         "hyperliquid",
         "smart_trader",
         "uranus",
         "payai_facilitator",
+        "aixbt",
+        "coinbase_x402",
     }
 
     def __init__(
@@ -392,10 +410,15 @@ class AgentBuilder:
         jupiter_enabled = self._tool_enabled("jupiter", Settings.ENABLE_JUPITER_TOOLS)
         search_enabled = self._tool_enabled("search", Settings.ENABLE_SEARCH_TOOLS)
         polymarket_enabled = self._tool_enabled("polymarket", Settings.ENABLE_POLYMARKET_TOOLS)
+        kalshi_enabled = self._tool_enabled("kalshi", Settings.ENABLE_KALSHI_TOOLS)
         aster_enabled = self._tool_enabled("aster_futures", Settings.ENABLE_ASTER_FUTURES_TOOLS)
         uranus_enabled = self._tool_enabled("uranus", Settings.ENABLE_URANUS_TOOLS)
         payai_enabled = self._tool_enabled(
             "payai_facilitator", Settings.ENABLE_PAYAI_FACILITATOR_TOOLS
+        )
+        aixbt_enabled = self._tool_enabled("aixbt", Settings.ENABLE_AIXBT_TOOLS)
+        coinbase_enabled = self._tool_enabled(
+            "coinbase_x402", Settings.ENABLE_COINBASE_X402_TOOLS
         )
 
         # Register integrations behind flags
@@ -439,9 +462,20 @@ class AgentBuilder:
             for tool in create_polymarket_tools(polymarket_tools):
                 tools.register(tool)
 
+        kalshi_client = KalshiClient(
+            base_url=Settings.KALSHI_API_BASE_URL,
+            market_url_base=Settings.KALSHI_MARKET_URL,
+        )
+        kalshi_tools = KalshiTools(client=kalshi_client)
+        if kalshi_enabled:
+            for tool in create_kalshi_tools(kalshi_tools):
+                tools.register(tool)
+
         payai_tools = PayAIFacilitatorTools(
             base_url=Settings.PAYAI_FACILITATOR_URL,
             api_key=Settings.PAYAI_FACILITATOR_API_KEY,
+            default_network=Settings.PAYAI_FACILITATOR_DEFAULT_NETWORK,
+            solana_tools=solana_tools,
         )
         if payai_enabled:
             if payai_tools.is_configured:
@@ -452,39 +486,55 @@ class AgentBuilder:
                     "PayAI facilitator tools enabled but PAYAI_FACILITATOR_URL is not configured"
                 )
 
-        aster_client: Optional[AsterFuturesClient] = None
-        if aster_enabled:
-            aster_api_key = secure_storage.get_api_key("aster_api")
-            if not aster_api_key and Settings.ASTER_API_KEY:
-                if secure_storage.store_api_key("aster_api", Settings.ASTER_API_KEY):
-                    aster_api_key = Settings.ASTER_API_KEY
-                else:
-                    aster_api_key = Settings.ASTER_API_KEY
-
-            aster_api_secret = secure_storage.get_private_key("aster_api_secret")
-            if not aster_api_secret and Settings.ASTER_API_SECRET:
-                if secure_storage.store_private_key("aster_api_secret", Settings.ASTER_API_SECRET):
-                    aster_api_secret = Settings.ASTER_API_SECRET
-                else:
-                    aster_api_secret = Settings.ASTER_API_SECRET
-
-            if aster_api_key and aster_api_secret:
-                aster_client = AsterFuturesClient(
-                    base_url=Settings.ASTER_BASE_URL,
-                    api_key=aster_api_key,
-                    api_secret=aster_api_secret,
-                    default_recv_window=Settings.ASTER_DEFAULT_RECV_WINDOW,
-                )
-                for tool in create_aster_futures_tools(aster_client):
-                    tools.register(tool)
-            else:
+        coinbase_facilitator = None
+        if coinbase_enabled:
+            if FacilitatorClient is None:
                 logger.warning(
-                    "Aster futures tools enabled but API key/secret are missing. "
-                    "Set ASTER_API_KEY and ASTER_API_SECRET or store them via secure storage."
+                    "Coinbase x402 tools enabled but the 'x402' package is not installed. "
+                    "Install it with `uv add x402` to enable these tools."
                 )
+            else:
+                try:
+                    config: Dict[str, Any] = {
+                        "url": Settings.COINBASE_X402_FACILITATOR_URL,
+                    }
 
-        hyperliquid_client: Optional[HyperliquidClient] = None
-        hyper_private_key = secure_storage.get_private_key("hyperliquid_private_key")
+                    if Settings.COINBASE_X402_API_KEY:
+                        def _create_headers() -> dict[str, dict[str, str]]:
+                            header = {"Authorization": f"Bearer {Settings.COINBASE_X402_API_KEY}"}
+                            return {"verify": header, "settle": header, "list": header}
+
+                        config["create_headers"] = _create_headers  # type: ignore[assignment]
+
+                    coinbase_facilitator = FacilitatorClient(config)  # type: ignore[assignment]
+                except Exception as exc:
+                    logger.warning(f"Failed to initialize Coinbase x402 facilitator: {exc}")
+                    coinbase_facilitator = None
+
+        try:
+            aixbt_private_key = secure_storage.get_private_key("aixbt_private_key")
+        except Exception:
+            aixbt_private_key = None
+
+        if not aixbt_private_key and Settings.AIXBT_PRIVATE_KEY:
+            candidate_key = Settings.AIXBT_PRIVATE_KEY
+            try:
+                if candidate_key.startswith("gAAAA"):
+                    candidate_key = decrypt_private_key(candidate_key)
+            except Exception as exc:
+                logger.warning(f"Failed to decrypt AIXBT private key: {exc}")
+            if candidate_key:
+                if secure_storage.store_private_key("aixbt_private_key", candidate_key):
+                    aixbt_private_key = candidate_key
+                else:
+                    aixbt_private_key = candidate_key
+
+        # Initialize hyper_private_key early for potential reuse
+        hyper_private_key: Optional[str] = None
+        try:
+            hyper_private_key = secure_storage.get_private_key("hyperliquid_private_key")
+        except Exception:
+            hyper_private_key = None
         if not hyper_private_key and Settings.HYPERLIQUID_PRIVATE_KEY:
             if secure_storage.store_private_key(
                 "hyperliquid_private_key", Settings.HYPERLIQUID_PRIVATE_KEY
@@ -492,6 +542,75 @@ class AgentBuilder:
                 hyper_private_key = Settings.HYPERLIQUID_PRIVATE_KEY
             else:
                 hyper_private_key = Settings.HYPERLIQUID_PRIVATE_KEY
+
+        if not aixbt_private_key and hyper_private_key:
+            aixbt_private_key = hyper_private_key
+
+        aixbt_account = None
+        if aixbt_private_key:
+            try:
+                normalized_key = normalize_evm_private_key(aixbt_private_key)
+                if Account is None:
+                    raise RuntimeError(
+                        "eth-account is required for x402 payments. Install the optional dependency."
+                    )
+                aixbt_account = Account.from_key(normalized_key)
+            except (WalletError, Exception) as exc:
+                logger.warning(f"Failed to initialize x402 wallet: {exc}")
+                aixbt_account = None
+                aixbt_private_key = None
+
+        aixbt_client: Optional[AixbtClient] = None
+        aixbt_tools: Optional[AixbtTools] = None
+
+        if aixbt_enabled:
+            if not aixbt_private_key:
+                logger.warning(
+                    "AIXBT tools enabled but no private key found. "
+                    "Set AIXBT_PRIVATE_KEY or store it via `uv run sam settings`."
+                )
+            else:
+                try:
+                    aixbt_client = AixbtClient(
+                        base_url=Settings.AIXBT_API_BASE_URL,
+                        private_key=aixbt_private_key if not aixbt_account else None,
+                        account=aixbt_account,
+                        request_timeout=Settings.AIXBT_REQUEST_TIMEOUT,
+                    )
+                    aixbt_tools = AixbtTools(client=aixbt_client)
+                    for tool in create_aixbt_tools(aixbt_tools):
+                        tools.register(tool)
+                except Exception as exc:
+                    logger.warning(f"Failed to initialize AIXBT tools: {exc}")
+
+        coinbase_tools: Optional[CoinbaseX402Tools] = None
+        if coinbase_enabled:
+            coinbase_tools = CoinbaseX402Tools(
+                facilitator=coinbase_facilitator,
+                account=aixbt_account,
+                request_timeout=Settings.AIXBT_REQUEST_TIMEOUT,
+            )
+            for tool in create_coinbase_x402_tools(coinbase_tools):
+                tools.register(tool)
+
+        # EVM Tools (balance checking, token operations)
+        evm_enabled = Settings.ENABLE_EVM_TOOLS
+        evm_client: Optional[EvmClient] = None
+        evm_tools: Optional[EvmTools] = None
+        
+        if evm_enabled:
+            try:
+                evm_client = EvmClient(
+                    rpc_url=Settings.EVM_RPC_URL,
+                    private_key=Settings.EVM_PRIVATE_KEY,
+                    timeout=Settings.AIXBT_REQUEST_TIMEOUT,  # Reuse timeout setting
+                )
+                evm_tools = EvmTools(client=evm_client)
+                for tool in create_evm_tools(evm_tools):
+                    tools.register(tool)
+                logger.info("EVM tools initialized successfully")
+            except Exception as exc:
+                logger.warning(f"Failed to initialize EVM tools: {exc}")
 
         desired_hyper_account = Settings.EVM_WALLET_ADDRESS or Settings.HYPERLIQUID_ACCOUNT_ADDRESS
         hyper_account_address = sync_stored_api_key(
@@ -529,6 +648,39 @@ class AgentBuilder:
                     "Configure HYPERLIQUID_PRIVATE_KEY or provide an EVM wallet address."
                 )
 
+        aster_client: Optional[AsterFuturesClient] = None
+        if aster_enabled:
+            aster_api_key = secure_storage.get_api_key("aster_api")
+            if not aster_api_key and Settings.ASTER_API_KEY:
+                if secure_storage.store_api_key("aster_api", Settings.ASTER_API_KEY):
+                    aster_api_key = Settings.ASTER_API_KEY
+                else:
+                    aster_api_key = Settings.ASTER_API_KEY
+
+            aster_api_secret = secure_storage.get_private_key("aster_api_secret")
+            if not aster_api_secret and Settings.ASTER_API_SECRET:
+                if secure_storage.store_private_key("aster_api_secret", Settings.ASTER_API_SECRET):
+                    aster_api_secret = Settings.ASTER_API_SECRET
+                else:
+                    aster_api_secret = Settings.ASTER_API_SECRET
+
+            if aster_api_key and aster_api_secret:
+                aster_client = AsterFuturesClient(
+                    base_url=Settings.ASTER_BASE_URL,
+                    api_key=aster_api_key,
+                    api_secret=aster_api_secret,
+                    default_recv_window=Settings.ASTER_DEFAULT_RECV_WINDOW,
+                )
+                for tool in create_aster_futures_tools(aster_client):
+                    tools.register(tool)
+            else:
+                logger.warning(
+                    "Aster futures tools enabled but API key/secret are missing. "
+                    "Set ASTER_API_KEY and ASTER_API_SECRET or store them via secure storage."
+                )
+
+        hyperliquid_client: Optional[HyperliquidClient] = None
+
         # Optional plugin discovery (entry points or env var SAM_PLUGINS)
         try:
             load_plugins(tools, agent=agent)
@@ -552,8 +704,13 @@ class AgentBuilder:
         setattr(agent, "_jupiter_tools", jupiter_tools)
         setattr(agent, "_search_tools", search_tools)
         setattr(agent, "_polymarket_tools", polymarket_tools)
+        setattr(agent, "_kalshi_tools", kalshi_tools)
         setattr(agent, "_aster_client", aster_client)
         setattr(agent, "_hyperliquid_client", hyperliquid_client)
+        setattr(agent, "_aixbt_tools", aixbt_tools)
+        setattr(agent, "_aixbt_client", aixbt_client)
+        setattr(agent, "_aixbt_account", aixbt_account)
+        setattr(agent, "_coinbase_x402_tools", coinbase_tools)
         setattr(agent, "_llm", llm)
 
         logger.info(f"Agent built with {len(tools.list_specs())} tools")

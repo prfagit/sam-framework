@@ -372,4 +372,3 @@ async def cleanup_tool_cache() -> None:
             _global_cache = None
         _cache_lock = None
 
-

@@ -146,12 +146,14 @@ API_KEY_ALIASES = {
     "LOCAL_LLM_API_KEY": "local_llm_api_key",
     "ASTER_API_KEY": "aster_api",
     "BRAVE_API_KEY": "brave_api_key",
+    "COINBASE_X402_API_KEY": "coinbase_x402_api_key",
 }
 
 PRIVATE_KEY_ALIASES = {
     "ASTER_API_SECRET": "aster_api_secret",
     "SAM_WALLET_PRIVATE_KEY": "default",
     "HYPERLIQUID_PRIVATE_KEY": "hyperliquid_private_key",
+    "AIXBT_PRIVATE_KEY": "aixbt_private_key",
 }
 
 # Forbidden patterns that indicate test/mock API keys
@@ -307,11 +309,20 @@ class Settings:
     ENABLE_HYPERLIQUID_TOOLS: bool = False
     ENABLE_URANUS_TOOLS: bool = True
     ENABLE_PAYAI_FACILITATOR_TOOLS: bool = True
+    ENABLE_AIXBT_TOOLS: bool = False
+    ENABLE_COINBASE_X402_TOOLS: bool = False
 
     ASTER_BASE_URL: str = "https://fapi.asterdex.com"
     ASTER_API_KEY: Optional[str] = None
     ASTER_API_SECRET: Optional[str] = None
     ASTER_DEFAULT_RECV_WINDOW: int = 5000
+
+    AIXBT_API_BASE_URL: str = "https://api.aixbt.tech"
+    AIXBT_REQUEST_TIMEOUT: Optional[float] = 60.0  # Base network needs time for onchain settlement
+    AIXBT_PRIVATE_KEY: Optional[str] = None
+
+    COINBASE_X402_FACILITATOR_URL: str = "https://x402.org/facilitator"
+    COINBASE_X402_API_KEY: Optional[str] = None
 
     HYPERLIQUID_API_URL: str = "https://api.hyperliquid.xyz"
     HYPERLIQUID_PRIVATE_KEY: Optional[str] = None
@@ -319,6 +330,9 @@ class Settings:
     HYPERLIQUID_DEFAULT_SLIPPAGE: float = 0.05
     HYPERLIQUID_REQUEST_TIMEOUT: Optional[float] = None
     EVM_WALLET_ADDRESS: Optional[str] = None
+    EVM_RPC_URL: str = "https://eth.llamarpc.com"
+    EVM_PRIVATE_KEY: Optional[str] = None
+    ENABLE_EVM_TOOLS: bool = True
 
     SAM_FERNET_KEY: Optional[str] = None
 
@@ -437,6 +451,12 @@ class Settings:
         cls.ENABLE_PAYAI_FACILITATOR_TOOLS = _as_bool(
             _value_from_sources("ENABLE_PAYAI_FACILITATOR_TOOLS", "true"), True
         )
+        cls.ENABLE_AIXBT_TOOLS = _as_bool(
+            _value_from_sources("ENABLE_AIXBT_TOOLS", "false"), False
+        )
+        cls.ENABLE_COINBASE_X402_TOOLS = _as_bool(
+            _value_from_sources("ENABLE_COINBASE_X402_TOOLS", "false"), False
+        )
 
         cls.ASTER_BASE_URL = _as_str(
             _value_from_sources("ASTER_BASE_URL", "https://fapi.asterdex.com")
@@ -448,6 +468,23 @@ class Settings:
         )
         cls.ASTER_DEFAULT_RECV_WINDOW = _as_int(
             _value_from_sources("ASTER_DEFAULT_RECV_WINDOW", 5000), 5000
+        )
+
+        cls.AIXBT_API_BASE_URL = _as_str(
+            _value_from_sources("AIXBT_API_BASE_URL", "https://api.aixbt.tech")
+        )
+        aixbt_timeout = _value_from_sources("AIXBT_REQUEST_TIMEOUT")
+        cls.AIXBT_REQUEST_TIMEOUT = (
+            _as_float(aixbt_timeout) if aixbt_timeout is not None else 60.0
+        )
+        cls.AIXBT_PRIVATE_KEY = _as_optional_str(
+            _private_secret("AIXBT_PRIVATE_KEY", "AIXBT_PRIVATE_KEY")
+        )
+        cls.COINBASE_X402_FACILITATOR_URL = _as_str(
+            _value_from_sources("COINBASE_X402_FACILITATOR_URL", "https://x402.org/facilitator")
+        )
+        cls.COINBASE_X402_API_KEY = _as_optional_str(
+            _api_key("COINBASE_X402_API_KEY", "COINBASE_X402_API_KEY")
         )
 
         cls.HYPERLIQUID_API_URL = _as_str(
@@ -471,6 +508,9 @@ class Settings:
             _as_float(timeout_value) if timeout_value is not None else None
         )
         cls.EVM_WALLET_ADDRESS = _as_optional_str(_value_from_sources("EVM_WALLET_ADDRESS"))
+        cls.EVM_RPC_URL = _as_str(_value_from_sources("EVM_RPC_URL", "https://eth.llamarpc.com"))
+        cls.EVM_PRIVATE_KEY = _as_optional_str(_value_from_sources("EVM_PRIVATE_KEY"))
+        cls.ENABLE_EVM_TOOLS = _as_bool(_value_from_sources("ENABLE_EVM_TOOLS", "true"), True)
 
         facilitator_url = _as_optional_str(_value_from_sources("PAYAI_FACILITATOR_URL"))
         if not facilitator_url:

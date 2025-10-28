@@ -431,7 +431,9 @@ class UranusTools:
     ) -> Dict[str, Any]:
         try:
             client = await self._get_client()
-            response = await client.get_program_accounts(PROGRAM_ID, encoding="base64", commitment="confirmed")
+            response = await client.get_program_accounts(
+                PROGRAM_ID, encoding="base64", commitment="confirmed"
+            )
             accounts = response.value or []
             owner_filter = owner.lower() if owner else None
             mint_filter = market_mint.lower() if market_mint else None

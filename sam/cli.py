@@ -131,6 +131,9 @@ TOOL_DISPLAY_NAMES = {
     "polymarket_list_markets": "🎯 Listing Polymarket markets",
     "polymarket_opportunity_scan": "🎯 Scanning Polymarket opportunities",
     "polymarket_strategy_brief": "🧠 Crafting Polymarket strategy",
+    "kalshi_list_markets": "🏛️ Listing Kalshi markets",
+    "kalshi_market_overview": "🏛️ Reviewing Kalshi market",
+    "kalshi_opportunity_scan": "🏛️ Scanning Kalshi opportunities",
     "hyperliquid_balance": "🌊 Hyperliquid balance",
     "hyperliquid_positions": "🌊 Hyperliquid positions",
     "hyperliquid_open_orders": "🌊 Hyperliquid open orders",
@@ -147,6 +150,14 @@ TOOL_DISPLAY_NAMES = {
     "payai_settle_payment": "💳 Settling x402 payment",
     "payai_supported_networks": "💳 Listing facilitator networks",
     "payai_discover_resources": "💳 Discovering x402 resources",
+    "payai_get_payment_requirements": "💳 Fetching x402 requirements",
+    "payai_auto_pay_resource": "💳 Paying via PayAI facilitator",
+    "aixbt_projects": "📊 AIXBT project intel",
+    "aixbt_indigo_research": "🔮 Indigo research brief",
+    "coinbase_x402_list_resources": "🪙 Listing Coinbase x402 resources",
+    "coinbase_x402_verify_payment": "🪙 Verifying Coinbase x402 payment",
+    "coinbase_x402_settle_payment": "🪙 Settling Coinbase x402 payment",
+    "coinbase_x402_auto_pay": "🪙 Paying Coinbase x402 resource",
 }
 
 
@@ -543,6 +554,9 @@ async def run_interactive_session(
             "polymarket_list_markets": "🎯 Polymarket",
             "polymarket_opportunity_scan": "🎯 Polymarket",
             "polymarket_strategy_brief": "🎯 Polymarket",
+            "kalshi_list_markets": "🏛️ Kalshi",
+            "kalshi_market_overview": "🏛️ Kalshi",
+            "kalshi_opportunity_scan": "🏛️ Kalshi",
             "search_web": "🌐 Web Search",
             "search_news": "🌐 Web Search",
             "aster_account_balance": "⚡ Aster Futures",
@@ -562,6 +576,8 @@ async def run_interactive_session(
             "payai_settle_payment": "💳 PayAI Facilitator",
             "payai_supported_networks": "💳 PayAI Facilitator",
             "payai_discover_resources": "💳 PayAI Facilitator",
+            "payai_get_payment_requirements": "💳 PayAI Facilitator",
+            "payai_auto_pay_resource": "💳 PayAI Facilitator",
         }
 
         grouped: dict[str, list[str]] = {}
@@ -580,6 +596,7 @@ async def run_interactive_session(
             "🌌 Jupiter Swaps",
             "📈 Market Data",
             "🎯 Polymarket",
+            "🏛️ Kalshi",
             "🌐 Web Search",
             "🌊 Hyperliquid",
             "⚡ Aster Futures",
@@ -644,6 +661,7 @@ async def run_interactive_session(
             f"  - DexScreen: {'On' if Settings.ENABLE_DEXSCREENER_TOOLS else 'Off'}\n"
             f"  - Jupiter:   {'On' if Settings.ENABLE_JUPITER_TOOLS else 'Off'}\n"
             f"  - Polymarket: {'On' if Settings.ENABLE_POLYMARKET_TOOLS else 'Off'}\n"
+            f"  - Kalshi:    {'On' if Settings.ENABLE_KALSHI_TOOLS else 'Off'}\n"
             f"  - Search:    {'On' if Settings.ENABLE_SEARCH_TOOLS else 'Off'}"
         )
         brave_set = "Yes" if Settings.BRAVE_API_KEY else "No"
@@ -1601,6 +1619,17 @@ async def main() -> int:
                 "description": "Summarize strategies for a market",
             },
         ]
+        kalshi_specs = [
+            {"name": "kalshi_list_markets", "description": "List Kalshi markets with pricing data"},
+            {
+                "name": "kalshi_market_overview",
+                "description": "Fetch detailed market snapshot and heuristics",
+            },
+            {
+                "name": "kalshi_opportunity_scan",
+                "description": "Rank Kalshi markets by ROI and liquidity heuristics",
+            },
+        ]
 
         aster_specs = [
             {"name": "aster_account_info", "description": "View Aster account state"},
@@ -1621,6 +1650,36 @@ async def main() -> int:
             {"name": "hyperliquid_user_fills", "description": "Review recent fills"},
         ]
 
+        aixbt_specs = [
+            {
+                "name": "aixbt_projects",
+                "description": "Ranked list of trending projects with AIXBT intelligence context",
+            },
+            {
+                "name": "aixbt_indigo_research",
+                "description": "Deep-dive narrative brief from the Indigo research agent",
+            },
+        ]
+
+        coinbase_specs = [
+            {
+                "name": "coinbase_x402_list_resources",
+                "description": "Discover paid resources advertised by the Coinbase x402 facilitator",
+            },
+            {
+                "name": "coinbase_x402_verify_payment",
+                "description": "Validate an x402 payment payload using the Coinbase facilitator",
+            },
+            {
+                "name": "coinbase_x402_settle_payment",
+                "description": "Settle an x402 payment and retrieve settlement metadata",
+            },
+            {
+                "name": "coinbase_x402_auto_pay",
+                "description": "Fetch a protected resource and automatically fulfill its x402 payment",
+            },
+        ]
+
         smart_specs = [
             {
                 "name": "smart_buy",
@@ -1629,6 +1688,29 @@ async def main() -> int:
             {
                 "name": "smart_sell",
                 "description": "Route best-effort sell between Pump.fun and Jupiter",
+            },
+        ]
+
+        evm_specs = [
+            {
+                "name": "evm_eth_balance",
+                "description": "Check ETH balance for an Ethereum address",
+            },
+            {
+                "name": "evm_token_balance",
+                "description": "Check ERC-20 token balance for an Ethereum address",
+            },
+            {
+                "name": "evm_usdc_balance",
+                "description": "Check USDC balance for an Ethereum address (commonly used for x402 payments)",
+            },
+            {
+                "name": "evm_token_info",
+                "description": "Get token information (name, symbol, decimals) for a contract address",
+            },
+            {
+                "name": "evm_wallet_balances",
+                "description": "Check multiple balances for a wallet (ETH + USDC, USDT, DAI, WETH)",
             },
         ]
 
@@ -1642,8 +1724,12 @@ async def main() -> int:
             ("📈 Market Data", dex_specs),
             ("🌐 Web Search", search_specs),
             ("🎯 Polymarket", polymarket_specs),
+            ("🏛️ Kalshi", kalshi_specs),
             ("⚡ Aster Futures", aster_specs),
             ("🌊 Hyperliquid", hyperliquid_specs),
+            ("📊 AIXBT Intelligence", aixbt_specs),
+            ("🪙 Coinbase x402", coinbase_specs),
+            ("🔗 EVM Blockchain", evm_specs),
             ("🧠 Smart Trader", smart_specs),
         ]:
             print(colorize(category, Style.BOLD))

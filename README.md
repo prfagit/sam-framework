@@ -74,7 +74,7 @@ SAM Framework provides a production-ready infrastructure for building AI agents 
 ### Tool Ecosystem
 | Feature | Description |
 |---------|-------------|
-| **26+ Production Tools** | Complete DeFi ecosystem coverage |
+| **28+ Production Tools** | Complete DeFi ecosystem coverage |
 | **Plugin Architecture** | Extensible with entry point discovery |
 | **Middleware Pipeline** | Configurable logging, rate limiting, retries |
 | **SDK Integration** | Programmatic agent construction |
@@ -256,7 +256,7 @@ uv run streamlit run examples/streamlit_app/app.py
 
 ## Tool Ecosystem
 
-SAM provides 22+ production-ready tools organized by category:
+SAM provides 24+ production-ready tools organized by category:
 
 ### Wallet Operations
 
@@ -333,6 +333,15 @@ SAM provides 22+ production-ready tools organized by category:
 | `kalshi_get_balance` | Get portfolio balance (requires authentication) | - |
 | `kalshi_get_positions` | Get portfolio positions (requires authentication) | `limit`, `cursor`, `event_ticker`, `settlement_status` |
 
+### AIXBT Intelligence
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `aixbt_projects` | Ranked list of trending projects with rationale and momentum data | `limit`, `name`, `ticker`, `x_handle`, `sort_by`, `min_score` |
+| `aixbt_indigo_research` | Narrative deep dives powered by the Indigo research agent | `prompt` or `messages` |
+
+> Requires the `x402` Python package (`uv add x402`) and an EVM private key configured via `AIXBT_PRIVATE_KEY`.
+
 ### Web Intelligence
 
 | Tool | Description | Parameters |
@@ -352,6 +361,17 @@ SAM provides 22+ production-ready tools organized by category:
 | `payai_settle_payment` | Broadcast an x402 settlement via the PayAI facilitator | `payment_payload`, `payment_requirements` |
 
 > Default Network: Set `PAYAI_FACILITATOR_DEFAULT_NETWORK` (default `solana`) to ensure tools automatically select the right scheme when a resource offers multiple options.
+
+### Coinbase x402 Facilitator
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `coinbase_x402_list_resources` | List discovery resources advertised by the Coinbase-operated facilitator | `limit`, `offset`, `type` |
+| `coinbase_x402_verify_payment` | Validate an x402 payment payload against the facilitator | `payment_payload`, `payment_requirements` |
+| `coinbase_x402_settle_payment` | Settle an x402 payment and return settlement metadata | `payment_payload`, `payment_requirements` |
+| `coinbase_x402_auto_pay` | Fetch a protected resource and automatically fulfill its payment using the configured EVM wallet | `url`, `method`, `query`, `headers`, `json`, `data` |
+
+> These tools reuse the same EVM private key configured for AIXBT/x402 payments; set `AIXBT_PRIVATE_KEY` (or store it via `uv run sam settings`) and install the `x402` Python package.
 
 ### Usage Examples
 
@@ -391,6 +411,8 @@ sam/
 │   ├── dexscreener.py   # Market data provider
 │   ├── polymarket.py    # Prediction market analytics
 │   ├── aster_futures.py # Futures trading on Aster DEX
+│   ├── aixbt.py         # Narrative intelligence + Indigo agent access
+│   ├── coinbase_x402.py # Coinbase-operated x402 facilitator helpers
 │   ├── smart_trader.py  # Smart trading with fallbacks
 │   ├── search.py        # Web search via Brave API
 │   └── payai_facilitator.py # PayAI x402 facilitator integration
@@ -455,7 +477,11 @@ SAM supports multiple configuration methods with automatic loading priority:
 | **Kalshi** | `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_USE_DEMO` | Prediction market trading (see [Kalshi Setup](#kalshi-setup)) |
 | **Aster Futures** | `ASTER_API_KEY`, `ASTER_API_SECRET`, `ASTER_BASE_URL`, `ASTER_DEFAULT_RECV_WINDOW` | Futures trading credentials |
 | **Brave Search** | `BRAVE_API_KEY` | Web search and news aggregation |
+| **AIXBT Intelligence** | `AIXBT_PRIVATE_KEY`* , `AIXBT_API_BASE_URL` (optional), `ENABLE_AIXBT_TOOLS` | Access narrative analytics and Indigo research agent via x402 payments |
+| **Coinbase x402 Facilitator** | `COINBASE_X402_FACILITATOR_URL`, `COINBASE_X402_API_KEY` (optional), `ENABLE_COINBASE_X402_TOOLS` | Discovery, verification, and auto-pay for Coinbase-operated x402 resources |
 | **PayAI Facilitator** | `PAYAI_FACILITATOR_URL` (or `FACILITATOR_URL`), `PAYAI_FACILITATOR_API_KEY` (optional), `PAYAI_FACILITATOR_DEFAULT_NETWORK` (default `solana`) | x402 verification, settlement, and resource discovery |
+
+*If `AIXBT_PRIVATE_KEY` is not provided, SAM reuses the stored Hyperliquid EVM wallet key for x402 payments.
 
 #### Kalshi Setup
 

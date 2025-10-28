@@ -139,6 +139,10 @@ class TestSettings:
             assert Settings.RATE_LIMITING_ENABLED is False
             assert Settings.MAX_TRANSACTION_SOL == 1000.0
             assert Settings.DEFAULT_SLIPPAGE == 1
+            assert (
+                Settings.KALSHI_API_BASE_URL == "https://api.elections.kalshi.com/trade-api/v2"
+            )
+            assert Settings.KALSHI_MARKET_URL == "https://kalshi.com/markets"
             # LOG_LEVEL can be overridden by profile, just check it's set
             assert Settings.LOG_LEVEL is not None
 
@@ -152,6 +156,7 @@ class TestSettings:
             assert Settings.ENABLE_JUPITER_TOOLS is True
             assert Settings.ENABLE_SEARCH_TOOLS is True
             assert Settings.ENABLE_POLYMARKET_TOOLS is True
+            assert Settings.ENABLE_KALSHI_TOOLS is True
 
     @patch.dict(
         os.environ,
@@ -188,6 +193,7 @@ class TestSettings:
                 "ENABLE_JUPITER_TOOLS": "false",
                 "ENABLE_SEARCH_TOOLS": "true",
                 "ENABLE_POLYMARKET_TOOLS": "false",
+                "ENABLE_KALSHI_TOOLS": "false",
             },
             clear=False,
         ):
@@ -199,6 +205,7 @@ class TestSettings:
             assert isinstance(Settings.ENABLE_JUPITER_TOOLS, bool)
             assert isinstance(Settings.ENABLE_SEARCH_TOOLS, bool)
             assert isinstance(Settings.ENABLE_POLYMARKET_TOOLS, bool)
+            assert isinstance(Settings.ENABLE_KALSHI_TOOLS, bool)
 
     def test_settings_refresh_from_env(self):
         """Test refresh_from_env method (profile may override)."""
