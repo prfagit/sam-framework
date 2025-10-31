@@ -136,7 +136,8 @@ class AixbtClient:
         client_factory: Optional[Callable[[Any, str, Optional[float]], Any]] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._request_timeout = request_timeout
+        # Default to 60s for Base network settlement if not specified
+        self._request_timeout = request_timeout if request_timeout is not None else 60.0
         self._client_factory = client_factory
 
         normalized_key = (private_key or "").strip()
@@ -210,15 +211,16 @@ class AixbtClient:
         if self._client_factory:
             client_ctx = self._client_factory(self._account, self._base_url, self._request_timeout)
         else:
-            # Use official x402HttpxClient with extended timeout
-            # Base network payments need 30-60s to settle onchain
-            timeout = self._request_timeout if self._request_timeout is not None else 60.0
-            client_kwargs: Dict[str, Any] = {
-                "account": self._account,
-                "base_url": self._base_url,
-                "timeout": timeout,
-            }
-            client_ctx = x402HttpxClient(**client_kwargs)
+            # Use our fixed x402 client that properly handles timeout during payment retry
+            # The official x402HttpxClient has a bug where it creates a new AsyncClient
+            # for retries without inheriting the timeout, causing ReadTimeout errors
+            from sam.utils.x402_client_fixed import create_fixed_x402_client
+            
+            client_ctx = create_fixed_x402_client(
+                account=self._account,
+                base_url=self._base_url,
+                timeout=self._request_timeout,
+            )
 
         async with client_ctx as client:
             try:
