@@ -212,6 +212,7 @@ class AsterFuturesClient:
         filters = await self._get_symbol_filters(symbol)
         step = filters.get("stepSize", Decimal("1"))
         min_qty = filters.get("minQty", Decimal("0"))
+        min_notional = filters.get("minNotional")
 
         qty_dec = Decimal(str(quantity))
         if step > 0:
@@ -219,16 +220,35 @@ class AsterFuturesClient:
             qty_dec = (qty_dec / step_dec).to_integral_value(rounding=ROUND_DOWN) * step_dec
             qty_dec = qty_dec.quantize(step_dec)
 
+        # If rounded quantity is below minimum, try rounding UP instead
+        if qty_dec <= 0 or qty_dec < min_qty:
+            if step > 0:
+                from decimal import ROUND_UP
+                qty_dec = Decimal(str(quantity))
+                qty_dec = (qty_dec / step).to_integral_value(rounding=ROUND_UP) * step
+                qty_dec = qty_dec.quantize(step)
+
         if qty_dec <= 0 or qty_dec < min_qty:
             raise ValueError(
                 f"Quantity {qty_dec} is below the minimum allowed {min_qty} for {symbol.upper()}"
             )
 
-        if mark_price is not None and "minNotional" in filters:
+        if mark_price is not None and min_notional is not None:
             notional = qty_dec * Decimal(str(mark_price))
-            if notional < filters["minNotional"]:
+            # If notional is below minimum, try to round quantity UP to meet minimum
+            if notional < min_notional:
+                if step > 0:
+                    from decimal import ROUND_UP
+                    # Calculate minimum quantity needed to meet notional requirement
+                    required_qty = min_notional / Decimal(str(mark_price))
+                    qty_dec = (required_qty / step).to_integral_value(rounding=ROUND_UP) * step
+                    qty_dec = qty_dec.quantize(step)
+                    notional = qty_dec * Decimal(str(mark_price))
+
+            if notional < min_notional:
                 raise ValueError(
-                    f"Order notional {notional} is below the minimum {filters['minNotional']} for {symbol.upper()}"
+                    f"Order notional {notional} is below the minimum {min_notional} for {symbol.upper()}. "
+                    f"Minimum quantity needed: {(min_notional / Decimal(str(mark_price))).quantize(step)}"
                 )
 
         normalized = qty_dec.normalize()
