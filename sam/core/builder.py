@@ -103,13 +103,57 @@ class AgentBuilder:
             return override
         return default
 
+    async def _get_user_secrets(self, user_id: str) -> Dict[str, Dict[str, str]]:
+        """Retrieve user-specific secrets from the secrets store.
+
+        Returns a dict mapping integration -> {field -> value}.
+        Also checks the operational wallet for Solana integration.
+        """
+        if user_id == "default":
+            return {}
+
+        secrets: Dict[str, Dict[str, str]] = {}
+
+        try:
+            # Lazy imports to avoid circular dependency
+            from ..api.user_secrets import UserSecretsStore
+            from ..api.services.onboarding import OnboardingService
+
+            store = UserSecretsStore()
+
+            # Get Solana secrets (may include operational wallet key)
+            solana_secrets = await store.get_integration_secrets(user_id, "solana")
+            if solana_secrets:
+                secrets["solana"] = solana_secrets
+
+            # If no solana private key in secrets, check operational wallet
+            if not solana_secrets.get("private_key"):
+                onboarding = OnboardingService(Settings.SAM_DB_PATH)
+                op_wallet_key = await onboarding.get_operational_wallet_key(user_id)
+                if op_wallet_key:
+                    secrets.setdefault("solana", {})["private_key"] = op_wallet_key
+
+            # Get other integration secrets
+            for integration in ["polymarket", "hyperliquid", "coinbase", "kalshi", "brave"]:
+                int_secrets = await store.get_integration_secrets(user_id, integration)
+                if int_secrets:
+                    secrets[integration] = int_secrets
+
+        except Exception as e:
+            logger.warning(f"Failed to load user secrets for {user_id}: {e}")
+
+        return secrets
+
     async def build(self, context: Optional[RequestContext] = None) -> SAMAgent:
         """Build and return a fully configured SAMAgent.
 
         Mirrors previous CLI setup behavior to remain non-breaking.
         """
         ctx = context or RequestContext()
-        _ = ctx  # Maintains compatibility until context-aware overrides land
+
+        # Load user-specific secrets (will override global settings)
+        user_secrets = await self._get_user_secrets(ctx.user_id)
+
         # LLM
         llm = create_llm_provider(self.llm_config)
 
@@ -384,7 +428,15 @@ class AgentBuilder:
 
         # Secure storage and wallet discovery/migration
         secure_storage = get_secure_storage()
-        private_key: Optional[str] = secure_storage.get_private_key("default")
+
+        # Priority for Solana private key:
+        # 1. User-specific secrets (from UserSecretsStore or operational wallet)
+        # 2. Secure storage (keyring)
+        # 3. Environment variable
+        private_key: Optional[str] = user_secrets.get("solana", {}).get("private_key")
+
+        if not private_key:
+            private_key = secure_storage.get_private_key("default")
 
         if not private_key and Settings.SAM_WALLET_PRIVATE_KEY:
             try:
@@ -397,6 +449,9 @@ class AgentBuilder:
                     logger.info("Migrated private key from environment to secure storage")
             except Exception as e:
                 logger.warning(f"Could not decrypt private key: {e}")
+
+        if private_key and ctx.user_id != "default":
+            logger.info(f"Using user-specific Solana wallet for user {ctx.user_id[:8]}...")
 
         # Core Solana tools (wallet-aware)
         solana_tools = SolanaTools(Settings.SAM_SOLANA_RPC_URL, private_key)
@@ -417,9 +472,7 @@ class AgentBuilder:
             "payai_facilitator", Settings.ENABLE_PAYAI_FACILITATOR_TOOLS
         )
         aixbt_enabled = self._tool_enabled("aixbt", Settings.ENABLE_AIXBT_TOOLS)
-        coinbase_enabled = self._tool_enabled(
-            "coinbase_x402", Settings.ENABLE_COINBASE_X402_TOOLS
-        )
+        coinbase_enabled = self._tool_enabled("coinbase_x402", Settings.ENABLE_COINBASE_X402_TOOLS)
 
         # Register integrations behind flags
         if solana_enabled:
@@ -446,10 +499,16 @@ class AgentBuilder:
             for tool in create_jupiter_tools(jupiter_tools):
                 tools.register(tool)
 
-        try:
-            brave_api_key = secure_storage.get_api_key("brave_api_key")
-        except Exception:
-            brave_api_key = None
+        # Priority for Brave API key:
+        # 1. User-specific secrets
+        # 2. Secure storage
+        # 3. Environment variable
+        brave_api_key = user_secrets.get("brave", {}).get("api_key")
+        if not brave_api_key:
+            try:
+                brave_api_key = secure_storage.get_api_key("brave_api_key")
+            except Exception:
+                brave_api_key = None
         if not brave_api_key:
             brave_api_key = os.getenv("BRAVE_API_KEY")
         search_tools = SearchTools(api_key=brave_api_key)
@@ -500,6 +559,7 @@ class AgentBuilder:
                     }
 
                     if Settings.COINBASE_X402_API_KEY:
+
                         def _create_headers() -> dict[str, dict[str, str]]:
                             header = {"Authorization": f"Bearer {Settings.COINBASE_X402_API_KEY}"}
                             return {"verify": header, "settle": header, "list": header}
@@ -530,11 +590,13 @@ class AgentBuilder:
                     aixbt_private_key = candidate_key
 
         # Initialize hyper_private_key early for potential reuse
-        hyper_private_key: Optional[str] = None
-        try:
-            hyper_private_key = secure_storage.get_private_key("hyperliquid_private_key")
-        except Exception:
-            hyper_private_key = None
+        # Priority: user secrets -> secure storage -> env
+        hyper_private_key: Optional[str] = user_secrets.get("hyperliquid", {}).get("api_key")
+        if not hyper_private_key:
+            try:
+                hyper_private_key = secure_storage.get_private_key("hyperliquid_private_key")
+            except Exception:
+                hyper_private_key = None
         if not hyper_private_key and Settings.HYPERLIQUID_PRIVATE_KEY:
             if secure_storage.store_private_key(
                 "hyperliquid_private_key", Settings.HYPERLIQUID_PRIVATE_KEY
@@ -597,7 +659,7 @@ class AgentBuilder:
         evm_enabled = Settings.ENABLE_EVM_TOOLS
         evm_client: Optional[EvmClient] = None
         evm_tools: Optional[EvmTools] = None
-        
+
         if evm_enabled:
             try:
                 evm_client = EvmClient(

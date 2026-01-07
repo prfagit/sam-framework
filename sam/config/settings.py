@@ -286,6 +286,16 @@ class Settings:
     SAM_WALLET_PRIVATE_KEY: Optional[str] = None
 
     SAM_DB_PATH: str = ".sam/sam_memory.db"
+
+    # Production database and cache settings
+    SAM_DATABASE_URL: Optional[str] = None  # postgresql://user:pass@host:5432/sam_db
+    SAM_REDIS_URL: Optional[str] = None  # redis://localhost:6379/0
+    SAM_DB_POOL_MIN_SIZE: int = 5
+    SAM_DB_POOL_MAX_SIZE: int = 50
+    SAM_CACHE_PREFIX: str = "sam:"
+    SAM_CACHE_DEFAULT_TTL: int = 3600
+    SAM_CACHE_MAX_SIZE: int = 10000  # For in-memory cache
+
     SAM_API_HOST: str = "0.0.0.0"
     SAM_API_PORT: int = 8000
     SAM_API_ROOT_PATH: str = ""
@@ -293,8 +303,22 @@ class Settings:
     SAM_API_CORS_ORIGINS: List[str] = []
     SAM_API_USER_HEADER: str = "X-User-Id"
     SAM_API_TOKEN_SECRET: Optional[str] = None
-    SAM_API_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    SAM_API_TOKEN_EXPIRE_MINUTES: int = 15  # Reduced from 24 hours to 15 minutes for security
+    SAM_API_REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Refresh tokens valid for 7 days
     SAM_API_ALLOW_REGISTRATION: bool = False
+    SAM_API_MAX_LOGIN_ATTEMPTS: int = 5  # Maximum failed login attempts before lockout
+    SAM_API_LOCKOUT_DURATION_MINUTES: int = 15  # Account lockout duration in minutes
+
+    # Production mode settings
+    SAM_PRODUCTION_MODE: bool = False  # Enable strict production validations
+    SAM_AGENT_STORAGE: str = "database"  # 'database' (recommended) or 'file'
+    SAM_DEV_MODE: bool = False  # Development mode - relaxed security checks
+
+    # Per-user quota defaults
+    SAM_QUOTA_MAX_SESSIONS: int = 50
+    SAM_QUOTA_MAX_MESSAGES_PER_SESSION: int = 1000
+    SAM_QUOTA_MAX_TOKENS_PER_DAY: int = 1000000
+    SAM_QUOTA_MAX_AGENTS: int = 20
 
     RATE_LIMITING_ENABLED: bool = False
 
@@ -342,7 +366,7 @@ class Settings:
     PAYAI_FACILITATOR_URL: str = "https://facilitator.payai.network"
     PAYAI_FACILITATOR_API_KEY: Optional[str] = None
     PAYAI_FACILITATOR_DEFAULT_NETWORK: str = "solana"
-    
+
     # Kalshi Configuration
     KALSHI_API_BASE_URL: str = "https://api.elections.kalshi.com/trade-api/v2"
     KALSHI_DEMO_API_BASE_URL: str = "https://demo-api.kalshi.co/trade-api/v2"
@@ -401,6 +425,18 @@ class Settings:
         )
 
         cls.SAM_DB_PATH = _as_str(_value_from_sources("SAM_DB_PATH", ".sam/sam_memory.db"))
+
+        # Production database and cache settings
+        cls.SAM_DATABASE_URL = _as_str(_value_from_sources("SAM_DATABASE_URL", None))
+        cls.SAM_REDIS_URL = _as_str(_value_from_sources("SAM_REDIS_URL", None))
+        cls.SAM_DB_POOL_MIN_SIZE = _as_int(_value_from_sources("SAM_DB_POOL_MIN_SIZE", 5), 5)
+        cls.SAM_DB_POOL_MAX_SIZE = _as_int(_value_from_sources("SAM_DB_POOL_MAX_SIZE", 50), 50)
+        cls.SAM_CACHE_PREFIX = _as_str(_value_from_sources("SAM_CACHE_PREFIX", "sam:"), "sam:")
+        cls.SAM_CACHE_DEFAULT_TTL = _as_int(
+            _value_from_sources("SAM_CACHE_DEFAULT_TTL", 3600), 3600
+        )
+        cls.SAM_CACHE_MAX_SIZE = _as_int(_value_from_sources("SAM_CACHE_MAX_SIZE", 10000), 10000)
+
         cls.SAM_API_HOST = _as_str(_value_from_sources("SAM_API_HOST", "0.0.0.0"), "0.0.0.0")
         cls.SAM_API_PORT = _as_int(_value_from_sources("SAM_API_PORT", 8000), 8000)
         cls.SAM_API_ROOT_PATH = _as_str(_value_from_sources("SAM_API_ROOT_PATH", ""), "")
@@ -418,6 +454,43 @@ class Settings:
         )
         cls.SAM_API_ALLOW_REGISTRATION = _as_bool(
             _value_from_sources("SAM_API_ALLOW_REGISTRATION", False), False
+        )
+        cls.SAM_API_MAX_LOGIN_ATTEMPTS = _as_int(
+            _value_from_sources("SAM_API_MAX_LOGIN_ATTEMPTS", cls.SAM_API_MAX_LOGIN_ATTEMPTS),
+            cls.SAM_API_MAX_LOGIN_ATTEMPTS,
+        )
+        cls.SAM_API_LOCKOUT_DURATION_MINUTES = _as_int(
+            _value_from_sources(
+                "SAM_API_LOCKOUT_DURATION_MINUTES", cls.SAM_API_LOCKOUT_DURATION_MINUTES
+            ),
+            cls.SAM_API_LOCKOUT_DURATION_MINUTES,
+        )
+
+        # Production mode settings
+        cls.SAM_PRODUCTION_MODE = _as_bool(_value_from_sources("SAM_PRODUCTION_MODE", False), False)
+        cls.SAM_AGENT_STORAGE = _as_str(
+            _value_from_sources("SAM_AGENT_STORAGE", "database"), "database"
+        ).lower()
+        cls.SAM_DEV_MODE = _as_bool(_value_from_sources("SAM_DEV_MODE", False), False)
+
+        # Per-user quota settings
+        cls.SAM_QUOTA_MAX_SESSIONS = _as_int(
+            _value_from_sources("SAM_QUOTA_MAX_SESSIONS", cls.SAM_QUOTA_MAX_SESSIONS),
+            cls.SAM_QUOTA_MAX_SESSIONS,
+        )
+        cls.SAM_QUOTA_MAX_MESSAGES_PER_SESSION = _as_int(
+            _value_from_sources(
+                "SAM_QUOTA_MAX_MESSAGES_PER_SESSION", cls.SAM_QUOTA_MAX_MESSAGES_PER_SESSION
+            ),
+            cls.SAM_QUOTA_MAX_MESSAGES_PER_SESSION,
+        )
+        cls.SAM_QUOTA_MAX_TOKENS_PER_DAY = _as_int(
+            _value_from_sources("SAM_QUOTA_MAX_TOKENS_PER_DAY", cls.SAM_QUOTA_MAX_TOKENS_PER_DAY),
+            cls.SAM_QUOTA_MAX_TOKENS_PER_DAY,
+        )
+        cls.SAM_QUOTA_MAX_AGENTS = _as_int(
+            _value_from_sources("SAM_QUOTA_MAX_AGENTS", cls.SAM_QUOTA_MAX_AGENTS),
+            cls.SAM_QUOTA_MAX_AGENTS,
         )
 
         cls.RATE_LIMITING_ENABLED = _as_bool(
@@ -438,9 +511,7 @@ class Settings:
         cls.ENABLE_POLYMARKET_TOOLS = _as_bool(
             _value_from_sources("ENABLE_POLYMARKET_TOOLS", "true"), True
         )
-        cls.ENABLE_KALSHI_TOOLS = _as_bool(
-            _value_from_sources("ENABLE_KALSHI_TOOLS", "true"), True
-        )
+        cls.ENABLE_KALSHI_TOOLS = _as_bool(_value_from_sources("ENABLE_KALSHI_TOOLS", "true"), True)
         cls.ENABLE_ASTER_FUTURES_TOOLS = _as_bool(
             _value_from_sources("ENABLE_ASTER_FUTURES_TOOLS", "false"), False
         )
@@ -451,9 +522,7 @@ class Settings:
         cls.ENABLE_PAYAI_FACILITATOR_TOOLS = _as_bool(
             _value_from_sources("ENABLE_PAYAI_FACILITATOR_TOOLS", "true"), True
         )
-        cls.ENABLE_AIXBT_TOOLS = _as_bool(
-            _value_from_sources("ENABLE_AIXBT_TOOLS", "false"), False
-        )
+        cls.ENABLE_AIXBT_TOOLS = _as_bool(_value_from_sources("ENABLE_AIXBT_TOOLS", "false"), False)
         cls.ENABLE_COINBASE_X402_TOOLS = _as_bool(
             _value_from_sources("ENABLE_COINBASE_X402_TOOLS", "false"), False
         )
@@ -474,9 +543,7 @@ class Settings:
             _value_from_sources("AIXBT_API_BASE_URL", "https://api.aixbt.tech")
         )
         aixbt_timeout = _value_from_sources("AIXBT_REQUEST_TIMEOUT")
-        cls.AIXBT_REQUEST_TIMEOUT = (
-            _as_float(aixbt_timeout) if aixbt_timeout is not None else 60.0
-        )
+        cls.AIXBT_REQUEST_TIMEOUT = _as_float(aixbt_timeout) if aixbt_timeout is not None else 60.0
         cls.AIXBT_PRIVATE_KEY = _as_optional_str(
             _private_secret("AIXBT_PRIVATE_KEY", "AIXBT_PRIVATE_KEY")
         )
@@ -539,9 +606,7 @@ class Settings:
             _value_from_sources("KALSHI_MARKET_URL", "https://kalshi.com/markets"),
             "https://kalshi.com/markets",
         )
-        cls.KALSHI_USE_DEMO = _as_bool(
-            _value_from_sources("KALSHI_USE_DEMO", "false"), False
-        )
+        cls.KALSHI_USE_DEMO = _as_bool(_value_from_sources("KALSHI_USE_DEMO", "false"), False)
         cls.KALSHI_API_KEY_ID = os.getenv("KALSHI_API_KEY_ID")
         cls.KALSHI_PRIVATE_KEY_PATH = os.getenv("KALSHI_PRIVATE_KEY_PATH")
 
@@ -569,8 +634,20 @@ class Settings:
         cls._populate()
 
     @classmethod
-    def validate(cls) -> bool:
+    def validate(cls, strict: bool = False) -> bool:
+        """Validate configuration settings.
+
+        Args:
+            strict: If True, enforce production-grade requirements
+
+        Returns:
+            True if valid, False otherwise
+        """
         errors = []
+        warnings = []
+
+        # Use strict mode if SAM_PRODUCTION_MODE is enabled
+        strict = strict or cls.SAM_PRODUCTION_MODE
 
         provider = cls.LLM_PROVIDER
         if provider == "openai":
@@ -587,9 +664,67 @@ class Settings:
             if not base:
                 errors.append("An OpenAI-compatible BASE_URL is required for the selected provider")
 
+        # Encryption key validation
         if not cls.SAM_FERNET_KEY:
-            errors.append("SAM_FERNET_KEY is required for secure storage")
+            if strict:
+                errors.append(
+                    "SAM_FERNET_KEY is required for secure storage in production. "
+                    'Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+                )
+            else:
+                warnings.append("SAM_FERNET_KEY not set - secrets will not be encrypted")
 
+        # Production-only validations
+        if strict:
+            # Require explicit JWT secret (don't fall back to Fernet key)
+            if not cls.SAM_API_TOKEN_SECRET:
+                errors.append(
+                    "SAM_API_TOKEN_SECRET is required in production mode. "
+                    "Set a unique secret for JWT signing."
+                )
+
+            # Require database storage for agents
+            if cls.SAM_AGENT_STORAGE != "database":
+                errors.append(
+                    "SAM_AGENT_STORAGE must be 'database' in production mode. "
+                    "File-based storage is not recommended for production."
+                )
+
+            # Require explicit CORS origins (no wildcards)
+            if not cls.SAM_API_CORS_ORIGINS or "*" in cls.SAM_API_CORS_ORIGINS:
+                errors.append(
+                    "SAM_API_CORS_ORIGINS must be explicitly set in production mode. "
+                    "Wildcard '*' is not allowed."
+                )
+
+            # Warn about registration being enabled
+            if cls.SAM_API_ALLOW_REGISTRATION:
+                warnings.append(
+                    "SAM_API_ALLOW_REGISTRATION is enabled. "
+                    "Ensure this is intentional for public-facing deployments."
+                )
+
+            # Check for secure database URL in production
+            if not cls.SAM_DATABASE_URL:
+                warnings.append(
+                    "SAM_DATABASE_URL not set. Using SQLite is not recommended for production. "
+                    "Consider using PostgreSQL for better concurrency and reliability."
+                )
+
+            # Ensure rate limiting is enabled
+            if not cls.RATE_LIMITING_ENABLED:
+                warnings.append(
+                    "RATE_LIMITING_ENABLED is False. "
+                    "Rate limiting is recommended for production deployments."
+                )
+
+        # Log warnings
+        if warnings:
+            logger.warning("Configuration warnings:")
+            for warning in warnings:
+                logger.warning(f"  - {warning}")
+
+        # Log errors and return
         if errors:
             logger.error("Configuration validation failed:")
             for error in errors:
@@ -597,6 +732,18 @@ class Settings:
             return False
 
         return True
+
+    @classmethod
+    def validate_production(cls) -> bool:
+        """Validate configuration for production deployment.
+
+        This method enforces strict production requirements and should be called
+        before starting the API server in production.
+
+        Returns:
+            True if configuration is production-ready, False otherwise
+        """
+        return cls.validate(strict=True)
 
     @classmethod
     def log_config(cls) -> None:

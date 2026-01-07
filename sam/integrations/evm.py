@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..core.tools import Tool, ToolSpec
 from ..utils.crypto import normalize_evm_private_key
@@ -138,7 +138,9 @@ class EvmClient:
     def web3(self) -> Web3:
         """Get Web3 instance, creating if necessary."""
         if self._web3 is None:
-            self._web3 = Web3(Web3.HTTPProvider(self.rpc_url, request_kwargs={"timeout": self.timeout}))
+            self._web3 = Web3(
+                Web3.HTTPProvider(self.rpc_url, request_kwargs={"timeout": self.timeout})
+            )
             if not self._web3.is_connected():
                 raise RuntimeError(f"Failed to connect to Ethereum RPC: {self.rpc_url}")
         return self._web3
@@ -171,21 +173,21 @@ class EvmClient:
             # Convert to checksum addresses
             checksum_address = self.web3.to_checksum_address(address)
             checksum_token_address = self.web3.to_checksum_address(token_address)
-            
+
             contract = self.web3.eth.contract(address=checksum_token_address, abi=ERC20_ABI)
-            
+
             # Get balance
             balance_raw = contract.functions.balanceOf(checksum_address).call()
-            
+
             # Get token decimals
             try:
                 decimals = contract.functions.decimals().call()
             except Exception:
                 decimals = 18  # Default to 18 decimals
-            
+
             # Calculate human-readable balance
-            balance_formatted = balance_raw / (10 ** decimals)
-            
+            balance_formatted = balance_raw / (10**decimals)
+
             # Get token info
             try:
                 symbol = contract.functions.symbol().call()
@@ -193,7 +195,7 @@ class EvmClient:
             except Exception:
                 symbol = "UNKNOWN"
                 name = "Unknown Token"
-            
+
             return {
                 "address": checksum_address,
                 "token_address": checksum_token_address,
@@ -212,11 +214,11 @@ class EvmClient:
         try:
             checksum_token_address = self.web3.to_checksum_address(token_address)
             contract = self.web3.eth.contract(address=checksum_token_address, abi=ERC20_ABI)
-            
+
             name = contract.functions.name().call()
             symbol = contract.functions.symbol().call()
             decimals = contract.functions.decimals().call()
-            
+
             return {
                 "token_address": checksum_token_address,
                 "name": name,
@@ -227,26 +229,33 @@ class EvmClient:
             logger.error(f"Failed to get token info for {token_address}: {exc}")
             return {"error": f"Failed to get token info: {exc}"}
 
-    async def get_multiple_balances(self, address: str, token_addresses: List[str]) -> Dict[str, Any]:
+    async def get_multiple_balances(
+        self, address: str, token_addresses: List[str]
+    ) -> Dict[str, Any]:
         """Get balances for multiple tokens including ETH."""
         results = {
             "address": address,
             "eth_balance": await self.get_eth_balance(address),
             "token_balances": {},
         }
-        
+
         for token_addr in token_addresses:
             if token_addr.lower() in TOKEN_CONTRACTS.values():
                 # Use token symbol as key
                 token_symbol = next(
-                    symbol for symbol, addr in TOKEN_CONTRACTS.items() 
+                    symbol
+                    for symbol, addr in TOKEN_CONTRACTS.items()
                     if addr.lower() == token_addr.lower()
                 )
-                results["token_balances"][token_symbol] = await self.get_token_balance(address, token_addr)
+                results["token_balances"][token_symbol] = await self.get_token_balance(
+                    address, token_addr
+                )
             else:
                 # Use address as key
-                results["token_balances"][token_addr] = await self.get_token_balance(address, token_addr)
-        
+                results["token_balances"][token_addr] = await self.get_token_balance(
+                    address, token_addr
+                )
+
         return results
 
 

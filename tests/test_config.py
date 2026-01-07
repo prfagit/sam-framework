@@ -258,11 +258,14 @@ class TestSettings:
                     assert Settings.validate() is False
 
     def test_settings_validate_missing_fernet_key(self):
-        """Test validation with missing Fernet key."""
+        """Test validation with missing Fernet key in strict mode."""
         with patch.object(Settings, "LLM_PROVIDER", "openai"):
             with patch.object(Settings, "OPENAI_API_KEY", "test_key"):
                 with patch.object(Settings, "SAM_FERNET_KEY", None):
-                    assert Settings.validate() is False
+                    # In non-strict mode, missing Fernet key is only a warning
+                    assert Settings.validate(strict=False) is True
+                    # In strict mode, missing Fernet key is an error
+                    assert Settings.validate(strict=True) is False
 
     @patch("sam.config.settings.logger")
     def test_settings_log_config(self, mock_logger):

@@ -49,7 +49,10 @@ PROFILE_SCHEMA: Dict[str, Dict[str, Any]] = {
     "EVM_WALLET_ADDRESS": {"default": None, "type": str},
     "PAYAI_FACILITATOR_URL": {"default": "https://facilitator.payai.network", "type": str},
     "PAYAI_FACILITATOR_DEFAULT_NETWORK": {"default": "solana", "type": str},
-    "KALSHI_API_BASE_URL": {"default": "https://api.elections.kalshi.com/trade-api/v2", "type": str},
+    "KALSHI_API_BASE_URL": {
+        "default": "https://api.elections.kalshi.com/trade-api/v2",
+        "type": str,
+    },
     "KALSHI_MARKET_URL": {"default": "https://kalshi.com/markets", "type": str},
     "MAX_TRANSACTION_SOL": {"default": 1000.0, "type": float},
     "DEFAULT_SLIPPAGE": {"default": 1, "type": int},

@@ -162,8 +162,14 @@ class DatabasePool:
             f"(min: {min_size}, max: {pool_size}, lifetime: {max_lifetime}s)"
         )
 
-        # Start health check task
-        self._start_health_check_task()
+        # Start health check task only if we have a running event loop
+        try:
+            loop = asyncio.get_running_loop()
+            if loop and not loop.is_closed():
+                self._start_health_check_task()
+        except RuntimeError:
+            # No running event loop, skip health check task
+            logger.debug("No running event loop, skipping health check task initialization")
 
     async def _create_connection(self) -> ConnectionInfo:
         """Create a new database connection with metadata."""
@@ -441,7 +447,15 @@ class DatabasePool:
         self._on_health_check_failed.append(callback)
 
     def _start_health_check_task(self) -> None:
-        """Start periodic health check task."""
+        """Start periodic health check task.
+
+        Note: Health check is disabled by default to prevent hanging on script exit.
+        Set SAM_DB_ENABLE_HEALTH_CHECK=1 to enable for long-running servers.
+        """
+        if os.getenv("SAM_DB_ENABLE_HEALTH_CHECK") != "1":
+            logger.debug("Health check disabled (set SAM_DB_ENABLE_HEALTH_CHECK=1 to enable)")
+            return
+
         try:
             asyncio.get_running_loop()
             self._health_check_task = asyncio.create_task(self._periodic_health_check())
@@ -555,8 +569,14 @@ async def get_database_pool(db_path: str, pool_size: int = 5) -> DatabasePool:
             except Exception as e:
                 logger.warning(f"Error closing old database pool: {e}")
 
-        # Create new pool
+        # Create new pool (synchronous, but health check will start later)
+        logger.debug(f"Creating new database pool for: {db_path}")
         _global_pool = DatabasePool(db_path, pool_size)
+
+        # Start health check task now that we're in async context
+        if current_loop and not current_loop.is_closed():
+            _global_pool._start_health_check_task()
+
         assert _global_pool is not None
         return _global_pool
 
@@ -579,7 +599,22 @@ async def cleanup_database_pool() -> None:
 
 @asynccontextmanager
 async def get_db_connection(db_path: str) -> AsyncIterator[aiosqlite.Connection]:
-    """Get database connection from global pool."""
-    pool = await get_database_pool(db_path)
-    async with pool.get_connection() as conn:
-        yield conn
+    """Get database connection from global pool.
+
+    This function automatically uses PostgreSQL when SAM_DATABASE_URL is set,
+    otherwise falls back to SQLite for development/small deployments.
+    """
+    # Check if PostgreSQL is configured for production
+    database_url = os.getenv("SAM_DATABASE_URL")
+
+    if database_url and database_url.startswith(("postgresql://", "postgres://")):
+        # Use the new production database engine
+        from ..db import get_connection
+
+        async with get_connection() as conn:
+            yield conn  # type: ignore
+    else:
+        # Use SQLite pool for development/small deployments
+        pool = await get_database_pool(db_path)
+        async with pool.get_connection() as conn:
+            yield conn

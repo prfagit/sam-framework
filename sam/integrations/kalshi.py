@@ -431,10 +431,14 @@ class KalshiOpportunityInput(BaseModel):
         description="Number of markets to scan before ranking opportunities",
     )
     min_volume_24h: float = Field(
-        100.0, ge=0.0, description="Minimum 24h contract volume required (Kalshi uses contracts, not USD)"
+        100.0,
+        ge=0.0,
+        description="Minimum 24h contract volume required (Kalshi uses contracts, not USD)",
     )
     min_liquidity: float = Field(
-        50.0, ge=0.0, description="Minimum liquidity score required (Kalshi-specific metric, typically 50-5000)"
+        50.0,
+        ge=0.0,
+        description="Minimum liquidity score required (Kalshi-specific metric, typically 50-5000)",
     )
     max_yes_ask: float = Field(
         0.75, ge=0.01, le=0.99, description="Maximum yes-price to consider for long exposure"
@@ -457,11 +461,13 @@ class KalshiStrategyBriefInput(BaseModel):
         le=500,
         description="Number of markets to scan before crafting strategies",
     )
-    min_volume_24h: float = Field(100.0, ge=0.0, description="Minimum 24h volume required (contracts)")
-    min_liquidity: float = Field(50.0, ge=0.0, description="Minimum liquidity required (Kalshi metric)")
-    max_yes_ask: float = Field(
-        0.75, ge=0.01, le=0.99, description="Maximum yes-price to consider"
+    min_volume_24h: float = Field(
+        100.0, ge=0.0, description="Minimum 24h volume required (contracts)"
     )
+    min_liquidity: float = Field(
+        50.0, ge=0.0, description="Minimum liquidity required (Kalshi metric)"
+    )
+    max_yes_ask: float = Field(0.75, ge=0.01, le=0.99, description="Maximum yes-price to consider")
     event_ticker: Optional[str] = Field(
         default=None, description="Restrict to specific event tickers"
     )
@@ -537,7 +543,7 @@ class KalshiTools:
                 query["settlement_status"] = params.settlement_status
 
             result = await self.client.get_positions(query)
-            
+
             # Format positions for readability
             formatted_result = {
                 "success": True,
@@ -547,7 +553,7 @@ class KalshiTools:
                 "summary": {
                     "total_market_positions": len(result.get("market_positions", [])),
                     "total_event_positions": len(result.get("event_positions", [])),
-                }
+                },
             }
             return formatted_result
         except KalshiIntegrationError as e:
@@ -606,7 +612,7 @@ class KalshiTools:
             for market in response.markets
             if (not params.category or (market.category or "").lower() == params.category.lower())
         ]
-        
+
         # Get ranked opportunities
         ranked = self._rank_opportunities(
             filtered,
@@ -695,7 +701,6 @@ class KalshiTools:
             if roi <= 0:
                 continue
 
-            yes_bid = market.yes_bid or 0.0
             spread_component = 0.0
             if market.yes_ask is not None and market.yes_bid is not None:
                 spread = max(0.0, market.yes_ask - market.yes_bid)
@@ -740,7 +745,7 @@ class KalshiTools:
     def _craft_strategy_view(self, idea: Dict[str, Any]) -> Dict[str, Any]:
         """Generate entry/exit strategy with TP/SL levels for a market opportunity."""
         entry_price = idea["entry_price"]
-        
+
         # Calculate take profit and stop loss based on entry price
         # Lower entry = more room for upside, adjust accordingly
         if entry_price <= 0.35:

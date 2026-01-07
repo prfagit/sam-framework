@@ -371,4 +371,3 @@ async def cleanup_tool_cache() -> None:
             await _global_cache.shutdown()
             _global_cache = None
         _cache_lock = None
-

@@ -73,9 +73,7 @@ class FixedHttpxHooks:
         except Exception as exc:
             raise PaymentError("Invalid x402 payment response payload") from exc
 
-        selected_requirements = self.client.select_payment_requirements(
-            payment_response.accepts
-        )
+        selected_requirements = self.client.select_payment_requirements(payment_response.accepts)
 
         payment_header = self.client.create_payment_header(
             selected_requirements, payment_response.x402_version
@@ -120,9 +118,7 @@ class FixedHttpxHooks:
 
         if retry_response.status_code == 402:
             error_detail = self._extract_payment_error(retry_response)
-            raise PaymentError(
-                error_detail or "x402 payment was rejected by the remote service"
-            )
+            raise PaymentError(error_detail or "x402 payment was rejected by the remote service")
 
         # Copy retry response back into the original response instance.
         response.status_code = retry_response.status_code
@@ -202,21 +198,21 @@ def fixed_x402_payment_hooks(
 
 class FixedX402HttpxClient(httpx.AsyncClient):
     """AsyncClient with built-in x402 payment handling and proper timeout.
-    
+
     The original x402HttpxClient creates a new AsyncClient() for payment retries
     without inheriting the timeout, causing ReadTimeout errors during on-chain
     payment settlement on networks like Base (which can take 30-60s).
-    
+
     This client ensures the timeout is respected during payment retries.
     """
-    
+
     def __init__(
         self,
         account: Account,
         retry_timeout: float = 60.0,
         max_value: Optional[int] = None,
         payment_requirements_selector: Optional[PaymentSelectorCallable] = None,
-        **kwargs
+        **kwargs,
     ):
         """Initialize with explicit retry timeout.
 
@@ -238,28 +234,21 @@ class FixedX402HttpxClient(httpx.AsyncClient):
 
 
 def create_fixed_x402_client(
-    account: Account,
-    base_url: str,
-    timeout: Optional[float] = None,
-    **kwargs
+    account: Account, base_url: str, timeout: Optional[float] = None, **kwargs
 ) -> FixedX402HttpxClient:
     """Factory function to create a fixed x402 client.
-    
+
     Args:
         account: eth_account.Account for signing payments
         base_url: Base URL for the API
         timeout: Request timeout (default 60s)
         **kwargs: Additional arguments passed to the client
-        
+
     Returns:
         FixedX402HttpxClient instance
     """
     timeout = timeout if timeout is not None else 60.0
-    
+
     return FixedX402HttpxClient(
-        account=account,
-        base_url=base_url,
-        timeout=timeout,
-        retry_timeout=timeout,
-        **kwargs
+        account=account, base_url=base_url, timeout=timeout, retry_timeout=timeout, **kwargs
     )

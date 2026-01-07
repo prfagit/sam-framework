@@ -71,6 +71,11 @@ from .commands.api import run_api_server as cmd_run_api_server
 from .commands.maintenance import run_maintenance as cmd_run_maintenance
 from .commands.health import run_health_check as cmd_run_health
 from .commands.plugins import run_plugins_command as cmd_run_plugins
+from .commands.migrations import (
+    migrate_database as cmd_migrate_database,
+    show_migration_status as cmd_show_migration_status,
+    rollback_migration as cmd_rollback_migration,
+)
 from .interactive_settings import InquirerInterface
 from .utils.ascii_loader import show_sam_intro
 from .utils.env_files import find_env_path
@@ -720,7 +725,7 @@ async def run_interactive_session(
 
     async def show_history(limit: Optional[int] = None) -> None:
         try:
-            ctx = await agent.memory.load_session(session_id, user_id=active_context.user_id)
+            ctx, _, _ = await agent.memory.load_session(session_id, user_id=active_context.user_id)
         except Exception as e:
             print(colorize(f"Failed to load history: {e}", Style.FG_YELLOW))
             return
@@ -1368,6 +1373,71 @@ async def main() -> int:
     subparsers.add_parser("onboard", help="Run onboarding setup")
     subparsers.add_parser("debug", help="Show runtime plugins and middleware")
 
+    migrate_parser = subparsers.add_parser("migrate", help="Database migration management")
+    migrate_subparsers = migrate_parser.add_subparsers(dest="migrate_action")
+    migrate_subparsers.add_parser("status", help="Show migration status")
+    migrate_subparsers.add_parser("up", help="Run pending migrations")
+    migrate_rollback_parser = migrate_subparsers.add_parser("rollback", help="Rollback migrations")
+    migrate_rollback_parser.add_argument("version", type=int, help="Version to rollback to")
+
+    backup_parser = subparsers.add_parser("backup", help="Database backup and restore commands")
+    backup_subparsers = backup_parser.add_subparsers(dest="backup_action", required=True)
+
+    # Backup create
+    backup_create_parser = backup_subparsers.add_parser("create", help="Create a database backup")
+    backup_create_parser.add_argument(
+        "--label",
+        type=str,
+        help="Optional label for the backup (e.g., 'before-migration')",
+    )
+
+    # Backup restore
+    backup_restore_parser = backup_subparsers.add_parser(
+        "restore", help="Restore database from backup"
+    )
+    backup_restore_parser.add_argument(
+        "backup_path",
+        type=str,
+        help="Path to backup file (filename or full path)",
+    )
+    backup_restore_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Restore even if target database exists",
+    )
+
+    # Backup list
+    backup_subparsers.add_parser("list", help="List all available backups")
+
+    # Backup cleanup
+    backup_cleanup_parser = backup_subparsers.add_parser("cleanup", help="Clean up old backups")
+    backup_cleanup_parser.add_argument(
+        "--keep-daily",
+        type=int,
+        default=7,
+        help="Number of daily backups to keep (default: 7)",
+    )
+    backup_cleanup_parser.add_argument(
+        "--keep-weekly",
+        type=int,
+        default=4,
+        help="Number of weekly backups to keep (default: 4)",
+    )
+    backup_cleanup_parser.add_argument(
+        "--keep-monthly",
+        type=int,
+        default=12,
+        help="Number of monthly backups to keep (default: 12)",
+    )
+
+    # Backup info
+    backup_info_parser = backup_subparsers.add_parser("info", help="Show backup information")
+    backup_info_parser.add_argument(
+        "backup_path",
+        type=str,
+        help="Path to backup file (filename or full path)",
+    )
+
     api_parser = subparsers.add_parser("api", help="Run the FastAPI service")
     api_parser.add_argument(
         "--host",
@@ -1741,6 +1811,50 @@ async def main() -> int:
 
     if args.command == "maintenance":
         return await cmd_run_maintenance()
+
+    if args.command == "migrate":
+        if hasattr(args, "migrate_action") and args.migrate_action:
+            if args.migrate_action == "status":
+                return await cmd_show_migration_status()
+            elif args.migrate_action == "up":
+                return await cmd_migrate_database()
+            elif args.migrate_action == "rollback":
+                if hasattr(args, "version"):
+                    return await cmd_rollback_migration(args.version)
+                else:
+                    print("❌ Version required. Usage: sam migrate rollback <version>")
+                    return 1
+        else:
+            print("Usage: sam migrate {status|up|rollback}")
+            return 1
+
+    if args.command == "backup":
+        from .commands.backup import (
+            create_backup,
+            restore_backup,
+            list_backups,
+            cleanup_backups,
+            show_backup_info,
+        )
+
+        if hasattr(args, "backup_action") and args.backup_action:
+            if args.backup_action == "create":
+                return await create_backup(label=getattr(args, "label", None))
+            elif args.backup_action == "restore":
+                return await restore_backup(args.backup_path, force=getattr(args, "force", False))
+            elif args.backup_action == "list":
+                return await list_backups()
+            elif args.backup_action == "cleanup":
+                return await cleanup_backups(
+                    keep_daily=getattr(args, "keep_daily", 7),
+                    keep_weekly=getattr(args, "keep_weekly", 4),
+                    keep_monthly=getattr(args, "keep_monthly", 12),
+                )
+            elif args.backup_action == "info":
+                return await show_backup_info(args.backup_path)
+        else:
+            print("Usage: sam backup {create|restore|list|cleanup|info}")
+            return 1
 
     if args.command == "health":
         return await cmd_run_health()

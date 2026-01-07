@@ -224,7 +224,7 @@ class ErrorTracker:
                     (cutoff_str,),
                 )
 
-                severity_counts: Dict[str, int] = {
+                db_severity_counts: Dict[str, int] = {
                     row[0]: row[1] for row in await cursor.fetchall()
                 }
 
@@ -241,25 +241,25 @@ class ErrorTracker:
                     (cutoff_str,),
                 )
 
-                component_counts: Dict[str, int] = {
+                db_component_counts: Dict[str, int] = {
                     row[0]: row[1] for row in await cursor.fetchall()
                 }
 
                 # Recent critical errors
                 cursor = await conn.execute(
                     """
-                    SELECT timestamp, component, error_type, error_message 
-                    FROM errors 
+                    SELECT timestamp, component, error_type, error_message
+                    FROM errors
                     WHERE timestamp > ? AND severity = 'critical'
-                    ORDER BY timestamp DESC 
+                    ORDER BY timestamp DESC
                     LIMIT 5
                 """,
                     (cutoff_str,),
                 )
 
-                critical_errors = []
+                db_critical_errors: list[dict[str, Any]] = []
                 for row in await cursor.fetchall():
-                    critical_errors.append(
+                    db_critical_errors.append(
                         {
                             "timestamp": row[0],
                             "component": row[1],
@@ -270,10 +270,10 @@ class ErrorTracker:
 
                 return {
                     "time_window_hours": hours_back,
-                    "severity_counts": severity_counts,
-                    "component_counts": component_counts,
-                    "critical_errors": critical_errors,
-                    "total_errors": sum(severity_counts.values()),
+                    "severity_counts": db_severity_counts,
+                    "component_counts": db_component_counts,
+                    "critical_errors": db_critical_errors,
+                    "total_errors": sum(db_severity_counts.values()),
                     "in_memory_counts": dict(self.error_counts),
                 }
 

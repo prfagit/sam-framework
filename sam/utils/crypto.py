@@ -54,23 +54,23 @@ def normalize_evm_private_key(private_key: str) -> str:
     """Normalize an EVM private key to the standard format."""
     if not private_key:
         raise ValueError("Private key cannot be empty")
-    
+
     # Remove any whitespace
     normalized = private_key.strip()
-    
+
     # Add 0x prefix if missing
     if not normalized.startswith("0x"):
         normalized = f"0x{normalized}"
-    
+
     # Validate length (should be 66 characters with 0x prefix)
     if len(normalized) != 66:
         raise ValueError("Invalid EVM private key length")
-    
+
     # Validate hex characters
     hex_part = normalized[2:]
     if not all(c in "0123456789abcdefABCDEF" for c in hex_part):
         raise ValueError("Invalid EVM private key format - must be hexadecimal")
-    
+
     return normalized.lower()
 
 

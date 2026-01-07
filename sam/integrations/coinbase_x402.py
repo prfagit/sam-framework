@@ -60,7 +60,9 @@ class SettleInput(VerifyInput):
 class AutoPayInput(BaseModel):
     url: HttpUrl = Field(description="Full URL to the x402-protected resource.")
     method: str = Field(default="GET", description="HTTP method to execute.")
-    query: Optional[Dict[str, Any]] = Field(default=None, description="Additional query parameters.")
+    query: Optional[Dict[str, Any]] = Field(
+        default=None, description="Additional query parameters."
+    )
     headers: Optional[Dict[str, str]] = Field(default=None, description="Extra request headers.")
     json_body: Optional[Dict[str, Any]] = Field(
         default=None, alias="json", description="JSON payload for the request."
@@ -329,7 +331,10 @@ def create_coinbase_x402_tools(tools: CoinbaseX402Tools) -> list[Tool]:
                 input_schema={
                     "type": "object",
                     "properties": {
-                        "url": {"type": "string", "description": "Full resource URL (https://...)."},
+                        "url": {
+                            "type": "string",
+                            "description": "Full resource URL (https://...).",
+                        },
                         "method": {
                             "type": "string",
                             "description": "HTTP method to execute (default GET).",

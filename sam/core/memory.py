@@ -4,10 +4,13 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 from ..utils.connection_pool import get_db_connection, execute_with_logging
+from ..utils.sanitize import sanitize_messages, sanitize_session_name
+from .migration_definitions import register_all_migrations
+from .migrations import get_migration_manager
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,15 @@ class MemoryManager:
 
     async def initialize(self) -> None:
         """Initialize database tables. Must be called after creating the manager."""
+        # Register and run migrations
+        await register_all_migrations(self.db_path)
+        manager = get_migration_manager(self.db_path)
+        await manager.initialize()
+        applied = await manager.migrate()
+        if applied > 0:
+            logger.info(f"Applied {applied} migration(s)")
+
+        # Run legacy initialization for backward compatibility
         await self._init_database()
         logger.info(f"Database tables initialized: {self.db_path}")
 
@@ -52,6 +64,8 @@ class MemoryManager:
                         CREATE TABLE IF NOT EXISTS sessions (
                             session_id TEXT PRIMARY KEY,
                             user_id TEXT NOT NULL DEFAULT 'default',
+                            agent_name TEXT,
+                            session_name TEXT,
                             messages TEXT NOT NULL,
                             created_at TEXT NOT NULL,
                             updated_at TEXT NOT NULL
@@ -59,19 +73,27 @@ class MemoryManager:
                         """
                     )
 
-                    # Ensure user_id column exists for pre-existing tables before creating indexes
+                    # Ensure user_id and agent_name columns exist for pre-existing tables
                     cursor = await conn.execute("PRAGMA table_info(sessions)")
                     columns = [row[1] for row in await cursor.fetchall()]
                     if "user_id" not in columns:
                         await conn.execute(
                             "ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default'"
                         )
+                    if "agent_name" not in columns:
+                        await conn.execute("ALTER TABLE sessions ADD COLUMN agent_name TEXT")
 
                     await conn.execute(
                         "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)"
                     )
                     await conn.execute(
                         "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, updated_at)"
+                    )
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_sessions_agent_name ON sessions(agent_name)"
+                    )
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_sessions_user_agent ON sessions(user_id, agent_name, updated_at)"
                     )
 
                     # Create preferences table
@@ -99,6 +121,9 @@ class MemoryManager:
                     await conn.execute(
                         "CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)"
                     )
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_trades_user_timestamp ON trades(user_id, timestamp)"
+                    )
 
                     # Create secure_data table
                     await conn.execute("""
@@ -109,6 +134,24 @@ class MemoryManager:
                             created_at TEXT NOT NULL
                         )
                     """)
+
+                    # Create refresh_tokens table for JWT refresh token management
+                    await conn.execute("""
+                        CREATE TABLE IF NOT EXISTS refresh_tokens (
+                            token_id TEXT PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            token_hash TEXT NOT NULL,
+                            expires_at TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            revoked INTEGER NOT NULL DEFAULT 0
+                        )
+                    """)
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id, expires_at)"
+                    )
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash)"
+                    )
 
                     await conn.commit()
                     return  # Success, exit retry loop
@@ -121,50 +164,70 @@ class MemoryManager:
                 await asyncio.sleep(retry_delay * (2**attempt))
 
     async def save_session(
-        self, session_id: str, messages: List[Message], user_id: Optional[str] = None
+        self,
+        session_id: str,
+        messages: List[Message],
+        user_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        session_name: Optional[str] = None,
     ) -> None:
         """Save session messages to database with optimized query logging."""
         uid = self._normalize_user_id(user_id)
+
+        # Sanitize input before storage
+        sanitized_messages = sanitize_messages(messages)
+        sanitized_session_name = sanitize_session_name(session_name) if session_name else None
+
         async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
 
-            messages_json = json.dumps(messages)
+            messages_json = json.dumps(sanitized_messages)
 
             # Use UPSERT to reduce round-trips with SQL logging support
             await execute_with_logging(
                 conn,
                 """
-                INSERT INTO sessions (session_id, user_id, messages, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO sessions (session_id, user_id, agent_name, session_name, messages, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                   messages = excluded.messages,
                   updated_at = excluded.updated_at,
-                  user_id = excluded.user_id
+                  user_id = excluded.user_id,
+                  agent_name = COALESCE(excluded.agent_name, sessions.agent_name),
+                  session_name = COALESCE(excluded.session_name, sessions.session_name)
                 """,
-                (session_id, uid, messages_json, now, now),
+                (session_id, uid, agent_name, sanitized_session_name, messages_json, now, now),
             )
 
             await conn.commit()
-            logger.debug(f"Saved session {session_id} for user {uid} with {len(messages)} messages")
+            logger.debug(
+                f"Saved session {session_id} for user {uid} with {len(messages)} messages (agent: {agent_name})"
+            )
 
-    async def load_session(self, session_id: str, user_id: Optional[str] = None) -> List[Message]:
+    async def load_session(
+        self, session_id: str, user_id: Optional[str] = None
+    ) -> Tuple[List[Message], Optional[str], Optional[str]]:
         """Load session messages from database with optimized query logging."""
         uid = self._normalize_user_id(user_id)
         async with get_db_connection(self.db_path) as conn:
             cursor = await execute_with_logging(
                 conn,
-                "SELECT messages FROM sessions WHERE session_id = ? AND user_id = ?",
+                "SELECT messages, agent_name, session_name FROM sessions WHERE session_id = ? AND user_id = ?",
                 (session_id, uid),
             )
             result = await cursor.fetchone()
 
             if result:
                 messages = cast(List[Message], json.loads(result[0]))
+                agent_name = result[1]
+                session_name = result[2]
             else:
                 messages = []
+                agent_name = None
+                session_name = None
 
         logger.debug(f"Loaded session {session_id} for user {uid} with {len(messages)} messages")
-        return messages
+        return messages, agent_name, session_name
 
     async def save_sessions_batch(
         self, sessions: List[Tuple[str, List[Message], Optional[str]]]
@@ -486,7 +549,7 @@ class MemoryManager:
             if uid is None:
                 cursor = await conn.execute(
                     """
-                    SELECT session_id, user_id, created_at, updated_at, messages
+                    SELECT session_id, user_id, agent_name, session_name, created_at, updated_at, messages
                     FROM sessions
                     ORDER BY updated_at DESC
                     LIMIT ?
@@ -496,7 +559,7 @@ class MemoryManager:
             else:
                 cursor = await conn.execute(
                     """
-                    SELECT session_id, user_id, created_at, updated_at, messages
+                    SELECT session_id, user_id, agent_name, session_name, created_at, updated_at, messages
                     FROM sessions
                     WHERE user_id = ?
                     ORDER BY updated_at DESC
@@ -508,17 +571,37 @@ class MemoryManager:
 
         sessions: List[Dict[str, Any]] = []
         for row in rows or []:
+            # Column order: session_id(0), user_id(1), agent_name(2), session_name(3),
+            #               created_at(4), updated_at(5), messages(6)
             try:
-                msgs = json.loads(row[4]) if row[4] else []
+                msgs = json.loads(row[6]) if row[6] else []
             except Exception:
                 msgs = []
+
+            # Get last message for preview (first non-system message from end)
+            last_message = None
+            if isinstance(msgs, list) and len(msgs) > 0:
+                # Find last user or assistant message
+                for msg in reversed(msgs):
+                    if isinstance(msg, dict) and msg.get("role") in ("user", "assistant"):
+                        content = msg.get("content", "")
+                        # Truncate long messages for preview
+                        if len(content) > 100:
+                            last_message = content[:100] + "..."
+                        else:
+                            last_message = content
+                        break
+
             sessions.append(
                 {
                     "session_id": row[0],
                     "user_id": row[1],
-                    "created_at": row[2],
-                    "updated_at": row[3],
+                    "agent_name": row[2],
+                    "session_name": row[3],
+                    "created_at": row[4],
+                    "updated_at": row[5],
                     "message_count": len(msgs) if isinstance(msgs, list) else 0,
+                    "last_message": last_message,
                 }
             )
 
@@ -527,6 +610,39 @@ class MemoryManager:
             + (f" for user {uid}" if uid is not None else "")
         )
         return sessions
+
+    async def update_session_name(
+        self,
+        session_id: str,
+        session_name: Optional[str],
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Update the name of a session.
+
+        Args:
+            session_id: The session ID
+            session_name: New name for the session (None to clear)
+            user_id: Optional user ID for filtering
+
+        Returns:
+            True if session was updated, False if not found
+        """
+        uid = self._normalize_user_id(user_id) if user_id is not None else None
+        async with get_db_connection(self.db_path) as conn:
+            if uid is None:
+                cursor = await execute_with_logging(
+                    conn,
+                    "UPDATE sessions SET session_name = ?, updated_at = ? WHERE session_id = ?",
+                    (session_name, datetime.now(timezone.utc).isoformat(), session_id),
+                )
+            else:
+                cursor = await execute_with_logging(
+                    conn,
+                    "UPDATE sessions SET session_name = ?, updated_at = ? WHERE session_id = ? AND user_id = ?",
+                    (session_name, datetime.now(timezone.utc).isoformat(), session_id, uid),
+                )
+            await conn.commit()
+            return cursor.rowcount > 0
 
     async def clear_all_sessions(self, user_id: Optional[str] = None) -> int:
         """Delete conversation sessions.
@@ -593,27 +709,34 @@ class MemoryManager:
         session_id: str,
         initial_messages: Optional[List[Message]] = None,
         user_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        session_name: Optional[str] = None,
     ) -> bool:
         """Create a new empty session if it doesn't exist.
 
         Returns True if created, False if already existed.
         """
         uid = self._normalize_user_id(user_id)
+
+        # Sanitize input before storage
+        sanitized_messages = sanitize_messages(initial_messages or [])
+        sanitized_session_name = sanitize_session_name(session_name) if session_name else None
+
         async with get_db_connection(self.db_path) as conn:
             now = datetime.utcnow().isoformat()
-            msgs_json = json.dumps(initial_messages or [])
+            msgs_json = json.dumps(sanitized_messages)
             try:
                 await conn.execute(
                     """
-                    INSERT OR IGNORE INTO sessions (session_id, user_id, messages, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT OR IGNORE INTO sessions (session_id, user_id, agent_name, session_name, messages, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (session_id, uid, msgs_json, now, now),
+                    (session_id, uid, agent_name, sanitized_session_name, msgs_json, now, now),
                 )
                 await conn.commit()
             except Exception as e:
                 logger.warning(f"Failed to create session {session_id}: {e}")
                 return False
 
-        logger.info(f"Created session {session_id} for user {uid}")
+        logger.info(f"Created session {session_id} for user {uid} (agent: {agent_name})")
         return True

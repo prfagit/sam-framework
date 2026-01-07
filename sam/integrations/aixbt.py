@@ -72,7 +72,9 @@ class ProjectsInput(BaseModel):
         default=None, alias="xHandle", description="Filter by associated X / Twitter handle"
     )
     sort_by: Optional[Literal["score", "popularityScore"]] = Field(
-        default=None, alias="sortBy", description="Sort results by score (default) or popularityScore"
+        default=None,
+        alias="sortBy",
+        description="Sort results by score (default) or popularityScore",
     )
     min_score: Optional[float] = Field(
         default=None,
@@ -215,7 +217,7 @@ class AixbtClient:
             # The official x402HttpxClient has a bug where it creates a new AsyncClient
             # for retries without inheriting the timeout, causing ReadTimeout errors
             from sam.utils.x402_client_fixed import create_fixed_x402_client
-            
+
             client_ctx = create_fixed_x402_client(
                 account=self._account,
                 base_url=self._base_url,

@@ -46,9 +46,9 @@ def list_agent_definitions(directory: Optional[Path] = None) -> List[AgentDefini
 def find_agent_definition(name: str, directory: Optional[Path] = None) -> Optional[AgentDefinition]:
     agents_dir = directory or default_agents_dir()
 
-    # Allow explicit path
+    # Allow explicit path (must be a file, not directory)
     candidate_path = Path(name)
-    if candidate_path.exists():
+    if candidate_path.is_file():
         try:
             return AgentDefinition.load(candidate_path)
         except Exception:

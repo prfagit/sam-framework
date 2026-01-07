@@ -75,8 +75,8 @@ class SAMAgent:
         except Exception:
             pass
 
-        # Load session context
-        history = await self.memory.load_session(session_id, user_id=user_id)
+        # Load session context - load_session returns (messages, agent_name, session_name)
+        history, _, _ = await self.memory.load_session(session_id, user_id=user_id)
 
         # Build message chain with system prompt
         messages: List[Dict[str, Any]] = (
@@ -608,8 +608,11 @@ class SAMAgent:
                     # No tool calls - this is the final response
                     logger.info(f"Agent completed for session {session_id}")
 
-                    # Save session context (excluding system prompt) WITHOUT final assistant
-                    # to match expected behavior in tests and avoid mutating the prompt list
+                    # Add the assistant's final response to the message history
+                    messages.append({"role": "assistant", "content": resp.content or ""})
+
+                    # Save session context (excluding system prompt)
+                    # messages[1:] excludes the system prompt at index 0
                     await self.memory.save_session(session_id, messages[1:], user_id=user_id)
 
                     # Update context length tracking (based on messages passed to LLM)
@@ -701,7 +704,7 @@ class SAMAgent:
                           (default 4). Set to 0 to keep only the summary.
         """
         uid = _normalize_user_id(user_id)
-        history = await self.memory.load_session(session_id, user_id=uid)
+        history, _, _ = await self.memory.load_session(session_id, user_id=uid)
 
         if len(history) <= max(keep_recent + 2, 6):  # small conversations are already compact
             return "Conversation is already compact (≤6 messages)."

@@ -59,6 +59,12 @@ class RateLimiter:
             "transfer_sol": RateLimit(requests=5, window=60, burst=2),
             "pump_fun_buy": RateLimit(requests=10, window=60, burst=2),
             "pump_fun_sell": RateLimit(requests=10, window=60, burst=2),
+            # Auth endpoint rate limits (stricter to prevent brute force)
+            "auth_login": RateLimit(requests=10, window=60, burst=5),  # 10 attempts per minute
+            "auth_register": RateLimit(requests=10, window=60, burst=5),  # 10 attempts per minute
+            "auth_refresh": RateLimit(
+                requests=20, window=60, burst=5
+            ),  # 20 refresh attempts per minute
             # Default fallback
             "default": RateLimit(requests=60, window=60, burst=10),
         }
