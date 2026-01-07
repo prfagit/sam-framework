@@ -224,6 +224,7 @@ class AsterFuturesClient:
         if qty_dec <= 0 or qty_dec < min_qty:
             if step > 0:
                 from decimal import ROUND_UP
+
                 qty_dec = Decimal(str(quantity))
                 qty_dec = (qty_dec / step).to_integral_value(rounding=ROUND_UP) * step
                 qty_dec = qty_dec.quantize(step)
@@ -239,6 +240,7 @@ class AsterFuturesClient:
             if notional < min_notional:
                 if step > 0:
                     from decimal import ROUND_UP
+
                     # Calculate minimum quantity needed to meet notional requirement
                     required_qty = min_notional / Decimal(str(mark_price))
                     qty_dec = (required_qty / step).to_integral_value(rounding=ROUND_UP) * step

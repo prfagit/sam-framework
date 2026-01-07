@@ -134,7 +134,17 @@ class AgentBuilder:
                     secrets.setdefault("solana", {})["private_key"] = op_wallet_key
 
             # Get other integration secrets
-            for integration in ["polymarket", "hyperliquid", "coinbase", "kalshi", "brave"]:
+            for integration in [
+                "evm",
+                "polymarket",
+                "hyperliquid",
+                "aster",
+                "uranus",
+                "kalshi",
+                "aixbt",
+                "coinbase",
+                "brave",
+            ]:
                 int_secrets = await store.get_integration_secrets(user_id, integration)
                 if int_secrets:
                     secrets[integration] = int_secrets
@@ -571,10 +581,15 @@ class AgentBuilder:
                     logger.warning(f"Failed to initialize Coinbase x402 facilitator: {exc}")
                     coinbase_facilitator = None
 
-        try:
-            aixbt_private_key = secure_storage.get_private_key("aixbt_private_key")
-        except Exception:
-            aixbt_private_key = None
+        # Priority for AIXBT/EVM key: user secrets -> secure storage -> env
+        aixbt_private_key: Optional[str] = user_secrets.get("aixbt", {}).get(
+            "private_key"
+        ) or user_secrets.get("evm", {}).get("private_key")
+        if not aixbt_private_key:
+            try:
+                aixbt_private_key = secure_storage.get_private_key("aixbt_private_key")
+            except Exception:
+                aixbt_private_key = None
 
         if not aixbt_private_key and Settings.AIXBT_PRIVATE_KEY:
             candidate_key = Settings.AIXBT_PRIVATE_KEY
@@ -656,15 +671,17 @@ class AgentBuilder:
                 tools.register(tool)
 
         # EVM Tools (balance checking, token operations)
+        # Priority for EVM key: user secrets -> env
         evm_enabled = Settings.ENABLE_EVM_TOOLS
         evm_client: Optional[EvmClient] = None
         evm_tools: Optional[EvmTools] = None
+        evm_private_key = user_secrets.get("evm", {}).get("private_key") or Settings.EVM_PRIVATE_KEY
 
         if evm_enabled:
             try:
                 evm_client = EvmClient(
                     rpc_url=Settings.EVM_RPC_URL,
-                    private_key=Settings.EVM_PRIVATE_KEY,
+                    private_key=evm_private_key,
                     timeout=Settings.AIXBT_REQUEST_TIMEOUT,  # Reuse timeout setting
                 )
                 evm_tools = EvmTools(client=evm_client)

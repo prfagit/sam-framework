@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from dataclasses import dataclass
 
 from ..utils.connection_pool import get_db_connection
@@ -229,7 +229,7 @@ class QuotaManager:
 
         return True, None
 
-    async def get_quota_status(self, user_id: str) -> Dict[str, any]:
+    async def get_quota_status(self, user_id: str) -> Dict[str, Any]:
         """Get current quota status for a user."""
         quota = await self.get_or_create_quota(user_id)
 

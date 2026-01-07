@@ -25,7 +25,12 @@ router = APIRouter(prefix="/v1/secrets", tags=["secrets"])
 AVAILABLE_INTEGRATIONS = {
     "solana": {
         "name": "Solana Wallet",
-        "description": "Solana wallet for transactions",
+        "description": "Solana wallet for transactions (auto-set from onboarding)",
+        "fields": ["private_key"],
+    },
+    "evm": {
+        "name": "EVM Wallet",
+        "description": "Ethereum/Base wallet for x402 payments and EVM operations",
         "fields": ["private_key"],
     },
     "polymarket": {
@@ -38,15 +43,30 @@ AVAILABLE_INTEGRATIONS = {
         "description": "Perpetuals DEX trading",
         "fields": ["api_key", "api_secret"],
     },
-    "coinbase": {
-        "name": "Coinbase",
-        "description": "Coinbase exchange integration",
+    "aster": {
+        "name": "Aster Futures",
+        "description": "Aster perpetuals trading on Solana",
         "fields": ["api_key", "api_secret"],
+    },
+    "uranus": {
+        "name": "Uranus.ag",
+        "description": "Uranus perpetuals DEX on Solana",
+        "fields": ["api_key"],
     },
     "kalshi": {
         "name": "Kalshi",
         "description": "Event contracts trading",
-        "fields": ["api_key"],
+        "fields": ["api_key", "private_key"],
+    },
+    "aixbt": {
+        "name": "AIXBT",
+        "description": "AIXBT AI trading signals",
+        "fields": ["private_key"],
+    },
+    "coinbase": {
+        "name": "Coinbase",
+        "description": "Coinbase exchange integration",
+        "fields": ["api_key", "api_secret"],
     },
     "brave": {
         "name": "Brave Search",
