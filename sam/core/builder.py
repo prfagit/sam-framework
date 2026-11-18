@@ -25,6 +25,7 @@ from ..utils.wallets import normalize_evm_private_key, WalletError
 from ..integrations.solana.solana_tools import SolanaTools, create_solana_tools
 from ..integrations.pump_fun import PumpFunTools, create_pump_fun_tools
 from ..integrations.dexscreener import DexScreenerTools, create_dexscreener_tools
+from ..integrations.rentshield import RentShieldTools, create_rentshield_tools
 from ..integrations.jupiter import JupiterTools, create_jupiter_tools
 from ..integrations.search import SearchTools, create_search_tools
 from ..integrations.polymarket import PolymarketTools, create_polymarket_tools
@@ -67,6 +68,7 @@ class AgentBuilder:
         "solana",
         "pump_fun",
         "dexscreener",
+        "rentshield",
         "jupiter",
         "search",
         "polymarket",
@@ -472,6 +474,7 @@ class AgentBuilder:
         solana_enabled = self._tool_enabled("solana", Settings.ENABLE_SOLANA_TOOLS)
         pump_enabled = self._tool_enabled("pump_fun", Settings.ENABLE_PUMP_FUN_TOOLS)
         dex_enabled = self._tool_enabled("dexscreener", Settings.ENABLE_DEXSCREENER_TOOLS)
+        rentshield_enabled = self._tool_enabled("rentshield", Settings.ENABLE_RENTSHIELD_TOOLS)
         jupiter_enabled = self._tool_enabled("jupiter", Settings.ENABLE_JUPITER_TOOLS)
         search_enabled = self._tool_enabled("search", Settings.ENABLE_SEARCH_TOOLS)
         polymarket_enabled = self._tool_enabled("polymarket", Settings.ENABLE_POLYMARKET_TOOLS)
@@ -502,6 +505,14 @@ class AgentBuilder:
         dex_tools = DexScreenerTools()
         if dex_enabled:
             for tool in create_dexscreener_tools(dex_tools):
+                tools.register(tool)
+
+        rentshield_tools = RentShieldTools(
+            api_url=Settings.RENTSHIELD_API_URL,
+            api_key=Settings.RENTSHIELD_API_KEY,
+        )
+        if rentshield_enabled:
+            for tool in create_rentshield_tools(rentshield_tools):
                 tools.register(tool)
 
         jupiter_tools = JupiterTools(solana_tools)
