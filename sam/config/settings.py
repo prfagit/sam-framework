@@ -325,6 +325,9 @@ class Settings:
     ENABLE_SOLANA_TOOLS: bool = True
     ENABLE_PUMP_FUN_TOOLS: bool = True
     ENABLE_DEXSCREENER_TOOLS: bool = True
+    ENABLE_RENTSHIELD_TOOLS: bool = True
+    RENTSHIELD_API_URL: str = "https://rentandrugshield.com"
+    RENTSHIELD_API_KEY: Optional[str] = None
     ENABLE_JUPITER_TOOLS: bool = True
     ENABLE_SEARCH_TOOLS: bool = True
     ENABLE_POLYMARKET_TOOLS: bool = True
@@ -504,6 +507,13 @@ class Settings:
         cls.ENABLE_DEXSCREENER_TOOLS = _as_bool(
             _value_from_sources("ENABLE_DEXSCREENER_TOOLS", "true"), True
         )
+        cls.ENABLE_RENTSHIELD_TOOLS = _as_bool(
+            _value_from_sources("ENABLE_RENTSHIELD_TOOLS", "true"), True
+        )
+        cls.RENTSHIELD_API_URL = str(
+            _value_from_sources("RENTSHIELD_API_URL", "https://rentandrugshield.com")
+        )
+        cls.RENTSHIELD_API_KEY = _value_from_sources("RENTSHIELD_API_KEY")
         cls.ENABLE_JUPITER_TOOLS = _as_bool(
             _value_from_sources("ENABLE_JUPITER_TOOLS", "true"), True
         )
