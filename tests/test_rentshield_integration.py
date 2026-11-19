@@ -78,7 +78,7 @@ class TestRentShieldIntegration(unittest.IsolatedAsyncioTestCase):
             session_cls.assert_not_called()
 
     async def test_check_token_rug_shield_with_live_endpoint_fallback(self) -> None:
-        client = RentShieldTools()
+        client = RentShieldTools(api_url="https://rentandrugshield.com")
         recorded: List[Tuple[str, str, Any]] = []
         steps = [
             _MockResponse(404, {}),
@@ -132,7 +132,9 @@ class TestRentShieldIntegration(unittest.IsolatedAsyncioTestCase):
             )
         ]
         tools = create_rentshield_tools(client)
-        self.assertEqual([t.spec.name for t in tools], ["check_token_rug_shield", "scan_wallet_unclaimed_rent"])
+        self.assertEqual(
+            [t.spec.name for t in tools], ["check_token_rug_shield", "scan_wallet_unclaimed_rent"]
+        )
 
         with patch(
             "sam.integrations.rentshield.aiohttp.ClientSession",

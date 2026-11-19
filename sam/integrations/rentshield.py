@@ -67,7 +67,10 @@ class RentShieldTools:
         timeout_seconds: float = 10.0,
     ) -> None:
         raw_url = api_url or os.environ.get("RENTSHIELD_API_URL") or ""
-        self._explicit_base = raw_url.strip().rstrip("/") or None
+        cleaned_url = raw_url.strip().rstrip("/")
+        self._explicit_base = (
+            cleaned_url if cleaned_url and cleaned_url != DEFAULT_RENTSHIELD_URL else None
+        )
         self.api_key = api_key or os.environ.get("RENTSHIELD_API_KEY") or None
         self.timeout_seconds = timeout_seconds
         self._cached_live_base: Optional[str] = None
@@ -88,7 +91,9 @@ class RentShieldTools:
             if resp.status != 200:
                 return None
             payload = await resp.json()
-            candidate = str(payload.get("api_base") or payload.get("endpoint") or "").strip().rstrip("/")
+            candidate = (
+                str(payload.get("api_base") or payload.get("endpoint") or "").strip().rstrip("/")
+            )
             if not candidate:
                 return None
             parsed = urlparse(candidate)
@@ -111,13 +116,10 @@ class RentShieldTools:
         if self.api_key:
             req_headers["X-API-Key"] = self.api_key
 
-        initial_base = (
-            self._explicit_base
-            or (
-                self._cached_live_base
-                if self._cached_live_base and self._cached_expires_at > time.monotonic()
-                else DEFAULT_RENTSHIELD_URL
-            )
+        initial_base = self._explicit_base or (
+            self._cached_live_base
+            if self._cached_live_base and self._cached_expires_at > time.monotonic()
+            else DEFAULT_RENTSHIELD_URL
         )
 
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
@@ -132,9 +134,7 @@ class RentShieldTools:
                             method, f"{live_base}{path}", headers=req_headers, json=json_body
                         ) as retry_resp:
                             if retry_resp.status >= 400:
-                                raise RuntimeError(
-                                    f"Rent & Rug Shield HTTP {retry_resp.status}"
-                                )
+                                raise RuntimeError(f"Rent & Rug Shield HTTP {retry_resp.status}")
                             return dict(await retry_resp.json())
                 if resp.status >= 400:
                     raise RuntimeError(f"Rent & Rug Shield HTTP {resp.status}")
